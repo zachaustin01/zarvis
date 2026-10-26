@@ -31,3 +31,15 @@ test('both list renders keep a half-typed rename across live redraws', async () 
   assert.equal((app.match(/restoreRename\(renameSnap\)/g) || []).length, 2)
   assert.doesNotMatch(app, /inp\.select\(\)/) // the old unconditional select() that swallowed typing
 })
+
+test('v toggles parked sessions on the Roles page: default hidden, remembered, searched sessions still show, documented', async () => {
+  const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])
+  assert.match(app, /let showParked = false/)
+  assert.match(app, /localStorage\.setItem\('zarvis\.showParked'/)
+  assert.match(app, /view === 'tree' && !showParked && !filter\.trim\(\)/) // a search shows parked too
+  assert.match(app, /parkedList = flatten\(full\)/) // the Parked view never loses them
+  assert.match(app, /e\.key === 'v'/)
+  assert.match(html, /<b>v<\/b>/)
+  assert.match(html, /v parked in roles/)
+  assert.match(readme, /`v` show\/hide parked sessions on the Roles page/)
+})

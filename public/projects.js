@@ -84,3 +84,22 @@ export function ago(ms, now = Date.now()) {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`
   return `${Math.floor(s / 86400)}d ago`
 }
+
+const nodesOf = (t) => [...t.interface, ...t.managers.flatMap((m) => [m, ...m.children]), ...t.orphans, ...t.unclassified]
+
+/**
+ * The role tree without parked sessions, plus how many that hid. A manager stays when it is not parked
+ * or still has an unparked worker (so a manager whose workers are all parked keeps its row); the
+ * interface is never hidden.
+ */
+export function hideParked(t) {
+  const keep = (n) => !n.parked
+  const out = {
+    interface: t.interface,
+    managers: t.managers.map((m) => ({ ...m, children: m.children.filter(keep) })).filter((m) => keep(m) || m.children.length),
+    orphans: t.orphans.filter(keep),
+    unclassified: t.unclassified.filter(keep),
+  }
+  const count = (x) => nodesOf(x).filter((n) => n.parked && !n.done).length
+  return { tree: out, hidden: count(t) - count(out) }
+}

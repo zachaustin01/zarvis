@@ -108,3 +108,27 @@ test('role filter: toggle, resolve, and composition with the project filter', ()
   assert.equal(hiddenBlocked(rs, 'a', 'worker'), 2)
   assert.equal(hiddenBlocked(rs, '', ''), 0)
 })
+
+import { hideParked } from '../public/projects.js'
+
+test('hideParked drops parked sessions, keeps a manager with an unparked worker, and counts what it hid', () => {
+  const n = (project, extra = {}) => ({ project, role: 'worker', ...extra })
+  const P = { reason: 'x' }
+  const t = {
+    interface: [n('i', { role: 'interface', parked: P })], // never hidden
+    managers: [
+      { ...n('a', { role: 'manager' }), children: [n('a', { parked: P }), n('a')] }, // one worker stays
+      { ...n('b', { role: 'manager' }), children: [n('b', { parked: P }), n('b', { parked: P })] }, // all parked: manager stays, empty
+      { ...n('c', { role: 'manager', parked: P }), children: [n('c', { parked: P })] }, // parked with only parked workers: gone
+      { ...n('d', { role: 'manager', parked: P }), children: [n('d')] }, // parked manager with a live worker: stays
+    ],
+    orphans: [n('e', { parked: P }), n('e')],
+    unclassified: [n('f', { parked: P, done: true })], // done ones are not counted
+  }
+  const { tree, hidden } = hideParked(t)
+  assert.equal(tree.interface.length, 1)
+  assert.deepEqual(tree.managers.map((m) => [m.project, m.children.length]), [['a', 1], ['b', 0], ['d', 1]])
+  assert.equal(tree.orphans.length, 1)
+  assert.equal(tree.unclassified.length, 0)
+  assert.equal(hidden, 1 + 2 + 2 + 1) // a's worker, b's two, c and its worker, e
+})

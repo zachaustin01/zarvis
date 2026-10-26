@@ -1,5 +1,5 @@
 'use strict'
-import { ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
+import { hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
@@ -20,8 +20,11 @@ let seen = new Set()
 let first = true
 let fresh = new Set()
 let project = '' // project filter; '' = all projects (persisted)
+let showParked = false // Roles page: parked sessions hidden by default (the Parked view, p, lists them); persisted
+let hiddenParkedN = 0 // how many the Roles page is hiding right now
 let roleFilter = '' // queue role filter: '' | 'manager' | 'worker' (persisted)
 try { project = localStorage.getItem('zarvis.project') || '' } catch { /* storage blocked */ }
+try { showParked = localStorage.getItem('zarvis.showParked') === '1' } catch { /* storage blocked */ }
 try { roleFilter = resolveRole(localStorage.getItem('zarvis.role')) } catch { /* storage blocked */ }
 
 const ICON = { interface: '◆', manager: '▣', worker: '●', unclassified: '?' }
@@ -122,7 +125,7 @@ function renderTree() {
   const renameSnap = snapRename()
   $('#list').innerHTML =
     part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
-    '<div class="empty">No sessions.</div>'
+    `<div class="empty">${hiddenParkedN ? `Everything here is parked (${hiddenParkedN} hidden) · v shows them, p lists them` : 'No sessions.'}</div>`
   if (!nodes.some((r) => r.sessionId === sel) && nodes.length) sel = nodes[0].sessionId
   restoreRename(renameSnap)
 }
@@ -154,9 +157,14 @@ function renderParked() {
 
 /** Re-filter the server's tree for the current search and draw whichever tree-backed view is open. */
 function applyTree() {
-  tree = viewTree()
+  const full = viewTree()
+  // Parked sessions stay visible while searching, and the Parked view always needs them.
+  const hide = view === 'tree' && !showParked && !filter.trim()
+  const shown = hide ? hideParked(full) : { tree: full, hidden: 0 }
+  tree = shown.tree
+  hiddenParkedN = shown.hidden
   nodes = flatten(tree)
-  parkedList = nodes.filter((n) => n.parked && !n.done).sort((a, b) => b.parked.parkedAt - a.parked.parkedAt)
+  parkedList = flatten(full).filter((n) => n.parked && !n.done).sort((a, b) => b.parked.parkedAt - a.parked.parkedAt)
   if (view === 'parked') renderParked()
   else renderTree()
 }
@@ -231,6 +239,13 @@ function setRoleFilter(r) {
   render()
 }
 
+function setShowParked(on) {
+  showParked = on
+  try { localStorage.setItem('zarvis.showParked', on ? '1' : '0') } catch { /* storage blocked */ }
+  if (rawTree) applyTree()
+  else render()
+}
+
 function setProject(p) {
   project = p
   try { localStorage.setItem('zarvis.project', p) } catch { /* storage blocked */ }
@@ -243,7 +258,7 @@ function renderBar() {
   const bar = $('#projbar')
   const list = projectList()
   const cur = activeProject()
-  if (list.length < 2 && !(view === 'queue' && queue.length)) { bar.hidden = true; bar.innerHTML = ''; return }
+  if (list.length < 2 && !(view === 'queue' && queue.length) && view !== 'tree') { bar.hidden = true; bar.innerHTML = ''; return }
   bar.hidden = false
   const counts = (e) => `${e.blocked ? `<b class="nd">${e.blocked}</b>` : ''}${e.working ? `<b class="rn">${e.working}</b>` : ''}`
   const all = list.reduce((a, e) => ({ blocked: a.blocked + e.blocked, working: a.working + e.working }), { blocked: 0, working: 0 })
@@ -256,11 +271,13 @@ function renderBar() {
     list.map((e) => `<span class="chip${e.project === cur ? ' on' : ''}" data-p="${esc(e.project)}" style="--ph:${projectHue(e.project)}">${esc(e.project)} ${counts(e)}</span>`).join('') +
     (hiddenN ? `<span class="chip hid" data-p="" title="Show all projects">${hiddenN} ${hiddenWhat} ${hiddenWhere}</span>` : '') +
     (view === 'queue' ? ROLE_FILTERS.map((r) => `<span class="chip rl${roleFilter === r ? ' on' : ''}" data-r="${r}">${r}s <kbd>${r[0]}</kbd></span>`).join('') : '') +
+    (view === 'tree' ? `<span class="chip pv${showParked ? ' on' : ''}" data-v="parked" title="v toggles">parked ${showParked ? 'shown' : filter.trim() ? 'shown (searching)' : `hidden${hiddenParkedN ? ` (${hiddenParkedN})` : ''}`} <kbd>v</kbd></span>` : '') +
     '<span class="ap g">g project</span>'
 }
 $('#projbar').addEventListener('click', (e) => {
   const c = e.target.closest('.chip')
-  if (c && c.dataset.r) setRoleFilter(toggleRole(roleFilter, c.dataset.r))
+  if (c && c.dataset.v) setShowParked(!showParked)
+  else if (c && c.dataset.r) setRoleFilter(toggleRole(roleFilter, c.dataset.r))
   else if (c) { if (roleFilter && c.classList.contains('hid')) setRoleFilter(''); setProject(c.dataset.p) }
 })
 
@@ -567,6 +584,12 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'z') { e.preventDefault(); undoLast() }
   else if (e.key === 'p') setView('parked')
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
+  else if (e.key === 'v') {
+    e.preventDefault()
+    if (view !== 'tree') return toast('v shows or hides parked sessions on the Roles page (t)')
+    setShowParked(!showParked)
+    toast(showParked ? 'Roles: parked sessions shown' : 'Roles: parked sessions hidden · p lists them')
+  }
   else if (e.key === 'm' || e.key === 'w') {
     e.preventDefault()
     if (view !== 'queue') return toast('The role filter applies to the queue (h)')
