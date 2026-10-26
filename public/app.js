@@ -1,5 +1,5 @@
 'use strict'
-import { chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
+import { ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
@@ -20,14 +20,16 @@ let seen = new Set()
 let first = true
 let fresh = new Set()
 let project = '' // project filter; '' = all projects (persisted)
+let roleFilter = '' // queue role filter: '' | 'manager' | 'worker' (persisted)
 try { project = localStorage.getItem('zarvis.project') || '' } catch { /* storage blocked */ }
+try { roleFilter = resolveRole(localStorage.getItem('zarvis.role')) } catch { /* storage blocked */ }
 
 const ICON = { interface: '◆', manager: '▣', worker: '●', unclassified: '?' }
 const STATE_LABEL = { blocked: 'needs you', waiting_on_child: 'waiting on worker', working: 'working', idle: 'idle', unknown: 'no signal' }
 // Project filter. A remembered project with no sessions left counts as All; the interface is never filtered out.
 const projectList = () => chipProjects(queue, rawTree ? flatten(rawTree) : [])
 const activeProject = () => resolveProject(project, projectList())
-const visibleQueue = () => filterRows(queue, activeProject())
+const visibleQueue = () => filterRows(queue, activeProject(), roleFilter)
 const viewTree = () => filterTreeByProject(filterTree(rawTree, filter), activeProject())
 const ifaceFirst = () => {
   const q = visibleQueue()
@@ -212,6 +214,12 @@ function rowHtml(r, now) {
   )
 }
 
+function setRoleFilter(r) {
+  roleFilter = r
+  try { localStorage.setItem('zarvis.role', r) } catch { /* storage blocked */ }
+  render()
+}
+
 function setProject(p) {
   project = p
   try { localStorage.setItem('zarvis.project', p) } catch { /* storage blocked */ }
@@ -224,22 +232,25 @@ function renderBar() {
   const bar = $('#projbar')
   const list = projectList()
   const cur = activeProject()
-  if (list.length < 2) { bar.hidden = true; bar.innerHTML = ''; return }
+  if (list.length < 2 && !(view === 'queue' && queue.length)) { bar.hidden = true; bar.innerHTML = ''; return }
   bar.hidden = false
   const counts = (e) => `${e.blocked ? `<b class="nd">${e.blocked}</b>` : ''}${e.working ? `<b class="rn">${e.working}</b>` : ''}`
   const all = list.reduce((a, e) => ({ blocked: a.blocked + e.blocked, working: a.working + e.working }), { blocked: 0, working: 0 })
   // Each view's own count of what the filter hides: blocked in the queue, parked in the Parked view, none in Roles.
-  const hiddenN = view === 'queue' ? hiddenBlocked(queue, cur) : view === 'parked' ? hiddenParked(rawTree ? flatten(rawTree) : [], cur) : 0
+  const hiddenN = view === 'queue' ? hiddenBlocked(queue, cur, roleFilter) : view === 'parked' ? hiddenParked(rawTree ? flatten(rawTree) : [], cur) : 0
   const hiddenWhat = view === 'parked' ? 'parked' : 'blocked'
+  const hiddenWhere = view === 'queue' && roleFilter ? 'outside the filters' : 'in other projects'
   bar.innerHTML =
     `<span class="chip${cur ? '' : ' on'}" data-p="">All ${counts(all)}</span>` +
     list.map((e) => `<span class="chip${e.project === cur ? ' on' : ''}" data-p="${esc(e.project)}" style="--ph:${projectHue(e.project)}">${esc(e.project)} ${counts(e)}</span>`).join('') +
-    (hiddenN ? `<span class="chip hid" data-p="" title="Show all projects">${hiddenN} ${hiddenWhat} in other projects</span>` : '') +
-    '<span class="ap g">g cycle</span>'
+    (hiddenN ? `<span class="chip hid" data-p="" title="Show all projects">${hiddenN} ${hiddenWhat} ${hiddenWhere}</span>` : '') +
+    (view === 'queue' ? ROLE_FILTERS.map((r) => `<span class="chip rl${roleFilter === r ? ' on' : ''}" data-r="${r}">${r}s <kbd>${r[0]}</kbd></span>`).join('') : '') +
+    '<span class="ap g">g project</span>'
 }
 $('#projbar').addEventListener('click', (e) => {
   const c = e.target.closest('.chip')
-  if (c) setProject(c.dataset.p)
+  if (c && c.dataset.r) setRoleFilter(toggleRole(roleFilter, c.dataset.r))
+  else if (c) { if (roleFilter && c.classList.contains('hid')) setRoleFilter(''); setProject(c.dataset.p) }
 })
 
 function render() {
@@ -550,6 +561,13 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'z') { e.preventDefault(); undoLast() }
   else if (e.key === 'p') setView('parked')
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
+  else if (e.key === 'm' || e.key === 'w') {
+    e.preventDefault()
+    if (view !== 'queue') return toast('The role filter applies to the queue (h)')
+    const next = toggleRole(roleFilter, e.key === 'm' ? 'manager' : 'worker')
+    setRoleFilter(next)
+    toast(next ? `Showing ${next}s only · ${e.key} again clears` : 'Role filter off')
+  }
   else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); setProject(cycleProject(projectList().map((p) => p.project), activeProject(), e.key === 'g' ? 1 : -1)) }
   else if (e.key === 'i') { e.preventDefault(); jumpToInterface() }
   else if (e.key === 't') setView('tree')

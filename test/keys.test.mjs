@@ -15,3 +15,12 @@ test('park keys: plain p opens the Parked view, Shift+P parks, in the code and i
   assert.match(readme, /`p` parked view/)
   assert.doesNotMatch(app + html + readme, /p to unpark|`p` park |p park ·|Not parked \(p /)
 })
+
+test('role filter keys: m / w toggle the queue filter after the n / c second-key branches, and are documented', async () => {
+  const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])
+  const at = (s) => app.indexOf(s)
+  assert.ok(at("if (awaitingNew)") < at("e.key === 'm' || e.key === 'w'") && at("if (awaitingRole)") < at("e.key === 'm' || e.key === 'w'"))
+  assert.match(html, /<b>m w<\/b>/)
+  assert.match(html, /m\/w role filter/)
+  assert.match(readme, /`m`\/`w` queue role filter/)
+})

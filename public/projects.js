@@ -18,11 +18,22 @@ export function projectsOf(rows, extraNames = []) {
   return [...map.values()].sort((a, b) => a.project.localeCompare(b.project))
 }
 
-/** Rows in `project` ('' = all); the interface session is always kept. */
-export const filterRows = (rows, project) => (project ? rows.filter((r) => r.role === 'interface' || r.project === project) : rows)
+/** Queue role filters: managers or workers only ('' = every role). */
+export const ROLE_FILTERS = ['manager', 'worker']
 
-/** Blocked sessions the filter hides: never hide them silently. */
-export const hiddenBlocked = (rows, project) => (project ? rows.filter((r) => r.role !== 'interface' && r.project !== project && needsYou(r)).length : 0)
+/** Pressing a role key again turns its filter off; a different one switches to it. */
+export const toggleRole = (current, role) => (ROLE_FILTERS.includes(role) && role !== current ? role : '')
+
+/** `role` as a stored filter value: anything unknown means no filter. */
+export const resolveRole = (v) => (ROLE_FILTERS.includes(v) ? v : '')
+
+const shown = (r, project, role) => r.role === 'interface' || ((!project || r.project === project) && (!role || r.role === role))
+
+/** Rows in `project` ('' = all) and with `role` ('' = any); the interface session is always kept. */
+export const filterRows = (rows, project, role = '') => (project || role ? rows.filter((r) => shown(r, project, role)) : rows)
+
+/** Blocked sessions the filters hide: never hide them silently. */
+export const hiddenBlocked = (rows, project, role = '') => (project || role ? rows.filter((r) => !shown(r, project, role) && needsYou(r)).length : 0)
 
 /** The tree restricted to `project`: a manager stays when it or any worker is in it. */
 export function filterTreeByProject(t, project) {

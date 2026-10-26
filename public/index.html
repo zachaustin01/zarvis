@@ -21,7 +21,7 @@
 <main class="wrap">
   <input id="flt" placeholder="Search roles (/) — also finds done sessions" hidden>
   <div class="cols"><aside id="side"></aside><div id="list"></div></div>
-  <div class="hint">j/k move · g project · i interface · Enter open in Claude · n new session · P park · d done · u unpark · z undo · p parked · r rename · c classify · t roles · h/q queue · ? keys</div>
+  <div class="hint">j/k move · g project · m/w role filter · i interface · Enter open in Claude · n new session · P park · d done · u unpark · z undo · p parked · r rename · c classify · t roles · h/q queue · ? keys</div>
 </main>
 
 <div class="ov" id="ovHelp"><div class="box">
@@ -30,6 +30,7 @@
     <b>j k ↑ ↓</b><span>Move selection</span>
     <b>Enter</b><span>Open the selected session in the Claude desktop app</span>
     <b>g G</b><span>Filter by project: g next, Shift+G previous, back around to All projects (also click a chip). Blocked sessions in other projects are counted beside the chips; the interface session always shows</span>
+    <b>m w</b><span>Queue role filter: m shows managers only, w workers only, the same key again clears it. Combines with the project filter, the interface session always shows, and blocked sessions it hides are counted beside the chips. n and c still take m / w as their second key</span>
     <b>i</b><span>Jump to the interface session (again for the next, if there are several)</span>
     <b>n</b><span>New Claude Code session in the selected session's repo. Pick its role: i interface, m manager, w worker (under the selected manager), p plain. The role tag is put in the new session's prompt box</span>
     <b>a</b><span>In the role tree, with a manager selected: attach existing sessions to it as workers</span>

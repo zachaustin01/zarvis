@@ -22,6 +22,8 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 .chip.on{color:var(--t1);background:#0f2538;border-color:var(--cy)}
 .chip b{margin-left:6px;font-weight:600}.chip .nd{color:var(--am)}.chip .rn{color:var(--gr)}
 .chip.hid{color:var(--am);border-color:var(--am)}
+.chip kbd{font:inherit;color:var(--cy);margin-left:4px}
+.chip.rl{border-style:dashed}
 .projbar .g{margin-left:auto}
 .wrap{max-width:860px;margin:0 auto;padding:22px 20px}
 .cols{display:flex;gap:20px;align-items:flex-start}

@@ -89,3 +89,22 @@ test('ago gives a compact relative age', () => {
   assert.equal(ago(now - 2 * 3600_000, now), '2h ago')
   assert.equal(ago(now - 3 * 86400_000, now), '3d ago')
 })
+
+import { toggleRole, resolveRole, ROLE_FILTERS } from '../public/projects.js'
+
+test('role filter: toggle, resolve, and composition with the project filter', () => {
+  assert.deepEqual(ROLE_FILTERS, ['manager', 'worker'])
+  assert.equal(toggleRole('', 'manager'), 'manager')
+  assert.equal(toggleRole('manager', 'manager'), '') // again clears
+  assert.equal(toggleRole('manager', 'worker'), 'worker') // other key switches
+  assert.equal(toggleRole('', 'interface'), '')
+  assert.equal(resolveRole('worker'), 'worker')
+  assert.equal(resolveRole('bogus'), '')
+  const rs = [row('a', 'blocked', { role: 'manager' }), row('a', 'blocked', { role: 'worker' }), row('b', 'blocked', { role: 'worker' }), row('b', 'working', { role: 'unclassified' }), row('x', 'idle', { role: 'interface' })]
+  assert.deepEqual(filterRows(rs, '', 'worker').map((r) => r.project + r.role[0]), ['aw', 'bw', 'xi'])
+  assert.deepEqual(filterRows(rs, 'a', 'worker').map((r) => r.project + r.role[0]), ['aw', 'xi'])
+  assert.equal(filterRows(rs, '', '').length, rs.length)
+  assert.equal(hiddenBlocked(rs, '', 'worker'), 1) // the manager's prompt is not lost silently
+  assert.equal(hiddenBlocked(rs, 'a', 'worker'), 2)
+  assert.equal(hiddenBlocked(rs, '', ''), 0)
+})
