@@ -5,7 +5,7 @@ blocked on a permission prompt (longest wait first), then which are working, the
 desktop app via its `claude://` deep link. There is no approve/deny here. While running, Zarvis
 never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers) and
 `~/.zarvis/state.json` (overlay names). The one exception is `npm run setup`, which adds its hook
-to your Claude settings when you run it.
+to your Claude settings and installs the `zarvis-interface` skill into `~/.claude/skills/` when you run it.
 
 **Zero npm dependencies.** Needs only Node >= 22.13.
 
@@ -38,8 +38,9 @@ it the queue is always empty. `npm run setup` adds it to `~/.claude/settings.jso
   another settings file.
 - Sessions already open need a restart to pick it up.
 
-`npm run uninstall-hook` takes the entries out again. Setup is the one time Zarvis writes to a
-Claude file, and only when you run it. Doing it by hand instead, the entries are:
+`npm run uninstall-hook` takes the entries out again. Setup is the one time Zarvis writes to
+Claude files (the settings and the skill below), and only when you run it. Doing it by hand
+instead, the entries are:
 
 ```json
 {
@@ -97,6 +98,20 @@ Press `t` for the role tree, `h` for the queue.
   *suggested* as a manager. Spawn links from the interface are ignored.
 - A manager with a blocked worker is **waiting on worker** and Enter jumps to the worker, so a blocked
   leaf never appears once per tier. Rule breaks show a ▲ and never block anything.
+
+## Interface session
+
+`npm run setup` also installs the `zarvis-interface` skill (`skills/zarvis-interface/SKILL.md`) to
+`~/.claude/skills/zarvis-interface/`, with the same rules as the hook: a differing existing
+`SKILL.md` is backed up first, only that one file is touched, re-running is safe, `--dry-run`
+writes nothing, and `--skills-dir <dir>` (or `CLAUDE_SKILLS_DIR`) picks another folder. With
+`--settings <file>` the skill goes to a `skills/` folder beside that file. `npm run uninstall-hook`
+removes it.
+
+The skill tells an interface session its job: triage and route to project managers, orient from the
+roster, what it may do, what to ask first and what never to do. `n` then `i` opens a new session with
+`[zarvis: role=interface]` and a line pointing at the skill prefilled in the prompt box (not sent).
+Sessions already open need a restart to see a newly installed skill.
 
 ## Roster
 
