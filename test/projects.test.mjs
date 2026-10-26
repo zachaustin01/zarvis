@@ -47,3 +47,45 @@ test('projectHue is stable and in range', () => {
   assert.equal(projectHue('zarvis'), projectHue('zarvis'))
   assert.ok(projectHue('x') >= 0 && projectHue('x') < 360)
 })
+
+import { chipProjects, resolveProject, hiddenParked, ago } from '../public/projects.js'
+
+test('chip set is the same before and after the tree loads, and a stale remembered project stays All', () => {
+  const queue = [row('zarvis', 'blocked'), row('ais', 'working'), row('brain', 'working', { role: 'interface' })]
+  // Sessions the hook never saw (state unknown) and an interface-only repo: no chips.
+  const tree = [
+    row('scratch-notes', 'unknown'),
+    row('zarvis', 'unknown', { role: 'interface' }),
+    row('zarvis', 'blocked'),
+    row('ais', 'working'),
+  ]
+  const before = chipProjects(queue, [])
+  const after = chipProjects(queue, tree)
+  assert.deepEqual(before.map((c) => c.project), ['ais', 'zarvis'])
+  assert.deepEqual(after.map((c) => c.project), ['ais', 'zarvis'])
+  // The repro: 'scratch-notes' remembered, no chip: All before and after the tree is opened.
+  assert.equal(resolveProject('scratch-notes', before), '')
+  assert.equal(resolveProject('scratch-notes', after), '')
+  assert.equal(resolveProject('zarvis', after), 'zarvis')
+  assert.equal(resolveProject('', after), '')
+})
+
+test('a parked session adds its project as a chip even without a hook signal', () => {
+  const chips = chipProjects([row('zarvis', 'blocked')], [row('old-repo', 'unknown', { parked: { reason: 'x' } })])
+  assert.deepEqual(chips.map((c) => c.project), ['old-repo', 'zarvis'])
+})
+
+test('hiddenParked counts parked, not done, non-interface sessions outside the filter', () => {
+  const nodes = [row('a', 'idle', { parked: {} }), row('b', 'idle', { parked: {} }), row('b', 'idle', { parked: {}, done: true }), row('b', 'idle'), row('b', 'idle', { parked: {}, role: 'interface' })]
+  assert.equal(hiddenParked(nodes, 'a'), 1)
+  assert.equal(hiddenParked(nodes, 'b'), 1)
+  assert.equal(hiddenParked(nodes, ''), 0)
+})
+
+test('ago gives a compact relative age', () => {
+  const now = 10_000_000_000
+  assert.equal(ago(now - 5_000, now), 'just now')
+  assert.equal(ago(now - 5 * 60_000, now), '5m ago')
+  assert.equal(ago(now - 2 * 3600_000, now), '2h ago')
+  assert.equal(ago(now - 3 * 86400_000, now), '3d ago')
+})

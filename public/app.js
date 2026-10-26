@@ -1,5 +1,5 @@
 'use strict'
-import { projectsOf, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
+import { chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
@@ -25,8 +25,8 @@ try { project = localStorage.getItem('zarvis.project') || '' } catch { /* storag
 const ICON = { interface: '◆', manager: '▣', worker: '●', unclassified: '?' }
 const STATE_LABEL = { blocked: 'needs you', waiting_on_child: 'waiting on worker', working: 'working', idle: 'idle', unknown: 'no signal' }
 // Project filter. A remembered project with no sessions left counts as All; the interface is never filtered out.
-const projectList = () => projectsOf(queue, rawTree ? flatten(rawTree).map((n) => n.project) : [])
-const activeProject = () => (projectList().some((p) => p.project === project) ? project : '')
+const projectList = () => chipProjects(queue, rawTree ? flatten(rawTree) : [])
+const activeProject = () => resolveProject(project, projectList())
 const visibleQueue = () => filterRows(queue, activeProject())
 const viewTree = () => filterTreeByProject(filterTree(rawTree, filter), activeProject())
 const ifaceFirst = () => {
@@ -126,7 +126,7 @@ function renderTree() {
   }
 }
 
-const when = (ms) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+const when = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) + ` · ${ago(ms)}`
 
 /** The Parked view: every parked session with its reason, who parked it, when, and its handoff note. */
 function renderParked() {
@@ -147,7 +147,7 @@ function renderParked() {
           `<span class="go">ENTER ↵ OPEN · u UNPARK</span></div>`
         )
       })
-      .join('') || '<div class="empty">Nothing parked.</div>'
+      .join('') || `<div class="empty">${activeProject() ? 'Nothing parked in this project.' : 'Nothing parked.'}</div>`
   if (!parkedList.some((r) => r.sessionId === sel) && parkedList.length) sel = parkedList[0].sessionId
 }
 
@@ -168,11 +168,22 @@ function setView(v) {
   else render()
 }
 
+let reconciled = false
+/** Once the queue and the tree have both loaded, forget a remembered project that has no chip, so it never wakes up later. */
+function reconcileProject() {
+  if (reconciled || first || !rawTree) return
+  reconciled = true
+  if (project && !resolveProject(project, projectList())) setProject('')
+}
+
+// The tree is fetched in every view: the chip set needs it (parked sessions), so it cannot depend on the view last opened.
 async function loadTree() {
-  if (view === 'queue' || renaming) return
+  if (renaming) return
   try {
     rawTree = await (await fetch('/api/tree')).json()
-    applyTree()
+    reconcileProject()
+    if (view === 'queue') renderBar()
+    else applyTree()
   } catch {
     /* next poll */
   }
@@ -213,11 +224,13 @@ function renderBar() {
   bar.hidden = false
   const counts = (e) => `${e.blocked ? `<b class="nd">${e.blocked}</b>` : ''}${e.working ? `<b class="rn">${e.working}</b>` : ''}`
   const all = list.reduce((a, e) => ({ blocked: a.blocked + e.blocked, working: a.working + e.working }), { blocked: 0, working: 0 })
-  const hidden = hiddenBlocked(queue, cur)
+  // Each view's own count of what the filter hides: blocked in the queue, parked in the Parked view, none in Roles.
+  const hiddenN = view === 'queue' ? hiddenBlocked(queue, cur) : view === 'parked' ? hiddenParked(rawTree ? flatten(rawTree) : [], cur) : 0
+  const hiddenWhat = view === 'parked' ? 'parked' : 'blocked'
   bar.innerHTML =
     `<span class="chip${cur ? '' : ' on'}" data-p="">All ${counts(all)}</span>` +
     list.map((e) => `<span class="chip${e.project === cur ? ' on' : ''}" data-p="${esc(e.project)}" style="--ph:${projectHue(e.project)}">${esc(e.project)} ${counts(e)}</span>`).join('') +
-    (hidden ? `<span class="chip hid" data-p="" title="Show all projects">${hidden} blocked in other projects</span>` : '') +
+    (hiddenN ? `<span class="chip hid" data-p="" title="Show all projects">${hiddenN} ${hiddenWhat} in other projects</span>` : '') +
     '<span class="ap g">g cycle</span>'
 }
 $('#projbar').addEventListener('click', (e) => {
@@ -269,6 +282,7 @@ function setQueue(q) {
   fresh = new Set(first ? [] : q.filter((r) => !seen.has(r.sessionId)).map((r) => r.sessionId))
   seen = new Set(q.map((r) => r.sessionId))
   first = false
+  reconcileProject()
   if (renaming && !q.some((r) => r.sessionId === renaming)) renaming = null
   render()
 }
@@ -581,3 +595,4 @@ function setHook(h) {
 es.onmessage = (m) => { const d = JSON.parse(m.data); live(true); setHook(d.hook); setQueue(d.queue) }
 es.onerror = () => live(false)
 render()
+loadTree()
