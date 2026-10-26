@@ -65,7 +65,7 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 
 ## Keys
 
-`j`/`k` or arrows move · `i` jump to the interface session · `Enter` open in Claude · `n` new Claude Code session · `r` rename
+`j`/`k` or arrows move · `i` jump to the interface session · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude · `n` new Claude Code session · `r` rename
 (overlay; Esc cancels; empty restores the app title) · `p` park · `d` done · `u` unpark · `z` undo ·
 `P` parked view · `/` search the role tree · `?` key sheet.
 

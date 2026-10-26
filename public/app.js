@@ -1,4 +1,5 @@
 'use strict'
+import { projectsOf, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
@@ -18,10 +19,20 @@ let filter = '' // tree search; a non-empty one also shows done sessions
 let seen = new Set()
 let first = true
 let fresh = new Set()
+let project = '' // project filter; '' = all projects (persisted)
+try { project = localStorage.getItem('zarvis.project') || '' } catch { /* storage blocked */ }
 
 const ICON = { interface: '◆', manager: '▣', worker: '●', unclassified: '?' }
 const STATE_LABEL = { blocked: 'needs you', waiting_on_child: 'waiting on worker', working: 'working', idle: 'idle', unknown: 'no signal' }
-const ifaceFirst = () => [...queue.filter((r) => r.role === 'interface'), ...queue.filter((r) => r.role !== 'interface')]
+// Project filter. A remembered project with no sessions left counts as All; the interface is never filtered out.
+const projectList = () => projectsOf(queue, rawTree ? flatten(rawTree).map((n) => n.project) : [])
+const activeProject = () => (projectList().some((p) => p.project === project) ? project : '')
+const visibleQueue = () => filterRows(queue, activeProject())
+const viewTree = () => filterTreeByProject(filterTree(rawTree, filter), activeProject())
+const ifaceFirst = () => {
+  const q = visibleQueue()
+  return [...q.filter((r) => r.role === 'interface'), ...q.filter((r) => r.role !== 'interface')]
+}
 const items = () => (view === 'tree' ? nodes : view === 'parked' ? parkedList : ifaceFirst())
 /** Done sessions are hidden unless searched; a search matches name, title, project, park reason and handoff note. */
 function filterTree(t, q) {
@@ -48,11 +59,11 @@ function fmt(ms) {
 }
 
 function crumbs(r) {
-  const parts = [r.project]
-  if (r.initiative) parts.push(r.initiative)
+  const parts = [r.project ? `<span class="pj" style="color:hsl(${projectHue(r.project)} 65% 68%)">${esc(r.project)}</span>` : '']
+  if (r.initiative) parts.push(esc(r.initiative))
   const where = r.branch || r.worktree
-  parts.push(where || 'no branch')
-  return parts.map(esc).join(' › ')
+  parts.push(esc(where || 'no branch'))
+  return parts.join(' › ')
 }
 
 const heading = (text) => `<div class="hd sec">${text}</div>`
@@ -96,6 +107,7 @@ function treeRow(r, depth) {
 }
 
 function renderTree() {
+  renderBar()
   $('#side').innerHTML = ''
   document.querySelector('.wrap').classList.remove('has-side')
   const t = tree
@@ -141,7 +153,7 @@ function renderParked() {
 
 /** Re-filter the server's tree for the current search and draw whichever tree-backed view is open. */
 function applyTree() {
-  tree = filterTree(rawTree, filter)
+  tree = viewTree()
   nodes = flatten(tree)
   parkedList = nodes.filter((n) => n.parked && !n.done).sort((a, b) => b.parked.parkedAt - a.parked.parkedAt)
   if (view === 'parked') renderParked()
@@ -185,22 +197,52 @@ function rowHtml(r, now) {
   )
 }
 
+function setProject(p) {
+  project = p
+  try { localStorage.setItem('zarvis.project', p) } catch { /* storage blocked */ }
+  if (view !== 'queue' && rawTree) applyTree()
+  render()
+}
+
+/** The project filter bar: All plus one chip per project (needs-you and working counts), shown with 2+ projects. */
+function renderBar() {
+  const bar = $('#projbar')
+  const list = projectList()
+  const cur = activeProject()
+  if (list.length < 2) { bar.hidden = true; bar.innerHTML = ''; return }
+  bar.hidden = false
+  const counts = (e) => `${e.blocked ? `<b class="nd">${e.blocked}</b>` : ''}${e.working ? `<b class="rn">${e.working}</b>` : ''}`
+  const all = list.reduce((a, e) => ({ blocked: a.blocked + e.blocked, working: a.working + e.working }), { blocked: 0, working: 0 })
+  const hidden = hiddenBlocked(queue, cur)
+  bar.innerHTML =
+    `<span class="chip${cur ? '' : ' on'}" data-p="">All ${counts(all)}</span>` +
+    list.map((e) => `<span class="chip${e.project === cur ? ' on' : ''}" data-p="${esc(e.project)}" style="--ph:${projectHue(e.project)}">${esc(e.project)} ${counts(e)}</span>`).join('') +
+    (hidden ? `<span class="chip hid" data-p="" title="Show all projects">${hidden} blocked in other projects</span>` : '') +
+    '<span class="ap g">g cycle</span>'
+}
+$('#projbar').addEventListener('click', (e) => {
+  const c = e.target.closest('.chip')
+  if (c) setProject(c.dataset.p)
+})
+
 function render() {
+  renderBar()
   if (view === 'tree') return renderTree()
   if (view === 'parked') return renderParked()
-  $('#qb').textContent = queue.filter((r) => r.state === 'blocked' && !r.parked).length || '' // what the "Needs you" section holds
+  const vq = visibleQueue()
+  $('#qb').textContent = vq.filter((r) => r.state === 'blocked' && !r.parked).length || '' // what the "Needs you" section holds
   const list = $('#list')
   const side = $('#side')
-  if (!queue.length) {
+  if (!vq.length) {
     side.innerHTML = ''
     document.querySelector('.wrap').classList.remove('has-side')
-    list.innerHTML = '<div class="empty">Nothing waiting on you.</div>'
+    list.innerHTML = `<div class="empty">${queue.length ? 'Nothing in this project.' : 'Nothing waiting on you.'}</div>`
     return
   }
-  if (!queue.some((r) => r.sessionId === sel)) sel = queue[0].sessionId
+  if (!vq.some((r) => r.sessionId === sel)) sel = vq[0].sessionId
   const now = Date.now()
-  const iface = queue.filter((r) => r.role === 'interface')
-  const rest = queue.filter((r) => r.role !== 'interface')
+  const iface = vq.filter((r) => r.role === 'interface')
+  const rest = vq.filter((r) => r.role !== 'interface')
   document.querySelector('.wrap').classList.toggle('has-side', iface.length > 0)
   side.innerHTML = iface.length ? heading('Interface') + iface.map((r) => rowHtml(r, now)).join('') : ''
   let last = ''
@@ -355,7 +397,7 @@ async function classifySel(role) {
   const r = items().find((x) => x.sessionId === sel)
   if (!r) return
   const { ok, data } = await post('/api/classify', { sessionId: r.sessionId, role })
-  toast(ok ? (role ? `“${r.name}” is now a ${role}` : `“${r.name}” unclassified`) : data.error || 'Classify failed')
+  toast(ok ? (role ? `“${r.name}” is now ${/^[aeiou]/.test(role) ? 'an' : 'a'} ${role}` : `“${r.name}” unclassified`) : data.error || 'Classify failed')
   loadTree()
 }
 
@@ -490,6 +532,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'z') { e.preventDefault(); undoLast() }
   else if (e.key === 'P') setView('parked')
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
+  else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); setProject(cycleProject(projectList().map((p) => p.project), activeProject(), e.key === 'g' ? 1 : -1)) }
   else if (e.key === 'i') { e.preventDefault(); jumpToInterface() }
   else if (e.key === 't') setView('tree')
   else if (e.key === 'h' || e.key === 'q') setView('queue')

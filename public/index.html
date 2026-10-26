@@ -17,10 +17,11 @@
   <span class="mono" id="hookst" title="Hook status unknown">hook: …</span>
   <span class="mono" id="conn"><span class="live">●</span> live</span>
 </div>
+<div id="projbar" class="projbar" hidden></div>
 <main class="wrap">
   <input id="flt" placeholder="Search roles (/) — also finds done sessions" hidden>
   <div class="cols"><aside id="side"></aside><div id="list"></div></div>
-  <div class="hint">j/k move · i interface · Enter open in Claude · n new session · p park · d done · u unpark · z undo · P parked · r rename · c classify · t roles · h/q queue · ? keys</div>
+  <div class="hint">j/k move · g project · i interface · Enter open in Claude · n new session · p park · d done · u unpark · z undo · P parked · r rename · c classify · t roles · h/q queue · ? keys</div>
 </main>
 
 <div class="ov" id="ovHelp"><div class="box">
@@ -28,6 +29,7 @@
   <div class="kv">
     <b>j k ↑ ↓</b><span>Move selection</span>
     <b>Enter</b><span>Open the selected session in the Claude desktop app</span>
+    <b>g G</b><span>Filter by project: g next, Shift+G previous, back around to All projects (also click a chip). Blocked sessions in other projects are counted beside the chips; the interface session always shows</span>
     <b>i</b><span>Jump to the interface session (again for the next, if there are several)</span>
     <b>n</b><span>New Claude Code session in the selected session's repo. Pick its role: i interface, m manager, w worker (under the selected manager), p plain. The role tag is put in the new session's prompt box</span>
     <b>a</b><span>In the role tree, with a manager selected: attach existing sessions to it as workers</span>
@@ -59,6 +61,6 @@
   <span class="pill on" id="parkGo" style="cursor:pointer;display:inline-block;margin-top:8px">Park</span>
 </div></div>
 <div class="toast" id="toast"></div>
-<script src="/app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>
