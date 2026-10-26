@@ -4,6 +4,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { addHooks, hasHooks, hookCommand, removeHooks, HOOK_EVENTS } from '../lib/hook-config.mjs'
+import { fileURLToPath } from 'node:url'
 import { run } from '../scripts/setup.mjs'
 
 const HOOK = '/opt/zarvis/hooks/zarvis-hook.mjs'
@@ -101,6 +102,27 @@ test('the shipped skill has the frontmatter Claude needs and the spec sections i
   assert.match(text, /^---\nname: zarvis-interface\ndescription: .*\[zarvis: role=interface\]/s)
   const heads = [...text.matchAll(/^## (.+)$/gm)].map((m) => m[1])
   assert.deepEqual(heads, ['Role', 'Orient', 'May do', 'Ask first', 'Must not', 'Report format', 'Handoff briefs', 'Closing the loop'])
+})
+
+test('every shipped skill has frontmatter that is valid YAML for name and description', async () => {
+  const root = fileURLToPath(new URL('../skills/', import.meta.url))
+  const dirs = (await fsp.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory())
+  assert.ok(dirs.length >= 2)
+  for (const d of dirs) {
+    const text = await fsp.readFile(path.join(root, d.name, 'SKILL.md'), 'utf8')
+    const m = /^---\n([\s\S]*?)\n---\n/.exec(text)
+    assert.ok(m, `${d.name}: opens with --- and closes with ---`)
+    const lines = m[1].split('\n')
+    const field = (k) => lines.find((l) => l.startsWith(`${k}:`))?.slice(k.length + 1).trim()
+    assert.equal(field('name'), d.name, 'name matches the folder')
+    const desc = field('description')
+    // A plain scalar with ": " or " #" is invalid YAML and makes Claude Code drop every field.
+    const quoted = /^"(?:[^"\\]|\\.)*"$/.test(desc) || /^'(?:[^']|'')*'$/.test(desc)
+    const block = /^[>|][+-]?$/.test(desc)
+    assert.ok(quoted || block, `${d.name}: description must be a quoted string or block scalar`)
+    if (quoted) assert.ok(JSON.parse(desc.startsWith('"') ? desc : `"${desc.slice(1, -1)}"`).length < 1536, 'under 1,536 chars')
+    for (const l of lines.filter((l) => !l.startsWith('name:') && !l.startsWith('description:'))) assert.ok(/^\s/.test(l) || !l.trim(), `${d.name}: unexpected frontmatter line ${l}`)
+  }
 })
 
 test('setup installs the skill beside the settings, and re-running changes nothing', async () => {

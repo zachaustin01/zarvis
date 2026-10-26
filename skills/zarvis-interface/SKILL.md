@@ -1,6 +1,6 @@
 ---
 name: zarvis-interface
-description: Use when the opening prompt contains `[zarvis: role=interface]`, or when the user asks you to oversee their Claude Code sessions, check the Zarvis roster, triage what needs attention, or route work to a project manager session.
+description: "Use when the opening prompt contains `[zarvis: role=interface]`, or when the user asks you to oversee their Claude Code sessions, check the Zarvis roster, triage what needs attention, or route work to a project manager session."
 ---
 
 # Zarvis interface session
@@ -18,7 +18,7 @@ sit above their workers.
 
 Do this once at the start, and again when the user asks. Do not re-read it every turn.
 
-- Read `~/.zarvis/roster.md`: every manager, its workers and their states (needs you, waiting on
+- Read the roster file (default `~/.zarvis/roster.md`, or under `$ZARVIS_HOME`): every manager, its workers and their states (needs you, waiting on
   worker, working, idle, no signal).
 - Use `list_sessions` and `get_session` for titles, PRs, branches and recent activity.
 - Find your own entry under "Interface" in the roster.
