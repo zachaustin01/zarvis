@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zarvis</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="top">
+  <span class="brand">STATION</span>
+  <span class="pill on">Queue <span class="badge num" id="qb"></span></span>
+  <span class="sp"></span>
+  <span class="pill" id="helpBtn">? keys</span>
+  <span class="mono" id="conn"><span class="live">●</span> live</span>
+</div>
+<main class="wrap">
+  <div class="hd">Needs you</div>
+  <div id="list"></div>
+  <div class="hint">j/k move · Enter open in Claude · r rename · ? keys</div>
+</main>
+
+<div class="ov" id="ovHelp"><div class="box">
+  <div class="hd" style="margin-bottom:8px">Keys</div>
+  <div class="kv">
+    <b>j k ↑ ↓</b><span>Move selection</span>
+    <b>Enter</b><span>Open the selected session in the Claude desktop app</span>
+    <b>r</b><span>Rename (overlay only). Esc cancels, empty restores the app title</span>
+    <b>?</b><span>This sheet · Esc closes</span>
+  </div>
+</div></div>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
