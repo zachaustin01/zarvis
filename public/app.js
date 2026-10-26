@@ -4,12 +4,16 @@ const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
 let view = 'queue' // 'queue' | 'tree'
 let tree = { interface: [], managers: [], orphans: [], unclassified: [] }
+let rawTree = null // the server's tree, done sessions included
 let nodes = [] // the tree flattened in display order, for j/k
 let pick = null // the attach picker: { mgr, rows, checked, idx }
 let awaitingNew = false // after `n`: the next key picks the new session's role
 let awaitingRole = false // after `c`: the next key picks the role
 let sel = null // sessionId of the selected row
 let renaming = null // sessionId being renamed
+let parking = null // the park modal: { sessionId, name } while open
+let undo = null // reverses the last park / unpark / done: { label, run }
+let filter = '' // tree search; a non-empty one also shows done sessions
 let seen = new Set()
 let first = true
 let fresh = new Set()
@@ -18,6 +22,18 @@ const ICON = { interface: '◆', manager: '▣', worker: '●', unclassified: '?
 const STATE_LABEL = { blocked: 'needs you', waiting_on_child: 'waiting on worker', working: 'working', idle: 'idle', unknown: 'no signal' }
 const ifaceFirst = () => [...queue.filter((r) => r.role === 'interface'), ...queue.filter((r) => r.role !== 'interface')]
 const items = () => (view === 'tree' ? nodes : ifaceFirst())
+/** Done sessions are hidden unless searched; a search matches name, title, project and park reason. */
+function filterTree(t, q) {
+  q = q.trim().toLowerCase()
+  const hit = (n) => (q ? `${n.name} ${n.title} ${n.project} ${n.branch} ${n.parked?.reason || ''}`.toLowerCase().includes(q) : !n.done)
+  const keep = (n) => hit(n) || (n.children || []).some(hit)
+  return {
+    interface: t.interface.filter(hit),
+    managers: t.managers.filter(keep).map((m) => ({ ...m, children: m.children.filter((c) => hit(c) || hit(m)) })),
+    orphans: t.orphans.filter(hit),
+    unclassified: t.unclassified.filter(hit),
+  }
+}
 const flatten = (t) => [...t.interface, ...t.managers.flatMap((m) => [m, ...m.children]), ...t.orphans, ...t.unclassified]
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
@@ -44,6 +60,13 @@ function warn(r) {
   return r.warnings?.length ? ` <span class="warn" title="${esc(r.warnings.join('; '))}">▲</span>` : ''
 }
 
+/** Hollow dot, reason and wake marker for a parked session; empty for any other. */
+function lifeTag(r) {
+  if (!r.parked) return ''
+  const wake = r.wakeReady ? '<span class="wr">wake ready</span>' : r.parked.wake?.type === 'date' ? `<span class="ap">wakes ${esc(r.parked.wake.value)}</span>` : ''
+  return `<span class="pd" title="parked">○</span><span class="ap">${esc(r.parked.reason)}</span>${wake}`
+}
+
 function treeRow(r, depth) {
   const name =
     renaming === r.sessionId
@@ -52,9 +75,9 @@ function treeRow(r, depth) {
   const hint = r.suggested ? ` <span class="ap">suggested ${esc(r.suggested)} · c to confirm</span>` : ''
   const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
   return (
-    `<div class="q tr s-${r.state}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${name}${warn(r)}${hint}${roll}` +
-    `<span class="wt">${esc(STATE_LABEL[r.state] || r.state)}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
+    `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
+    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}${name}${warn(r)}${hint}${roll}` +
+    `<span class="wt">${esc(r.done ? 'done · d to undo' : r.parked ? 'parked · p to unpark' : STATE_LABEL[r.state] || r.state)}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
 
@@ -80,6 +103,7 @@ function renderTree() {
 function setView(v) {
   view = v
   document.querySelectorAll('.pill[data-view]').forEach((p) => p.classList.toggle('on', p.dataset.view === v))
+  $('#flt').hidden = v !== 'tree'
   if (v === 'tree') loadTree()
   else render()
 }
@@ -87,7 +111,8 @@ function setView(v) {
 async function loadTree() {
   if (view !== 'tree' || renaming) return
   try {
-    tree = await (await fetch('/api/tree')).json()
+    rawTree = await (await fetch('/api/tree')).json()
+    tree = filterTree(rawTree, filter)
     nodes = flatten(tree)
     renderTree()
   } catch {
@@ -106,8 +131,8 @@ function rowHtml(r, now) {
       : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
-    `<div class="q${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key">${crumbs(r)}</span>${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
+    `<div class="q${r.parked ? ' pkd' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
+    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? 'Idle — waiting for your next prompt' : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
     `<span class="go">ENTER ↵ OPEN</span></div>`
@@ -190,6 +215,76 @@ async function newSession(role) {
   const tag = data.marker ? ` with ${data.marker} in the prompt box (not sent)` : ''
   toast(ok ? `Opening a new Claude Code session${where}${tag}…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'New session failed', data.marker ? 7000 : 2600)
 }
+
+async function lifecycle(path, body, label, back) {
+  const { ok, data } = await post(path, body)
+  if (!ok) return toast(data.error || 'Failed')
+  undo = back ? { label, run: back } : null
+  toast(back ? `${label} · u to undo` : label)
+  loadTree()
+}
+
+function parkSel() {
+  const r = items().find((x) => x.sessionId === sel)
+  if (!r) return
+  if (r.parked) {
+    const prev = r.parked
+    return lifecycle('/api/unpark', { sessionId: r.sessionId }, `Unparked “${r.name}”`, () => post('/api/park', { sessionId: r.sessionId, ...prev }))
+  }
+  parking = { sessionId: r.sessionId, name: r.name }
+  $('#parkHd').textContent = `Park “${r.name}”`
+  for (const id of ['#parkReason', '#parkDate', '#parkNote']) $(id).value = ''
+  $('#ovPark').classList.add('on')
+  $('#parkReason').focus()
+}
+
+function closePark() {
+  parking = null
+  $('#ovPark').classList.remove('on')
+  document.activeElement?.blur()
+}
+
+async function commitPark() {
+  const reason = $('#parkReason').value.trim()
+  if (!reason) return toast('A park needs a one-line reason')
+  const { sessionId, name } = parking
+  const date = $('#parkDate').value
+  const body = { sessionId, reason, wake: date ? { type: 'date', value: date } : { type: 'none', value: '' }, handoffNote: $('#parkNote').value }
+  closePark()
+  await lifecycle('/api/park', body, `Parked “${name}”`, () => post('/api/unpark', { sessionId }))
+}
+
+function doneSel() {
+  const r = items().find((x) => x.sessionId === sel)
+  if (!r) return
+  const done = !r.done
+  lifecycle('/api/done', { sessionId: r.sessionId, done }, done ? `Marked “${r.name}” done` : `Brought back “${r.name}”`, () => post('/api/done', { sessionId: r.sessionId, done: !done }))
+}
+
+async function undoLast() {
+  if (!undo) return toast('Nothing to undo')
+  const { label, run } = undo
+  undo = null
+  await run()
+  toast(`Undid: ${label}`)
+  loadTree()
+}
+
+for (const id of ['#parkReason', '#parkDate', '#parkNote']) {
+  $(id).addEventListener('keydown', (e) => {
+    e.stopPropagation()
+    if (e.key === 'Escape') closePark()
+    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || id !== '#parkNote')) { e.preventDefault(); commitPark() }
+  })
+}
+$('#parkGo').addEventListener('click', () => parking && commitPark())
+
+$('#flt').addEventListener('input', (e) => { filter = e.target.value; if (rawTree) { tree = filterTree(rawTree, filter); nodes = flatten(tree); renderTree() } })
+$('#flt').addEventListener('keydown', (e) => {
+  e.stopPropagation()
+  if (e.key === 'Escape') { e.target.value = ''; e.target.dispatchEvent(new Event('input')); e.target.blur() }
+  else if (e.key === 'Enter') e.target.blur()
+})
 
 async function commitRename() {
   const id = renaming
@@ -296,7 +391,7 @@ function move(d) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (pick) return
+  if (pick || parking) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
   if (renaming) {
     if (e.key === 'Enter') { e.preventDefault(); commitRename() }
@@ -323,6 +418,10 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
   else if (e.key === 'a') { e.preventDefault(); openPick() }
+  else if (e.key === 'p' && items().length) { e.preventDefault(); parkSel() }
+  else if (e.key === 'd' && items().length) { e.preventDefault(); doneSel() }
+  else if (e.key === 'u') { e.preventDefault(); undoLast() }
+  else if (e.key === '/' && view === 'tree') { e.preventDefault(); $('#flt').focus() }
   else if (e.key === 't') setView('tree')
   else if (e.key === 'h' || e.key === 'q') setView('queue')
   else if (e.key === 'c') { e.preventDefault(); awaitingRole = true; toast('Classify: i interface · m manager · w worker · x clear') }

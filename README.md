@@ -65,10 +65,23 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 ## Keys
 
 `j`/`k` or arrows move · `Enter` open in Claude · `n` new Claude Code session · `r` rename
-(overlay; Esc cancels; empty restores the app title) · `?` key sheet.
+(overlay; Esc cancels; empty restores the app title) · `p` park · `d` done · `u` undo ·
+`/` search the role tree · `?` key sheet.
 
 `n` opens a new session in the Claude desktop app via `claude://code/new`, in the selected
 session's repo (its root, not its worktree), or a plain new session when nothing is selected.
+
+## Park and done
+
+`p` parks the selected session: a one-line reason, an optional wake date and a handoff note
+(Enter or ⌘/Ctrl+Enter saves). A parked session leaves the "Needs you" queue and shows dim with a
+hollow dot in the role tree; a *blocked* parked session still appears in the queue, marked. When
+its wake date passes it is marked **wake ready** and returns to the queue. `p` on a parked session
+unparks it. `d` marks a session done: hidden everywhere unless you search the role tree (`/`), where
+`d` brings it back. `u` undoes the last park, unpark or done.
+
+State lives in `~/.zarvis/state.json` (`parked`, `done`); nothing is written to Claude's files.
+Endpoints: `POST /api/park`, `/api/unpark`, `/api/done`. Ticket-status wake conditions are not built.
 
 ## Roles
 

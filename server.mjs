@@ -10,7 +10,8 @@ import { classify, childrenOf, roleMarker, ROLES } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords } from './lib/sessions.mjs'
 import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
-import { readState, setOverlay, setRole } from './lib/state.mjs'
+import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
+import { annotateRows, visibleRows, lifecycleOf, hideDone } from './lib/lifecycle.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
 const HOST = '127.0.0.1' // loopback only, by design
@@ -72,12 +73,18 @@ async function readRoleTags() {
   return out
 }
 
-async function currentQueue() {
+/** Every hook-signalled session with its lifecycle facts; parked and done ones included. */
+async function allRows() {
   const [markers, working] = await Promise.all([readMarkers(), readMarkers(WORKING_DIR)])
   if (!markers.length && !working.length) return []
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
   const rows = await buildQueue({ markers, working, records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
-  return applyRoles(rows, classify({ records, roles: await roleRegistry(state) }))
+  return annotateRows(applyRoles(rows, classify({ records, roles: await roleRegistry(state) })), state)
+}
+
+/** The "Needs you" queue: done and parked sessions filtered out (see lifecycle.visibleRows). */
+async function currentQueue() {
+  return visibleRows(await allRows())
 }
 
 const RECENT_MS = 7 * 24 * 3600 * 1000
@@ -85,7 +92,7 @@ const STATE_RANK = { blocked: 0, waiting_on_child: 1, working: 2, idle: 3 }
 
 /** The role tree: the interface pinned, managers with their workers, then everything unclassified. */
 async function currentTree() {
-  const [{ records }, state, queue] = await Promise.all([scanDesktopRecords(), readState(), currentQueue()])
+  const [{ records }, state, queue] = await Promise.all([scanDesktopRecords(), readState(), allRows()])
   const nodes = classify({ records, roles: await roleRegistry(state) })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
   const kids = childrenOf(nodes)
@@ -108,6 +115,7 @@ async function currentTree() {
       state: row?.state ?? 'unknown', // no hook signal: never guess
       blockedChildren: row?.blockedChildren ?? [],
       project: path.basename(splitWorktree(n.cwd).root) || '',
+      ...lifecycleOf(state, n.sessionId, now),
     }
   }
   const byState = (a, b) => (STATE_RANK[a.state] ?? 9) - (STATE_RANK[b.state] ?? 9) || a.name.localeCompare(b.name)
@@ -168,7 +176,7 @@ function readJson(req) {
 const ROSTER_FILE = path.join(ZARVIS_HOME, 'roster.md')
 let lastRoster = ''
 async function writeRoster() {
-  const text = renderRoster(await currentTree())
+  const text = renderRoster(hideDone(await currentTree()))
   if (text === lastRoster) return
   await fsp.mkdir(ZARVIS_HOME, { recursive: true })
   const tmp = `${ROSTER_FILE}.${process.pid}.tmp`
@@ -227,7 +235,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/open') {
       const { sessionId } = await readJson(req)
       // The link is rebuilt server-side from the queue; the client never supplies a URL.
-      const row = (await currentQueue()).find((r) => r.sessionId === sessionId) || (await findInTree(sessionId))
+      const row = (await allRows()).find((r) => r.sessionId === sessionId) || (await findInTree(sessionId))
       if (!row) return send(res, 404, { error: 'not in queue' })
       if (!row.link) return send(res, 409, { error: 'terminal session: no desktop app session to open' })
       await openUrl(row.link)
@@ -238,7 +246,7 @@ const server = http.createServer(async (req, res) => {
       // A new session in the selected row's repo, or a plain new session with nothing selected.
       // As with open, the folder comes from the queue on this side; the client never sends a path,
       // and the prompt is only ever a role tag built here from a validated role.
-      const row = sessionId ? (await currentQueue()).find((r) => r.sessionId === sessionId) : null
+      const row = sessionId ? (await allRows()).find((r) => r.sessionId === sessionId) : null
       const folder = await usableFolder(row?.folder)
       const marker = roleMarker(role, parent)
       // A manager's prompt also says where its workers are listed; only the tag is parsed.
@@ -260,6 +268,14 @@ const server = http.createServer(async (req, res) => {
       await tick()
       return send(res, 200, { ok: true })
     }
+    if (req.method === 'POST' && ['/api/park', '/api/unpark', '/api/done'].includes(url.pathname)) {
+      const body = await readJson(req)
+      if (url.pathname === '/api/park') await parkSession(body.sessionId, body)
+      else if (url.pathname === '/api/unpark') await unparkSession(body.sessionId)
+      else await setDone(body.sessionId, body.done !== false)
+      await Promise.all([tick(), writeRoster().catch((e) => console.error('roster failed:', e.message))])
+      return send(res, 200, { ok: true })
+    }
     if (req.method === 'GET') {
       const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
       const file = path.join(PUBLIC, rel)
@@ -268,7 +284,7 @@ const server = http.createServer(async (req, res) => {
     }
     send(res, 404, { error: 'not found' })
   } catch (e) {
-    send(res, e.code === 'ENOENT' ? 404 : 500, { error: e.code === 'ENOENT' ? 'not found' : String(e.message) })
+    send(res, e.status || (e.code === 'ENOENT' ? 404 : 500), { error: e.code === 'ENOENT' ? 'not found' : String(e.message) })
   }
 })
 
