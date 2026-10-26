@@ -55,7 +55,10 @@ function crumbs(r) {
 }
 
 const heading = (text) => `<div class="hd sec">${text}</div>`
-const SECTION = { working: 'Working', idle: 'Idle', blocked: 'Needs you', waiting_on_child: 'Waiting on a worker' }
+const SECTION = { working: 'Working', idle: 'Idle', blocked: 'Needs you', parked_blocked: 'Blocked, parked', waiting_on_child: 'Waiting on a worker' }
+// Parked-but-blocked sessions are still shown, but apart from "Needs you" so that section and the badge agree.
+const sectionOf = (r) => (r.state === 'blocked' && r.parked ? 'parked_blocked' : r.state)
+const SECTION_RANK = { blocked: 0, parked_blocked: 1, waiting_on_child: 2, working: 3, idle: 4 }
 
 function warn(r) {
   return r.warnings?.length ? ` <span class="warn" title="${esc(r.warnings.join('; '))}">▲</span>` : ''
@@ -68,6 +71,14 @@ function lifeTag(r) {
   return `<span class="pd" title="parked">○</span><span class="ap">${esc(r.parked.reason)}</span>${wake}`
 }
 
+/** Tree status text: the real state first, so a parked-but-blocked session still says it needs you. */
+function treeStatus(r) {
+  if (r.done) return 'done · d to undo'
+  const real = STATE_LABEL[r.state] || r.state
+  if (!r.parked) return real
+  return r.state === 'unknown' ? 'parked · p to unpark' : `${real} · parked · p to unpark`
+}
+
 function treeRow(r, depth) {
   const name =
     renaming === r.sessionId
@@ -78,7 +89,7 @@ function treeRow(r, depth) {
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
     `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${r.branch || r.worktree ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}` +
-    `<span class="wt">${esc(r.done ? 'done · d to undo' : r.parked ? 'parked · p to unpark' : STATE_LABEL[r.state] || r.state)}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
+    `<span class="wt">${esc(treeStatus(r))}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
 
@@ -133,7 +144,7 @@ function rowHtml(r, now) {
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
     `<div class="q${r.parked ? ' pkd' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
+    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${r.branch || r.worktree ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? 'Idle — waiting for your next prompt' : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
     `<span class="go">ENTER ↵ OPEN</span></div>`
@@ -142,7 +153,7 @@ function rowHtml(r, now) {
 
 function render() {
   if (view === 'tree') return renderTree()
-  $('#qb').textContent = queue.filter((r) => r.state === 'blocked').length || ''
+  $('#qb').textContent = queue.filter((r) => r.state === 'blocked' && !r.parked).length || '' // what the "Needs you" section holds
   const list = $('#list')
   const side = $('#side')
   if (!queue.length) {
@@ -161,8 +172,8 @@ function render() {
   list.innerHTML =
     rest
       .map((r) => {
-        const head = r.state !== last ? heading(SECTION[r.state]) : ''
-        last = r.state
+        const head = sectionOf(r) !== last ? heading(SECTION[sectionOf(r)]) : ''
+        last = sectionOf(r)
         return head + rowHtml(r, now)
       })
       .join('') || (iface.length ? '<div class="empty">Nothing else waiting on you.</div>' : '')
@@ -176,7 +187,7 @@ function render() {
 }
 
 function setQueue(q) {
-  queue = q
+  queue = [...q].sort((a, b) => (SECTION_RANK[sectionOf(a)] ?? 9) - (SECTION_RANK[sectionOf(b)] ?? 9)) // stable: the server's order within a section
   // New arrivals draw the eye once; the very first load is not an arrival.
   fresh = new Set(first ? [] : q.filter((r) => !seen.has(r.sessionId)).map((r) => r.sessionId))
   seen = new Set(q.map((r) => r.sessionId))

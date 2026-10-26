@@ -6,10 +6,10 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { readMarkers, hookStatus, WORKING_DIR, ROLES_DIR, ZARVIS_HOME } from './lib/markers.mjs'
-import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, ROLES } from './lib/roles.mjs'
+import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, ROLES, NO_ROLE } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
-import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
+import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { annotateRows, visibleRows, lifecycleOf, hideDone } from './lib/lifecycle.mjs'
 
@@ -106,11 +106,14 @@ async function currentTree() {
   const view = (n) => {
     const row = rowOf.get(n.sessionId)
     const overlay = state.overlays[n.sessionId]?.name || ''
+    const branch = row?.branch || branchOf.get(n.sessionId) || ''
+    const worktree = row?.worktree || recOf.get(n.sessionId)?.worktreeName || splitWorktree(n.cwd).worktree
     return {
       sessionId: n.sessionId,
       desktopSessionId: n.desktopSessionId,
-      branch: row?.branch || branchOf.get(n.sessionId) || '',
-      worktree: row?.worktree || recOf.get(n.sessionId)?.worktreeName || splitWorktree(n.cwd).worktree,
+      branch,
+      worktree,
+      initiative: row?.initiative ?? initiativeOf(branch, worktree),
       link: row?.link ?? deepLinkFor(n.desktopSessionId),
       title: n.title,
       overlay,
@@ -265,7 +268,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/tree') return send(res, 200, await currentTree())
     if (req.method === 'POST' && url.pathname === '/api/classify') {
       const { sessionId, role, parent } = await readJson(req)
-      await setRole(sessionId, role || '', parent || '')
+      await setRole(sessionId, role || NO_ROLE, parent || '') // empty = the `x` key: explicitly no role
       await writeRoster().catch((e) => console.error('roster failed:', e.message))
       return send(res, 200, { ok: true })
     }

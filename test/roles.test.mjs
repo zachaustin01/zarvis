@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole } from '../lib/roles.mjs'
+import { classify, childrenOf, NO_ROLE, roleMarker, rolePrompt, isNewSessionRole } from '../lib/roles.mjs'
 import { renderRoster } from '../lib/roster.mjs'
 import { applyRoles } from '../lib/queue.mjs'
 import { setRole, readState } from '../lib/state.mjs'
@@ -94,4 +94,31 @@ test('rolePrompt gives the interface and managers a pointer line, and others onl
 test('only a real role or an empty one may start a new session', () => {
   for (const ok of ['interface', 'manager', 'worker', '', undefined]) assert.equal(isNewSessionRole(ok), true, String(ok))
   for (const bad of ['boss', 'Manager', 'p', 7]) assert.equal(isNewSessionRole(bad), false, String(bad))
+})
+
+test('an explicit no-role beats a hook tag and spawn inference, and a later hand-set role beats it', async () => {
+  const records = [rec(1), rec(2, spawnedBy(1)), rec(3, spawnedBy(1))]
+  const hook = { [id(1)]: { role: 'manager' }, [id(2)]: { role: 'interface' } } // as roleRegistry merges them
+  const set = async (n, role, parent = '') => {
+    const file = path.join(await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-')), 'state.json')
+    await setRole(id(n), role, parent, file)
+    return (await readState(file)).roles
+  }
+  const cleared = classify({ records, roles: { ...hook, ...(await set(2, NO_ROLE)) } })
+  assert.equal(cleared.get(id(2)).role, 'unclassified') // hook interface tag overridden
+  const spawned = classify({ records, roles: { ...hook, ...(await set(3, NO_ROLE)) } })
+  assert.equal(spawned.get(id(3)).role, 'unclassified') // spawn would have made it a worker
+  assert.equal(spawned.get(id(3)).managerId, '')
+  const again = classify({ records, roles: { ...hook, ...(await set(2, 'worker', id(1))) } })
+  assert.equal(again.get(id(2)).role, 'worker') // hand-set over a hook tag still works
+  assert.equal(again.get(id(2)).managerId, id(1))
+})
+
+test('setRole stores NO_ROLE with no parent; empty still drops the entry', async () => {
+  const file = path.join(await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-')), 'state.json')
+  await setRole(id(3), NO_ROLE, id(2), file)
+  assert.equal((await readState(file)).roles[id(3)].role, NO_ROLE)
+  assert.equal((await readState(file)).roles[id(3)].parent, undefined)
+  await setRole(id(3), '', '', file)
+  assert.deepEqual((await readState(file)).roles, {})
 })

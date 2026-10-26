@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildQueue, deepLinkFor, newSessionLink, splitWorktree, pickRecord } from '../lib/queue.mjs'
+import { initiativeOf, buildQueue, deepLinkFor, newSessionLink, splitWorktree, pickRecord } from '../lib/queue.mjs'
 
 const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const B = 'bbbbbbbb-0000-4000-8000-000000000002'
@@ -80,4 +80,10 @@ test('idle sessions come last, newest first, and age out on the long limit', asy
 test('newSessionLink can prefill the prompt', () => {
   assert.equal(newSessionLink('', '[zarvis: role=manager]'), 'claude://code/new?q=%5Bzarvis%3A+role%3Dmanager%5D')
   assert.equal(newSessionLink('/r', 'hi'), 'claude://code/new?folder=%2Fr&q=hi')
+})
+
+test('initiativeOf finds a ticket id in the branch, else the worktree name', () => {
+  assert.equal(initiativeOf('feat/ABC-123-rate-limit', ''), 'ABC-123')
+  assert.equal(initiativeOf('main', 'ABC-9-spike'), 'ABC-9')
+  assert.equal(initiativeOf('main', ''), '')
 })
