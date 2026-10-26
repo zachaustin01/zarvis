@@ -37,7 +37,7 @@ test('v toggles parked sessions on the Roles page: default hidden, remembered, s
   assert.match(app, /let showParked = false/)
   assert.match(app, /localStorage\.setItem\('zarvis\.showParked'/)
   assert.match(app, /view === 'tree' && !showParked && !filter\.trim\(\)/) // a search shows parked too
-  assert.match(app, /parkedList = flatten\(full\)/) // the Parked view never loses them
+  assert.match(app, /parkedList = \[\.\.\.flatten\(full\)/) // the Parked view never loses them
   assert.match(app, /e\.key === 'v'/)
   assert.match(html, /<b>v<\/b>/)
   assert.match(html, /v parked in roles/)
@@ -81,4 +81,12 @@ test('event ticker: diffed per push, collapsible with e, remembered, documented'
   assert.match(html, /<b>e<\/b>/)
   assert.match(html, /e ticker/)
   assert.match(readme, /`e` collapse\/expand the event ticker/)
+})
+
+test('the Parked view includes archived parked sessions, dimmed and tagged, and only there', async () => {
+  const app = await read('public/app.js')
+  assert.match(app, /parkedList = \[\.\.\.flatten\(full\), \.\.\.\(full\.archived \|\| \[\]\)\]/)
+  assert.match(app, /r\.archived \? ' arch' : ''/)
+  assert.match(app, /<span class="ap">archived<\/span>/)
+  assert.doesNotMatch(app, /flatten = .*archived/) // the Roles tree and the chip set never see them
 })

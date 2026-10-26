@@ -13,7 +13,7 @@ import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, ini
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
-import { annotateRows, visibleRows, lifecycleOf, hideDone } from './lib/lifecycle.mjs'
+import { annotateRows, visibleRows, lifecycleOf, hideDone, archivedParked } from './lib/lifecycle.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
 const HOST = '127.0.0.1' // loopback only, by design
@@ -120,7 +120,26 @@ async function currentTree() {
     .map(view)
     .sort(byState)
   const orphans = all.filter((n) => n.role === 'worker' && !kids.get(n.managerId)?.includes(n)).map(view).sort(byState)
-  return { interface: all.filter((n) => n.role === 'interface').map(view), managers, orphans, unclassified }
+  // Parked sessions whose app record is archived: shown only in the Parked view (and the roster), never in the tree or queue.
+  const archived = archivedParked(records, state, await roleRegistry(state)).map((n) => {
+    const worktree = splitWorktree(n.cwd).worktree
+    return {
+      ...n,
+      worktree,
+      initiative: initiativeOf(n.branch, worktree),
+      link: deepLinkFor(n.desktopSessionId),
+      overlay: state.overlays[n.sessionId]?.name || '',
+      name: state.overlays[n.sessionId]?.name || n.title,
+      suggested: '',
+      warnings: [],
+      state: 'unknown',
+      kind: '',
+      blockedChildren: [],
+      project: path.basename(splitWorktree(n.cwd).root) || '',
+      ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),
+    }
+  })
+  return { interface: all.filter((n) => n.role === 'interface').map(view), managers, orphans, unclassified, archived }
 }
 
 // --- checkout claims: read-only; the hook and the claims CLI write them ---
@@ -203,7 +222,7 @@ async function writeRoster() {
 /** A tree node by CLI session id, for opening sessions that have no queue row. */
 async function findInTree(sessionId) {
   const t = await currentTree()
-  const flat = [...t.interface, ...t.managers.flatMap((m) => [m, ...m.children]), ...t.orphans, ...t.unclassified]
+  const flat = [...t.interface, ...t.managers.flatMap((m) => [m, ...m.children]), ...t.orphans, ...t.unclassified, ...t.archived]
   return flat.find((n) => n.sessionId === sessionId)
 }
 

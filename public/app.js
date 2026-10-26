@@ -51,6 +51,7 @@ function filterTree(t, q) {
     managers: t.managers.filter(keep).map((m) => ({ ...m, children: m.children.filter((c) => hit(c) || hit(m)) })),
     orphans: t.orphans.filter(hit),
     unclassified: t.unclassified.filter(hit),
+    archived: (t.archived || []).filter(hit), // parked sessions the app archived: only the Parked view lists them
   }
 }
 const flatten = (t) => [...t.interface, ...t.managers.flatMap((m) => [m, ...m.children]), ...t.orphans, ...t.unclassified]
@@ -167,6 +168,7 @@ const when = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', mo
 
 /** The Parked view: every parked session with its reason, who parked it, when, and its handoff note. */
 function renderParked() {
+  renderBar()
   $('#side').innerHTML = ''
   document.querySelector('.wrap').classList.remove('has-side')
   $('#list').innerHTML =
@@ -176,9 +178,9 @@ function renderParked() {
         const wake = r.wakeReady ? ' · <span class="wr">wake ready</span>' : p.wake ? ` · wakes ${esc(p.wake.value)}` : ''
         const by = p.parkedBy ? `by ${esc(p.parkedByName || p.parkedBy)}` : 'by hand'
         return (
-          `<div class="q tr pkv${r.sessionId === sel ? ' sel' : ''}" data-id="${esc(r.sessionId)}">` +
+          `<div class="q tr pkv${r.archived ? ' arch' : ''}${r.sessionId === sel ? ' sel' : ''}" data-id="${esc(r.sessionId)}">` +
           `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span><span class="pd">○</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span><span class="nm">${esc(r.name)}</span>` +
-          `<span class="wt">parked ${esc(when(p.parkedAt))}</span></div>` +
+          `<span class="wt">${r.archived ? '<span class="ap">archived</span> ' : ''}parked ${esc(when(p.parkedAt))}</span></div>` +
           `<div class="prompt">${esc(p.reason)} · ${by}${wake}</div>` +
           (p.handoffNote ? `<div class="note">${esc(p.handoffNote)}</div>` : '') +
           `<span class="go">ENTER ↵ OPEN · u UNPARK</span></div>`
@@ -197,7 +199,7 @@ function applyTree() {
   tree = shown.tree
   hiddenParkedN = shown.hidden
   nodes = flatten(tree)
-  parkedList = flatten(full).filter((n) => n.parked && !n.done).sort((a, b) => b.parked.parkedAt - a.parked.parkedAt)
+  parkedList = [...flatten(full), ...(full.archived || [])].filter((n) => n.parked && !n.done).sort((a, b) => b.parked.parkedAt - a.parked.parkedAt)
   if (view === 'parked') renderParked()
   else renderTree()
 }
@@ -380,7 +382,7 @@ function renderBar() {
   const counts = (e) => `${e.blocked ? `<b class="nd">${e.blocked}</b>` : ''}${e.working ? `<b class="rn">${e.working}</b>` : ''}`
   const all = list.reduce((a, e) => ({ blocked: a.blocked + e.blocked, working: a.working + e.working }), { blocked: 0, working: 0 })
   // Each view's own count of what the filter hides: blocked in the queue, parked in the Parked view, none in Roles.
-  const hiddenN = view === 'queue' ? hiddenBlocked(queue, cur, roleFilter) : view === 'parked' ? hiddenParked(rawTree ? flatten(rawTree) : [], cur) : 0
+  const hiddenN = view === 'queue' ? hiddenBlocked(queue, cur, roleFilter) : view === 'parked' ? hiddenParked(rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : [], cur) : 0
   const hiddenWhat = view === 'parked' ? 'parked' : 'blocked'
   const hiddenWhere = view === 'queue' && roleFilter ? 'outside the filters' : 'in other projects'
   bar.innerHTML =

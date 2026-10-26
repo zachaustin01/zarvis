@@ -44,6 +44,7 @@ export function filterTreeByProject(t, project) {
     managers: t.managers.filter((m) => hit(m) || m.children.some(hit)).map((m) => ({ ...m, children: m.children.filter((c) => hit(c) || hit(m)) })),
     orphans: t.orphans.filter(hit),
     unclassified: t.unclassified.filter(hit),
+    archived: (t.archived || []).filter(hit),
   }
 }
 

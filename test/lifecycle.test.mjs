@@ -106,3 +106,38 @@ test('an impossible calendar date never rolls over: rejected by the shared valid
   }
   await parkSession(id(1), { reason: 'r', wake: { type: 'date', value: '2028-02-29' } }, file)
 })
+
+import { archivedParked } from '../lib/lifecycle.mjs'
+import { renderRoster } from '../lib/roster.mjs'
+
+test('archivedParked lists parked sessions whose only desktop record is archived', () => {
+  const rec = (n, extra = {}) => ({ sessionId: `local_${id(n)}`, cliSessionId: id(n), title: `S${n}`, cwd: `/r/proj${n}`, branch: 'main', ...extra })
+  const records = [
+    rec(1, { isArchived: true }), // parked + archived: listed
+    rec(2, { isArchived: 'True' }), // parked + archived, a worker of manager 9: listed under it
+    rec(3, { isArchived: true }), // archived, not parked: not listed
+    rec(4, { isArchived: true }), // parked but done: not listed
+    rec(5), // parked, live record: a normal tree node, not listed here
+    rec(6, { isArchived: true }), rec(6), // twin: a live record exists, so not listed
+    { sessionId: 'local_x', title: 'no cli id', isArchived: true },
+  ]
+  const parked = (n) => ({ reason: `r${n}`, parkedAt: 1, wake: null, handoffNote: '' })
+  const state = { parked: { [id(1)]: parked(1), [id(2)]: parked(2), [id(4)]: parked(4), [id(5)]: parked(5), [id(6)]: parked(6), [id(7)]: parked(7) }, done: { [id(4)]: true } } // 7 has no record at all
+  const roles = { [id(2)]: { role: 'worker', parent: id(9) } }
+  const got = archivedParked(records, state, roles)
+  assert.deepEqual(got.map((n) => [n.sessionId, n.role, n.managerId, n.archived]), [[id(1), 'unclassified', '', true], [id(2), 'worker', id(9), true]])
+  assert.equal(got[0].title, 'S1')
+  assert.equal(got[0].cwd, '/r/proj1')
+})
+
+test('hideDone keeps archived parked sessions apart from done ones; the roster lists archived workers under their manager, marked', () => {
+  const n = (x, extra = {}) => ({ sessionId: id(x), name: `N${x}`, state: 'unknown', project: 'p', branch: '', desktopSessionId: '', ...extra })
+  const park = { reason: 'finished', parkedAt: 0, wake: null, handoffNote: '' }
+  const tree = { interface: [], managers: [{ ...n(1), children: [] }], orphans: [], unclassified: [], archived: [n(2, { parked: park, managerId: id(1), archived: true }), n(3, { parked: park, managerId: id(1), archived: true, done: true })] }
+  const kept = hideDone(tree)
+  assert.deepEqual(kept.archived.map((a) => a.sessionId), [id(2)])
+  const text = renderRoster(kept)
+  assert.match(text, /N2 — parked \(archived in the app\) — finished/)
+  assert.doesNotMatch(text, /N3/)
+  assert.match(text, /workers: none live/)
+})

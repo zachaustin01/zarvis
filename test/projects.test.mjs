@@ -144,3 +144,9 @@ test('nextView cycles Queue -> Roles -> Parked and loops, both ways', () => {
   assert.equal(nextView('tree', -1), 'queue')
   assert.equal(nextView('bogus'), 'tree')
 })
+
+test('the project filter applies to archived parked sessions too', () => {
+  const t = { interface: [], managers: [], orphans: [], unclassified: [], archived: [row('a', 'unknown'), row('b', 'unknown')] }
+  assert.deepEqual(filterTreeByProject(t, 'b').archived.map((n) => n.project), ['b'])
+  assert.equal(filterTreeByProject(t, '').archived.length, 2)
+})
