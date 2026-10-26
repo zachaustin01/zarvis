@@ -54,6 +54,7 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 .go{display:none;text-align:right;margin-top:4px;letter-spacing:.14em;color:var(--cy);font-size:11px}
 .r1{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .key{color:var(--cy);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;border:1px solid var(--cyd);padding:0 6px}
+.key.nb{color:var(--t3);border-color:var(--edge)}
 .nm{font-weight:500}.ap{color:var(--t3);font-size:12px}
 .wt{margin-left:auto;font-weight:600;letter-spacing:.08em;color:var(--am)}
 .od .wt{color:var(--rd)}

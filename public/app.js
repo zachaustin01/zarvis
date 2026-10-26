@@ -49,7 +49,8 @@ function fmt(ms) {
 function crumbs(r) {
   const parts = [r.project]
   if (r.initiative) parts.push(r.initiative)
-  parts.push(r.branch || r.worktree || '—')
+  const where = r.branch || r.worktree
+  parts.push(where || 'no branch')
   return parts.map(esc).join(' › ')
 }
 
@@ -76,7 +77,7 @@ function treeRow(r, depth) {
   const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}${name}${warn(r)}${hint}${roll}` +
+    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${r.branch || r.worktree ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}` +
     `<span class="wt">${esc(r.done ? 'done · d to undo' : r.parked ? 'parked · p to unpark' : STATE_LABEL[r.state] || r.state)}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
@@ -381,6 +382,16 @@ $('#pickList').addEventListener('click', (e) => {
 })
 $('#pickGo').addEventListener('click', () => pick && commitPick())
 
+/** `i`: select the interface session; with several, each press goes to the next one. */
+function jumpToInterface() {
+  const all = items().filter((r) => r.role === 'interface')
+  if (!all.length) return toast('No interface session')
+  const i = all.findIndex((r) => r.sessionId === sel)
+  sel = all[(i + 1) % all.length].sessionId
+  render()
+  document.querySelector('.q.sel')?.scrollIntoView({ block: 'nearest' })
+}
+
 function move(d) {
   const list = items()
   const i = list.findIndex((r) => r.sessionId === sel)
@@ -422,6 +433,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'd' && items().length) { e.preventDefault(); doneSel() }
   else if (e.key === 'u') { e.preventDefault(); undoLast() }
   else if (e.key === '/' && view === 'tree') { e.preventDefault(); $('#flt').focus() }
+  else if (e.key === 'i') { e.preventDefault(); jumpToInterface() }
   else if (e.key === 't') setView('tree')
   else if (e.key === 'h' || e.key === 'q') setView('queue')
   else if (e.key === 'c') { e.preventDefault(); awaitingRole = true; toast('Classify: i interface · m manager · w worker · x clear') }

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { readMarkers, hookStatus, WORKING_DIR, ROLES_DIR, ZARVIS_HOME } from './lib/markers.mjs'
 import { classify, childrenOf, roleMarker, ROLES } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
-import { scanDesktopRecords } from './lib/sessions.mjs'
+import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
 import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { annotateRows, visibleRows, lifecycleOf, hideDone } from './lib/lifecycle.mjs'
@@ -98,13 +98,19 @@ async function currentTree() {
   const kids = childrenOf(nodes)
   const now = Date.now()
   const recent = new Map(records.map((r) => [r.cliSessionId, Number(r.lastActivityAt) || Number(r.createdAt) || now]))
+  // Branch for every session, not just ones with a hook signal: the record's, else the checkout's HEAD.
+  const recOf = new Map(records.map((r) => [r.cliSessionId, r]))
+  const branchOf = new Map(
+    await Promise.all([...nodes.values()].map(async (n) => [n.sessionId, recOf.get(n.sessionId)?.branch || (n.cwd ? await gitBranchOf(n.cwd) : '')])),
+  )
   const view = (n) => {
     const row = rowOf.get(n.sessionId)
     const overlay = state.overlays[n.sessionId]?.name || ''
     return {
       sessionId: n.sessionId,
       desktopSessionId: n.desktopSessionId,
-      branch: row?.branch ?? '',
+      branch: row?.branch || branchOf.get(n.sessionId) || '',
+      worktree: row?.worktree || recOf.get(n.sessionId)?.worktreeName || splitWorktree(n.cwd).worktree,
       link: row?.link ?? deepLinkFor(n.desktopSessionId),
       title: n.title,
       overlay,
