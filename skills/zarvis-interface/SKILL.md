@@ -57,6 +57,14 @@ To pass work to a manager, send a brief that names:
 - the goal,
 - the files or area,
 - what done looks like,
-- who to report to.
+- who to report to: you, by your session id. Tell the manager to message you when the work is on
+  a branch or PR, or when it is blocked. A final report written in its own session is not delivered
+  to anyone.
 
 Sending is sending: tell the user what was sent and to which session.
+
+## Closing the loop
+
+- When a manager reports back, relay the outcome to the user: links, the branch, and what was
+  verified versus only checked in code. If the user asked on behalf of someone else, relay it to them too.
+- A manager's report is a claim, not proof. Check the branch and diff before telling the user the work is done.
