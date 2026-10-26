@@ -38,3 +38,27 @@ export function faviconState({ count, overdue }) {
   const label = count > 9 ? '9+' : count ? String(count) : ''
   return { color, label, key: `${color}:${label}` }
 }
+
+/** What the ticker remembers about each session between pushes. */
+export const snapshot = (rows) => new Map(rows.map((r) => [r.sessionId, { state: r.state, parked: !!r.parked }]))
+
+/**
+ * State transitions between the last snapshot and `rows`: arrived, blocked, unblocked (resumed), finished
+ * and parked. `prev` null (the first load) yields nothing: that is not news. Each event: { kind, id, text }.
+ */
+export function diffEvents(prev, rows) {
+  if (!prev) return []
+  const out = []
+  for (const r of rows) {
+    const p = prev.get(r.sessionId)
+    const ev = (kind, text) => out.push({ kind, id: r.sessionId, text: `${r.name} ${text}` })
+    if (!p) { ev('arrived', 'appeared'); continue }
+    const wasBlocked = p.state === 'blocked' && !p.parked
+    const isBlocked = needsYou(r)
+    if (!p.parked && r.parked) ev('parked', 'parked')
+    else if (!wasBlocked && isBlocked) ev('blocked', r.kind === 'question' ? 'asks a question' : `needs you${r.tool ? ` · ${r.tool}` : ''}`)
+    else if (wasBlocked && !isBlocked && !r.parked) ev(r.state === 'idle' ? 'finished' : 'resumed', r.state === 'idle' ? 'finished' : 'resumed')
+    else if (p.state === 'working' && r.state === 'idle') ev('finished', 'finished')
+  }
+  return out
+}

@@ -71,3 +71,14 @@ test('tab title and favicon are driven from updateAmbient and redrawn only when 
   assert.match(app, /updateTab\(attention\(queue, now, OVERDUE_MS\)\)/)
   assert.match(app, /if \(fav\.key === faviconKey\) return/)
 })
+
+test('event ticker: diffed per push, collapsible with e, remembered, documented', async () => {
+  const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])
+  assert.match(app, /pushEvents\(queue\)/)
+  assert.match(app, /e\.key === 'e'/)
+  assert.match(app, /localStorage\.setItem\('zarvis\.ticker'/)
+  assert.match(html, /id="tk"/)
+  assert.match(html, /<b>e<\/b>/)
+  assert.match(html, /e ticker/)
+  assert.match(readme, /`e` collapse\/expand the event ticker/)
+})

@@ -51,3 +51,28 @@ test('faviconState: the key flips only when the picture would', () => {
   assert.equal(faviconState({ count: 12, overdue: false }).label, '9+')
   assert.equal(faviconState({ count: 2, overdue: false }).key, faviconState({ count: 2, overdue: false }).key)
 })
+
+import { snapshot, diffEvents } from '../public/fx.js'
+
+const row = (id, state, extra = {}) => ({ sessionId: id, name: id, state, since: 0, ...extra })
+
+test('diffEvents: nothing on the first load, then arrived / blocked / resumed / finished / parked', () => {
+  assert.deepEqual(diffEvents(null, [row('a', 'blocked')]), [])
+  const prev = snapshot([row('a', 'working'), row('b', 'blocked'), row('c', 'working'), row('d', 'idle'), row('e', 'blocked')])
+  const next = [row('a', 'blocked', { tool: 'Bash' }), row('b', 'working'), row('c', 'idle'), row('d', 'idle', { parked: {} }), row('e', 'blocked', { parked: {} }), row('f', 'working')]
+  assert.deepEqual(diffEvents(prev, next).map((e) => [e.id, e.kind, e.text]), [
+    ['a', 'blocked', 'a needs you · Bash'],
+    ['b', 'resumed', 'b resumed'],
+    ['c', 'finished', 'c finished'],
+    ['d', 'parked', 'd parked'],
+    ['e', 'parked', 'e parked'],
+    ['f', 'arrived', 'f appeared'],
+  ])
+})
+
+test('diffEvents: a question is a blocked event, a blocked row that goes idle finished, no repeats when nothing changed', () => {
+  const prev = snapshot([row('q', 'working'), row('b', 'blocked')])
+  assert.equal(diffEvents(prev, [row('q', 'blocked', { kind: 'question' }), row('b', 'idle')]).map((e) => e.text).join('|'), 'q asks a question|b finished')
+  assert.deepEqual(diffEvents(snapshot([row('x', 'blocked')]), [row('x', 'blocked')]), [])
+  assert.deepEqual(diffEvents(snapshot([row('x', 'blocked', { parked: {} })]), [row('x', 'blocked', { parked: {} })]), [])
+})

@@ -1,5 +1,5 @@
 'use strict'
-import { fuseVars, glowState, attention, tabTitle, faviconState } from '/fx.js'
+import { fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents } from '/fx.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -259,6 +259,37 @@ function fuseHtml(r, now) {
   return `<i class="fuse" style="--p:${f.p};--d:${f.d}"></i>`
 }
 
+// Event ticker: footer strip of the last dozen state transitions, diffed on each push. It lives outside #list.
+const TICKER_MAX = 12
+let tickerSnap = null
+let tickerOpen = true
+try { tickerOpen = localStorage.getItem('zarvis.ticker') !== '0' } catch { /* storage blocked */ }
+function paintTickerState() {
+  document.body.classList.toggle('tk-off', !tickerOpen)
+  $('#tkLbl').setAttribute('aria-expanded', String(tickerOpen))
+}
+function setTicker(open) {
+  tickerOpen = open
+  try { localStorage.setItem('zarvis.ticker', open ? '1' : '0') } catch { /* storage blocked */ }
+  paintTickerState()
+}
+function pushEvents(rows) {
+  const events = diffEvents(tickerSnap, rows)
+  tickerSnap = snapshot(rows)
+  const box = $('#tkList')
+  const t = new Date().toTimeString().slice(0, 8)
+  for (const ev of events) {
+    const el = document.createElement('span')
+    el.className = `ev mono new ${ev.kind}`
+    el.innerHTML = `${t} <b>${esc(ev.text)}</b>`
+    box.insertBefore(el, box.firstChild)
+    setTimeout(() => el.classList.remove('new'), 400)
+  }
+  while (box.children.length > TICKER_MAX) box.lastChild.remove()
+}
+$('#tkLbl').addEventListener('click', () => setTicker(!tickerOpen))
+paintTickerState()
+
 /** Ambient edge glow on <body>: amber while anything needs you, red once any wait is overdue. Not filtered: it is the attention signal. */
 function updateAmbient(now = Date.now()) {
   const g = glowState(queue, now, OVERDUE_MS)
@@ -406,6 +437,7 @@ function setQueue(q) {
   fresh = new Set(first ? [] : q.filter((r) => !seen.has(r.sessionId)).map((r) => r.sessionId))
   seen = new Set(q.map((r) => r.sessionId))
   first = false
+  pushEvents(queue)
   updateAmbient()
   reconcileProject()
   if (renaming && !q.some((r) => r.sessionId === renaming)) renaming = null
@@ -683,6 +715,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'z') { e.preventDefault(); undoLast() }
   else if (e.key === 'p') setView('parked')
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
+  else if (e.key === 'e') { e.preventDefault(); setTicker(!tickerOpen) }
   else if (e.key === 'v') {
     e.preventDefault()
     if (view !== 'tree') return toast('v shows or hides parked sessions on the Roles page (t)')
