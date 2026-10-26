@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { parseMarker, readMarkers } from '../lib/markers.mjs'
+import { parseMarker, readMarkers, hookStatus } from '../lib/markers.mjs'
 import { pendingTool, buildMarker, buildWorking, summarizeInput } from '../hooks/zarvis-hook.mjs'
 
 const ID = 'f6cce3a1-cd4c-4de5-bb8d-e7375ea36a85'
@@ -52,4 +52,15 @@ test('buildWorking restarts the clock when the state changes', () => {
   assert.equal(buildWorking({ session_id: ID }, { at: 10, state: 'idle' }, 99).at, 99)
   assert.equal(buildWorking({ session_id: ID }, { at: 10, state: 'idle' }, 99, 'idle').at, 10)
   assert.equal(buildWorking({ session_id: ID }, null, 99, 'idle').state, 'idle')
+})
+
+test('hookStatus: live, stale, absent, and never a guess', () => {
+  const now = 100_000_000
+  const min = 60_000
+  assert.deepEqual(hookStatus([], now), { status: 'absent', lastAt: 0 })
+  assert.equal(hookStatus([{ at: now - 2 * min }], now).status, 'live') // blocked marker
+  assert.equal(hookStatus([{ at: now - 60 * min, seen: now - min }], now).status, 'live') // working marker's seen wins
+  const old = hookStatus([{ at: now - 30 * min }, { at: now - 20 * min, seen: now - 20 * min }], now)
+  assert.deepEqual(old, { status: 'stale', lastAt: now - 20 * min })
+  assert.equal(hookStatus([{ at: now - 11 * min }], now, 12 * min).status, 'live') // custom threshold
 })

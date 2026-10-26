@@ -356,6 +356,17 @@ setInterval(() => {
 
 const live = (ok) => { document.querySelector('#conn .live').classList.toggle('off', !ok) }
 const es = new EventSource('/api/events')
-es.onmessage = (m) => { live(true); setQueue(JSON.parse(m.data).queue) }
+const HOOK_LABEL = { live: 'events live', stale: 'stale', absent: 'absent' }
+function setHook(h) {
+  const el = $('#hookst')
+  const st = HOOK_LABEL[h?.status] ? h.status : 'unknown'
+  el.className = `mono hk ${st}`
+  el.textContent = `hook: ${HOOK_LABEL[st] || 'unknown'}`
+  el.title =
+    st === 'absent' ? 'No hook markers on disk: the hook never ran, or every session has ended'
+    : st === 'unknown' ? 'Hook status unknown'
+    : `Last hook event ${fmt(Date.now() - h.lastAt)} ago`
+}
+es.onmessage = (m) => { const d = JSON.parse(m.data); live(true); setHook(d.hook); setQueue(d.queue) }
 es.onerror = () => live(false)
 render()

@@ -13,6 +13,7 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 #helpBtn{cursor:pointer}
 .pill .badge{color:var(--am);margin-left:4px}
 .sp{flex:1}
+.hk{margin-right:14px;font-size:12px;letter-spacing:.06em;color:var(--t3)}.hk.live{color:var(--gr)}.hk.stale{color:var(--am)}
 .live{color:var(--gr)}.live.off{color:var(--rd)}
 .wrap{max-width:860px;margin:0 auto;padding:22px 20px}
 .cols{display:flex;gap:20px;align-items:flex-start}

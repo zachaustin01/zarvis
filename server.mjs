@@ -5,7 +5,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { readMarkers, WORKING_DIR, ROLES_DIR, ZARVIS_HOME } from './lib/markers.mjs'
+import { readMarkers, hookStatus, WORKING_DIR, ROLES_DIR, ZARVIS_HOME } from './lib/markers.mjs'
 import { classify, childrenOf, roleMarker, ROLES } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords } from './lib/sessions.mjs'
@@ -193,13 +193,16 @@ const send = (res, code, body, type = 'application/json') => {
 const clients = new Set()
 let lastSig = ''
 let lastQueue = []
+let lastHook = { status: 'absent', lastAt: 0 }
+const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook })
 async function tick() {
   try {
     lastQueue = await currentQueue()
-    const sig = JSON.stringify(lastQueue.map(({ waitMs, ...r }) => r))
+    lastHook = hookStatus([...(await readMarkers()), ...(await readMarkers(WORKING_DIR))])
+    const sig = JSON.stringify([lastQueue.map(({ waitMs, ...r }) => r), lastHook])
     if (sig !== lastSig) {
       lastSig = sig
-      for (const c of clients) c.write(`data: ${JSON.stringify({ now: Date.now(), queue: lastQueue })}\n\n`)
+      for (const c of clients) c.write(`data: ${JSON.stringify(payload())}\n\n`)
     }
   } catch (e) {
     console.error('scan failed:', e.message)
@@ -212,11 +215,11 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/queue') {
       await tick()
-      return send(res, 200, { now: Date.now(), queue: lastQueue })
+      return send(res, 200, payload())
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' })
-      res.write(`data: ${JSON.stringify({ now: Date.now(), queue: lastQueue })}\n\n`)
+      res.write(`data: ${JSON.stringify(payload())}\n\n`)
       clients.add(res)
       req.on('close', () => clients.delete(res))
       return
