@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Install (or remove) the Zarvis hooks in your Claude Code settings, and the zarvis-interface skill.
+ * Install (or remove) the Zarvis hooks in your Claude Code settings, and the zarvis-interface and zarvis-manager skills.
  *
- *   npm run setup              add the hooks to ~/.claude/settings.json, the skill to ~/.claude/skills/
+ *   npm run setup              add the hooks to ~/.claude/settings.json, the skills to ~/.claude/skills/
  *   npm run uninstall-hook     take them out again
  *
  * Flags: --dry-run (print the result, write nothing), --settings <file> (another settings
@@ -21,8 +21,10 @@ import { fileURLToPath } from 'node:url'
 import { addHooks, hasHooks, removeHooks } from '../lib/hook-config.mjs'
 
 const HOOK_PATH = fileURLToPath(new URL('../hooks/zarvis-hook.mjs', import.meta.url))
-const SKILL_NAME = 'zarvis-interface'
-const SKILL_SOURCE = fileURLToPath(new URL(`../skills/${SKILL_NAME}/SKILL.md`, import.meta.url))
+const SKILLS = ['zarvis-interface', 'zarvis-manager'].map((name) => ({
+  name,
+  source: fileURLToPath(new URL(`../skills/${name}/SKILL.md`, import.meta.url)),
+}))
 
 function parseArgs(argv) {
   const args = { mode: 'install', dryRun: false, settings: process.env.CLAUDE_SETTINGS || '', skillsDir: process.env.CLAUDE_SKILLS_DIR || '' }
@@ -74,12 +76,12 @@ async function writeSettings(file, settings, existed) {
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-')
 
 /**
- * What to do about the installed skill file: { dest, action: 'write' | 'remove' | 'none', backup }.
+ * What to do about the installed skill file: { name, dest, action: 'write' | 'remove' | 'none', backup }.
  * Reads only. Throws when the destination is not a plain file or directory we could own, so that
  * nothing is written (hooks included) on a state we do not understand.
  */
-async function planSkill(mode, skillsDir) {
-  const dir = path.join(skillsDir, SKILL_NAME)
+async function planSkill(mode, skillsDir, { name, source }) {
+  const dir = path.join(skillsDir, name)
   const dest = path.join(dir, 'SKILL.md')
   for (const p of [dir, dest]) {
     const st = await fsp.lstat(p).catch((err) => (err.code === 'ENOENT' ? null : Promise.reject(err)))
@@ -88,13 +90,13 @@ async function planSkill(mode, skillsDir) {
     }
   }
   const current = await fsp.readFile(dest, 'utf8').catch((err) => (err.code === 'ENOENT' ? null : Promise.reject(err)))
-  const shipped = await fsp.readFile(SKILL_SOURCE, 'utf8')
+  const shipped = await fsp.readFile(source, 'utf8')
   if (mode === 'install') {
-    if (current === shipped) return { dir, dest, action: 'none', backup: false }
-    return { dir, dest, action: 'write', shipped, backup: current !== null }
+    if (current === shipped) return { name, dir, dest, action: 'none', backup: false }
+    return { name, dir, dest, action: 'write', shipped, backup: current !== null }
   }
-  if (current === null) return { dir, dest, action: 'none', backup: false }
-  return { dir, dest, action: 'remove', backup: current !== shipped }
+  if (current === null) return { name, dir, dest, action: 'none', backup: false }
+  return { name, dir, dest, action: 'remove', backup: current !== shipped }
 }
 
 async function applySkill(plan) {
@@ -119,7 +121,8 @@ export async function run(argv = process.argv.slice(2), log = console.log) {
   const args = parseArgs(argv)
   const install = args.mode === 'install'
   const { settings, existed } = await readSettings(args.settings)
-  const skill = await planSkill(args.mode, args.skillsDir)
+  const skills = []
+  for (const def of SKILLS) skills.push(await planSkill(args.mode, args.skillsDir, def)) // all planned before any write
 
   let next = null
   if (install) {
@@ -130,12 +133,16 @@ export async function run(argv = process.argv.slice(2), log = console.log) {
     if (JSON.stringify(removed) === JSON.stringify(settings)) log(`No Zarvis hooks in ${args.settings}`)
     else next = removed
   }
-  if (skill.action === 'none') log(install ? `${SKILL_NAME} skill already installed at ${skill.dest}` : `No ${SKILL_NAME} skill at ${skill.dest}`)
+  for (const skill of skills) {
+    if (skill.action === 'none') log(install ? `${skill.name} skill already installed at ${skill.dest}` : `No ${skill.name} skill at ${skill.dest}`)
+  }
 
   if (args.dryRun) {
     if (next) log(`Would write ${args.settings}:\n${JSON.stringify(next, null, 2)}`)
-    if (skill.action === 'write') log(`Would ${skill.backup ? 'back up and overwrite' : 'write'} ${skill.dest}`)
-    if (skill.action === 'remove') log(`Would ${skill.backup ? 'back up and ' : ''}remove ${skill.dest}`)
+    for (const skill of skills) {
+      if (skill.action === 'write') log(`Would ${skill.backup ? 'back up and overwrite' : 'write'} ${skill.dest}`)
+      if (skill.action === 'remove') log(`Would ${skill.backup ? 'back up and ' : ''}remove ${skill.dest}`)
+    }
     return 0
   }
 
@@ -146,9 +153,9 @@ export async function run(argv = process.argv.slice(2), log = console.log) {
     if (backup) log(`Backup of the previous file: ${backup}`)
     if (install) log('New Claude Code sessions pick them up; sessions already open need a restart.')
   }
-  if (skill.action !== 'none') {
+  for (const skill of skills.filter((k) => k.action !== 'none')) {
     const backup = await applySkill(skill)
-    log(`${verb} the ${SKILL_NAME} skill at ${skill.dest}`)
+    log(`${verb} the ${skill.name} skill at ${skill.dest}`)
     if (backup) log(`Backup of the previous file: ${backup}`)
   }
   return 0

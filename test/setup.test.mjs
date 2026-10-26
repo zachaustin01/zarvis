@@ -87,6 +87,7 @@ test('--dry-run writes nothing', async () => {
 })
 
 const SKILL_SRC = new URL('../skills/zarvis-interface/SKILL.md', import.meta.url)
+const MANAGER_SRC = new URL('../skills/zarvis-manager/SKILL.md', import.meta.url)
 
 async function sandbox() {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-skill-'))
@@ -99,7 +100,7 @@ test('the shipped skill has the frontmatter Claude needs and the spec sections i
   const text = await fsp.readFile(SKILL_SRC, 'utf8')
   assert.match(text, /^---\nname: zarvis-interface\ndescription: .*\[zarvis: role=interface\]/s)
   const heads = [...text.matchAll(/^## (.+)$/gm)].map((m) => m[1])
-  assert.deepEqual(heads, ['Role', 'Orient', 'May do', 'Ask first', 'Must not', 'Report format', 'Handoff briefs'])
+  assert.deepEqual(heads, ['Role', 'Orient', 'May do', 'Ask first', 'Must not', 'Report format', 'Handoff briefs', 'Closing the loop'])
 })
 
 test('setup installs the skill beside the settings, and re-running changes nothing', async () => {
@@ -159,4 +160,18 @@ test('an unusable skill path stops setup before anything is written', async () =
   await fsp.writeFile(path.join(s.dir, 'skills', 'zarvis-interface'), 'a file, not a folder')
   await assert.rejects(s.run([]), /not a plain directory/)
   await assert.rejects(fsp.access(s.settings), 'hooks not written either')
+})
+
+test('setup installs and removes the manager skill alongside the interface one', async () => {
+  const s = await sandbox()
+  const dest = path.join(s.dir, 'skills', 'zarvis-manager', 'SKILL.md')
+  await s.run([])
+  assert.equal(await fsp.readFile(dest, 'utf8'), await fsp.readFile(MANAGER_SRC, 'utf8'))
+  assert.match(await fsp.readFile(MANAGER_SRC, 'utf8'), /^---\nname: zarvis-manager\ndescription: .*\[zarvis: role=manager\]/s)
+  await fsp.writeFile(dest, 'edited')
+  await s.run([])
+  assert.equal((await fsp.readdir(path.dirname(dest))).filter((f) => f.includes('zarvis-backup')).length, 1)
+  await s.run(['uninstall'])
+  await assert.rejects(fsp.access(s.dest))
+  assert.equal((await fsp.readdir(path.dirname(dest))).length, 1, 'only the manager backup remains')
 })

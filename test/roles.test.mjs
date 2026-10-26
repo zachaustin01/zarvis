@@ -85,7 +85,7 @@ test('roster lists each manager with its workers and is stable across renders', 
 
 test('rolePrompt gives the interface and managers a pointer line, and others only the tag', () => {
   assert.equal(rolePrompt('interface'), '[zarvis: role=interface] Use the zarvis-interface skill (installed by npm run setup) for your role.')
-  assert.equal(rolePrompt('manager', '', '/r.md'), '[zarvis: role=manager] Your workers are listed in /r.md.')
+  assert.equal(rolePrompt('manager', '', '/r.md'), '[zarvis: role=manager] Your workers are listed in /r.md. Use the zarvis-manager skill (installed by npm run setup) for your role.')
   assert.equal(rolePrompt('worker', id(2)), `[zarvis: role=worker parent=${id(2)}]`)
   assert.equal(rolePrompt('boss'), '')
   assert.equal(rolePrompt('interface').startsWith(roleMarker('interface')), true, 'the hook-parsed tag leads')
