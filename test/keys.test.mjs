@@ -24,3 +24,10 @@ test('role filter keys: m / w toggle the queue filter after the n / c second-key
   assert.match(html, /m\/w role filter/)
   assert.match(readme, /`m`\/`w` queue role filter/)
 })
+
+test('both list renders keep a half-typed rename across live redraws', async () => {
+  const app = await read('public/app.js')
+  assert.equal((app.match(/const renameSnap = snapRename\(\)/g) || []).length, 2) // queue and role tree
+  assert.equal((app.match(/restoreRename\(renameSnap\)/g) || []).length, 2)
+  assert.doesNotMatch(app, /inp\.select\(\)/) // the old unconditional select() that swallowed typing
+})

@@ -119,17 +119,12 @@ function renderTree() {
   const t = tree
   const part = (title, rows) => (rows.length ? heading(title) + rows.map((r) => treeRow(r, 0)).join('') : '')
   const mgr = t.managers.map((m) => treeRow(m, 0) + m.children.map((c) => treeRow(c, 1)).join('')).join('')
+  const renameSnap = snapRename()
   $('#list').innerHTML =
     part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
     '<div class="empty">No sessions.</div>'
   if (!nodes.some((r) => r.sessionId === sel) && nodes.length) sel = nodes[0].sessionId
-  if (renaming) {
-    const inp = $('#renIn')
-    if (inp && document.activeElement !== inp) {
-      inp.focus()
-      inp.select()
-    }
-  }
+  restoreRename(renameSnap)
 }
 
 const when = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) + ` · ${ago(ms)}`
@@ -214,6 +209,22 @@ function rowHtml(r, now) {
   )
 }
 
+/** Live pushes redraw the list; keep what the user has typed into the rename box (and the caret) across it. */
+function snapRename() {
+  const i = renaming && $('#renIn')
+  return i ? { value: i.value, start: i.selectionStart, end: i.selectionEnd } : null
+}
+function restoreRename(snap) {
+  if (!renaming) return
+  const i = $('#renIn')
+  if (!i) return
+  if (snap) {
+    i.value = snap.value
+    i.setSelectionRange(snap.start, snap.end)
+  } else i.select() // first draw: select the old name so typing replaces it
+  if (document.activeElement !== i) i.focus()
+}
+
 function setRoleFilter(r) {
   roleFilter = r
   try { localStorage.setItem('zarvis.role', r) } catch { /* storage blocked */ }
@@ -261,6 +272,7 @@ function render() {
   $('#qb').textContent = vq.filter((r) => r.state === 'blocked' && !r.parked).length || '' // what the "Needs you" section holds
   const list = $('#list')
   const side = $('#side')
+  const renameSnap = snapRename()
   if (!vq.length) {
     side.innerHTML = ''
     document.querySelector('.wrap').classList.remove('has-side')
@@ -282,13 +294,7 @@ function render() {
         return head + rowHtml(r, now)
       })
       .join('') || (iface.length ? '<div class="empty">Nothing else waiting on you.</div>' : '')
-  if (renaming) {
-    const inp = $('#renIn')
-    if (inp && document.activeElement !== inp) {
-      inp.focus()
-      inp.select()
-    }
-  }
+  restoreRename(renameSnap)
 }
 
 function setQueue(q) {
