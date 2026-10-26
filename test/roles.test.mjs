@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { classify, childrenOf, roleMarker } from '../lib/roles.mjs'
+import { classify, childrenOf, roleMarker, rolePrompt } from '../lib/roles.mjs'
 import { renderRoster } from '../lib/roster.mjs'
 import { applyRoles } from '../lib/queue.mjs'
 import { setRole, readState } from '../lib/state.mjs'
@@ -81,4 +81,12 @@ test('roster lists each manager with its workers and is stable across renders', 
   assert.match(text, /workers: none attached/)
   assert.equal(renderRoster(tree), text)
   assert.match(renderRoster({ interface: [], managers: [], orphans: [], unclassified: [] }), /No managers yet/)
+})
+
+test('rolePrompt gives the interface and managers a pointer line, and others only the tag', () => {
+  assert.equal(rolePrompt('interface'), '[zarvis: role=interface] Use the zarvis-interface skill (installed by npm run setup) for your role.')
+  assert.equal(rolePrompt('manager', '', '/r.md'), '[zarvis: role=manager] Your workers are listed in /r.md.')
+  assert.equal(rolePrompt('worker', id(2)), `[zarvis: role=worker parent=${id(2)}]`)
+  assert.equal(rolePrompt('boss'), '')
+  assert.equal(rolePrompt('interface').startsWith(roleMarker('interface')), true, 'the hook-parsed tag leads')
 })
