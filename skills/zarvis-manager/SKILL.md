@@ -35,8 +35,15 @@ above your workers (one layer down).
   `node "{{ZARVIS_DIR}}/scripts/claims.mjs" claim <KEY> --by <its session id>` first thing, so the
   checkout carries the key rather than the branch name. Workers give the checkout up with `release`
   when done (it is also released when their session ends).
-- Every brief names the files or area, what done looks like, to commit but not push, and to
-  message you (by your session id) when done or blocked.
+- Start every worker's first prompt with the role tag, then the brief:
+  `[zarvis: role=worker parent=<your session id>]`. It must be at the very start of the prompt. The
+  tag is what loads the `zarvis-worker` skill (when to report and in what shape) and attaches the
+  worker to you in the roster.
+- Every brief names the files or area, what done looks like, and to commit but not push. It says
+  **"report once, when done"** (with `SendMessage` to your session id, or sooner only if blocked on
+  a decision only you or the user can make), and names any checkpoint you want (for example "plan
+  approval before coding"); with none named, the worker works the whole brief in one turn.
+- Don't ask for progress updates or per-item reports. Each one costs you a turn.
 
 ## Closing the loop
 
@@ -44,6 +51,8 @@ above your workers (one layer down).
 - Then relay the outcome to whoever asked (the interface or the user): the branch, the commits, and
   what was verified versus only checked in code.
 - A worker's report is a claim, not proof.
+- Batch review feedback: read the whole diff, then send one follow-up with every change you want.
+  Each follow-up starts a worker turn and another report, so several small ones cost several.
 
 ## Parking finished sessions
 

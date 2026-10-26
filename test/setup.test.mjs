@@ -131,7 +131,7 @@ test('the shipped skill has the frontmatter Claude needs and the spec sections i
 test('every shipped skill has frontmatter that is valid YAML for name and description', async () => {
   const root = fileURLToPath(new URL('../skills/', import.meta.url))
   const dirs = (await fsp.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory())
-  assert.ok(dirs.length >= 2)
+  assert.ok(dirs.length >= 3)
   for (const d of dirs) {
     const text = await fsp.readFile(path.join(root, d.name, 'SKILL.md'), 'utf8')
     const m = /^---\n([\s\S]*?)\n---\n/.exec(text)
@@ -274,4 +274,35 @@ test('the installed park command survives clone paths with $, backticks, quotes 
   }
   await assert.rejects(fsp.access(path.join(base, 'pwned')), 'no command substitution ran')
   assert.ok(!(await fsp.readdir(base)).includes('pwned'))
+})
+
+test('setup installs and removes the worker skill, with the placeholder rendered', async () => {
+  const s = await sandbox()
+  const src = new URL('../skills/zarvis-worker/SKILL.md', import.meta.url)
+  const template = await fsp.readFile(src, 'utf8')
+  assert.match(template, /^---\nname: zarvis-worker\ndescription: "[^\n]*\[zarvis: role=worker parent=<manager session id>\]/)
+  const dest = path.join(s.dir, 'skills', 'zarvis-worker', 'SKILL.md')
+  const logs = []
+  await run(['--dry-run', '--settings', s.settings], (l) => logs.push(l))
+  assert.ok(logs.some((l) => l.includes(`Would write ${dest}`)))
+  await assert.rejects(fsp.access(dest), 'dry run wrote nothing')
+  await s.run([])
+  const text = await fsp.readFile(dest, 'utf8')
+  assert.equal(text, template.split('{{ZARVIS_DIR}}').join(ZARVIS_DIR))
+  assert.ok(text.includes(`node "${ZARVIS_DIR}/scripts/claims.mjs" claim`))
+  const before = await fsp.readdir(path.dirname(dest))
+  await s.run([])
+  assert.deepEqual(await fsp.readdir(path.dirname(dest)), before, 'idempotent, no backup')
+  await fsp.writeFile(dest, 'edited')
+  await s.run([])
+  assert.equal((await fsp.readdir(path.dirname(dest))).filter((f) => f.includes('zarvis-backup')).length, 1)
+  await s.run(['uninstall'])
+  await assert.rejects(fsp.access(dest))
+})
+
+test('the manager skill tells managers to tag workers, brief "report once" and batch feedback', async () => {
+  const text = await fsp.readFile(MANAGER_SRC, 'utf8')
+  assert.match(text, /\[zarvis: role=worker parent=<your session id>\]/)
+  assert.match(text, /report once, when done/)
+  assert.match(text, /Batch review feedback/)
 })

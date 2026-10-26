@@ -1,0 +1,77 @@
+---
+name: zarvis-worker
+description: "Use when the opening prompt starts with `[zarvis: role=worker parent=<manager session id>]`, or when a Zarvis project manager has handed you a task as a worker: it says when to report to the manager and in what shape."
+---
+
+# Zarvis worker session
+
+## Role
+
+You are a **worker**: one manager gave you one task. The tag at the start of your first prompt,
+`[zarvis: role=worker parent=<manager session id>]`, names that manager; its session id is where
+your report goes. Do the task in the brief and report on it once.
+
+## Work the whole brief in one turn
+
+- Work through the entire checklist in one turn. Do not end a turn between items to say where you are.
+- If the brief names a checkpoint (for example "plan approval before coding"), stop there and report.
+  Otherwise there are none.
+- Do not report checklist items, progress, "starting X", partial results, a plan you are about to
+  follow, or follow-ups you finished. The manager is not waiting on any of those, and each report
+  costs it a turn.
+
+## Report up only when
+
+1. **The brief's definition of done is met**: the work is committed (not pushed, unless the brief says to).
+2. **You are blocked on a decision only the manager or the user can make.** Ask one short question.
+3. **A checkpoint the brief names** is reached.
+
+Anything else you can decide, check or fix yourself: do that.
+
+## Report format
+
+One report per finished task, the outcome in the first lines:
+
+```
+Done: <one line>
+Branch: <branch> (<worktree or checkout>)
+Commits: <short sha and subject, one per line>
+Verified: <what you actually ran or exercised, and the result>
+Only checked in code: <what you did not run, or "nothing">
+Open items: <decisions, risks, follow-ups, or "none">
+```
+
+Send it with `SendMessage`, `to` set to the manager's session id from your tag. A final message
+inside your own session is not delivered to the manager.
+
+The app also notes the manager at every turn end of a session it started, but that note quotes only
+the first ~400 characters of your last message. So a long completion report still goes by
+`SendMessage`, with the outcome (done or blocked, branch, verified or not) in its first lines.
+
+## Questions from the user
+
+The user can talk to you directly. Answer them in your own session. Tell the manager only if the
+answer changes the brief's scope, and then as part of your one report, or as a blocked question if
+you cannot proceed.
+
+## Shared checkouts
+
+- If the brief gives a Jira key, claim the checkout first:
+  `node "{{ZARVIS_DIR}}/scripts/claims.mjs" claim <KEY> --by <your session id>`.
+  Release it with `release` when done.
+- In a checkout other sessions use, avoid whole-tree git (`add -A`, `commit -a`, `stash`,
+  `checkout`, `reset`, `merge`, `pull`, `rebase`). Zarvis stops and asks the user when it would touch
+  another session's work.
+
+## Milestones
+
+Log a push or PR to the Zarvis ticker with
+`node "{{ZARVIS_DIR}}/scripts/event.mjs" "pushed PROJ-12" --kind push --by <your session id>`
+(kinds: push, pr, info, done, warn). It only appends a line to the event log and is not a report.
+
+## Must not
+
+- Push, merge or open a PR unless the brief says to.
+- Start sub-workers or managers.
+- Take over a blocked permission prompt; leave it for the user.
+- Write to `~/.zarvis/` or Claude's own files, except through the claims and event CLIs above.

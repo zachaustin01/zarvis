@@ -6,7 +6,7 @@ desktop app via its `claude://` deep link. There is no approve/deny here. While 
 never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers),
 `~/.zarvis/claims/*.json` (checkout claims, written by the hook and the claims CLI) and
 `~/.zarvis/state.json` (overlay names). The one exception is `npm run setup`, which adds its hook
-to your Claude settings and installs the `zarvis-interface` and `zarvis-manager` skills into `~/.claude/skills/` when you run it.
+to your Claude settings and installs the `zarvis-interface`, `zarvis-manager` and `zarvis-worker` skills into `~/.claude/skills/` when you run it.
 
 **Zero npm dependencies.** Needs only Node >= 22.13.
 
@@ -129,7 +129,7 @@ Press `t` for the role tree, `h` for the queue.
 
 - Tag by hand: `c`, then `i` / `m` / `w` / `x` (clear). In the tree, `Shift+C` makes every
   unclassified session a worker.
-- Tag at session start: put `[zarvis: role=manager]` (or `interface`; `worker parent=<session id>`) in the
+- Tag at session start: put `[zarvis: role=manager]` (or `interface`; `worker parent=<session id>`, which loads the `zarvis-worker` skill) in the
   very first prompt, at its start (a mention later or mid-prompt is ignored). The hook records it under `~/.zarvis/roles/`; a hand-set role overrides it.
 - A session spawned by a manager becomes its worker; one that has spawned children is only
   *suggested* as a manager. Spawn links from the interface are ignored.
@@ -138,8 +138,8 @@ Press `t` for the role tree, `h` for the queue.
 
 ## Interface session
 
-`npm run setup` also installs two skills from `skills/` to `~/.claude/skills/`: `zarvis-interface`
-and `zarvis-manager`, with the same rules as the hook: a differing existing
+`npm run setup` also installs three skills from `skills/` to `~/.claude/skills/`: `zarvis-interface`,
+`zarvis-manager` and `zarvis-worker`, with the same rules as the hook: a differing existing
 `SKILL.md` is backed up first, only Zarvis's own `SKILL.md` files are touched, re-running is safe, `--dry-run`
 writes nothing, and `--skills-dir <dir>` (or `CLAUDE_SKILLS_DIR`) picks another folder. With
 `--settings <file>` the skill goes to a `skills/` folder beside that file. `npm run uninstall-hook`
@@ -147,9 +147,10 @@ removes it.
 
 The skill tells an interface session its job: triage and route to project managers, orient from the
 roster, what it may do, what to ask first, what never to do and how to hand work to a manager and
-close the loop. `zarvis-manager` does the same for a project manager and its workers. `n` then `i` opens a new session with
+close the loop. `zarvis-manager` does the same for a project manager and its workers. `zarvis-worker` tells a worker
+to work its whole brief in one turn and report to its manager once (done, blocked, or a named checkpoint), in a fixed shape. `n` then `i` opens a new session with
 `[zarvis: role=interface]` and a line pointing at the skill prefilled in the prompt box (not sent); `n` then `m` does the same for a manager, with the roster line and a pointer to
-`zarvis-manager`. Sessions already open need a restart to see a newly installed skill.
+`zarvis-manager`; `n` then `w` prefills `[zarvis: role=worker]` and a pointer to `zarvis-worker`. Sessions already open need a restart to see a newly installed skill.
 
 ## Roster
 

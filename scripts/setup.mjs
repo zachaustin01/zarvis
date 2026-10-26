@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Install (or remove) the Zarvis hooks in your Claude Code settings, and the zarvis-interface and zarvis-manager skills.
+ * Install (or remove) the Zarvis hooks in your Claude Code settings, and the zarvis-interface, zarvis-manager and zarvis-worker skills.
  *
  *   npm run setup              add the hooks to ~/.claude/settings.json, the skills to ~/.claude/skills/
  *   npm run uninstall-hook     take them out again
@@ -36,7 +36,7 @@ function isRendered(text, template) {
   return new RegExp(`^${head}([^\\n]+?)${tail.join('\\1')}$`).test(text)
 }
 
-const SKILLS = ['zarvis-interface', 'zarvis-manager'].map((name) => ({
+const SKILLS = ['zarvis-interface', 'zarvis-manager', 'zarvis-worker'].map((name) => ({
   name,
   source: fileURLToPath(new URL(`../skills/${name}/SKILL.md`, import.meta.url)),
 }))
