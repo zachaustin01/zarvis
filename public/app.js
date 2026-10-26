@@ -58,8 +58,12 @@ function fmt(ms) {
   return Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm'
 }
 
+// Managers stay in the main checkout and write no code, so their branch/worktree is never shown.
+const showsWhere = (r) => r.role !== 'manager'
+
 function crumbs(r) {
   const parts = [r.project ? `<span class="pj" style="color:hsl(${projectHue(r.project)} 65% 68%)">${esc(r.project)}</span>` : '']
+  if (!showsWhere(r)) return parts.join('') || esc(r.name || 'manager')
   if (r.initiative) parts.push(esc(r.initiative))
   const where = r.branch || r.worktree
   parts.push(esc(where || 'no branch'))
@@ -101,7 +105,7 @@ function treeRow(r, depth) {
   const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${r.branch || r.worktree ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}` +
+    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}` +
     `<span class="wt">${esc(treeStatus(r))}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
@@ -140,7 +144,7 @@ function renderParked() {
         const by = p.parkedBy ? `by ${esc(p.parkedByName || p.parkedBy)}` : 'by hand'
         return (
           `<div class="q tr pkv${r.sessionId === sel ? ' sel' : ''}" data-id="${esc(r.sessionId)}">` +
-          `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span><span class="pd">○</span><span class="key${r.branch || r.worktree ? '' : ' nb'}">${crumbs(r)}</span><span class="nm">${esc(r.name)}</span>` +
+          `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span><span class="pd">○</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span><span class="nm">${esc(r.name)}</span>` +
           `<span class="wt">parked ${esc(when(p.parkedAt))}</span></div>` +
           `<div class="prompt">${esc(p.reason)} · ${by}${wake}</div>` +
           (p.handoffNote ? `<div class="note">${esc(p.handoffNote)}</div>` : '') +
@@ -201,7 +205,7 @@ function rowHtml(r, now) {
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
     `<div class="q${r.parked ? ' pkd' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${r.branch || r.worktree ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
+    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? 'Idle — waiting for your next prompt' : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
     `<span class="go">ENTER ↵ OPEN</span></div>`
