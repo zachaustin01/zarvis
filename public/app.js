@@ -63,7 +63,7 @@ const showsWhere = (r) => r.role !== 'manager'
 
 function crumbs(r) {
   const parts = [r.project ? `<span class="pj" style="color:hsl(${projectHue(r.project)} 65% 68%)">${esc(r.project)}</span>` : '']
-  if (!showsWhere(r)) return parts.join('') || esc(r.name || 'manager')
+  if (!showsWhere(r)) return parts.join('') || 'manager'
   if (r.initiative) parts.push(esc(r.initiative))
   const where = r.branch || r.worktree
   parts.push(esc(where || 'no branch'))
