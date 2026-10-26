@@ -40,6 +40,20 @@ test('addHooks is idempotent and follows a moved clone', () => {
   assert.equal(hasHooks(moved, HOOK), false)
 })
 
+test('hasHooks ignores event order and other people\'s hooks, but not a changed or missing Zarvis entry', () => {
+  const once = addHooks({ hooks: { PreToolUse: [OTHER] } }, HOOK)
+  const reordered = { hooks: Object.fromEntries(Object.entries(once.hooks).reverse()) }
+  assert.equal(hasHooks(reordered, HOOK), true, 'same hooks, different event order')
+  assert.equal(hasHooks({ hooks: { ...once.hooks, PreToolUse: [...once.hooks.PreToolUse.slice(1), once.hooks.PreToolUse[0]] } }, HOOK), true, 'our groups before or after others')
+  const dropped = structuredClone(once)
+  delete dropped.hooks.SubagentStop
+  assert.equal(hasHooks(dropped, HOOK), false, 'a missing event')
+  const changed = structuredClone(once)
+  changed.hooks.Stop[0].hooks[0].command = hookCommand(HOOK, 'done')
+  assert.equal(hasHooks(changed, HOOK), false, 'a wrong mode')
+  assert.equal(hasHooks({}, HOOK), false)
+})
+
 test('removeHooks takes out only Zarvis entries, then empty groups, events and hooks', () => {
   const mixed = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mine' }, { type: 'command', command: hookCommand(HOOK, 'clear') }] }
   const settings = addHooks({ hooks: { PreToolUse: [mixed] } }, HOOK)
