@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildQueue, deepLinkFor, splitWorktree, pickRecord } from '../lib/queue.mjs'
+import { buildQueue, deepLinkFor, newSessionLink, splitWorktree, pickRecord } from '../lib/queue.mjs'
 
 const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const B = 'bbbbbbbb-0000-4000-8000-000000000002'
@@ -57,4 +57,9 @@ test('helpers', () => {
   assert.equal(deepLinkFor('nope'), '')
   assert.deepEqual(splitWorktree('/r/p/.claude/worktrees/x'), { root: '/r/p', worktree: 'x' })
   assert.equal(pickRecord([{ cliSessionId: A, title: '' }, { cliSessionId: A, title: 't' }], A).title, 't')
+})
+
+test('newSessionLink opens a new desktop session, in a folder when given one', () => {
+  assert.equal(newSessionLink(''), 'claude://code/new')
+  assert.equal(newSessionLink('/Users/a b/repo'), 'claude://code/new?folder=%2FUsers%2Fa+b%2Frepo')
 })

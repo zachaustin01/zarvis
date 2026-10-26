@@ -90,6 +90,13 @@ async function openSel() {
   toast(ok ? `Opening “${r.name}” in Claude…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'Open failed')
 }
 
+async function newSession() {
+  const r = queue.find((x) => x.sessionId === sel)
+  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId })
+  const where = data.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
+  toast(ok ? `Opening a new Claude Code session${where}…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'New session failed')
+}
+
 async function commitRename() {
   const id = renaming
   const val = $('#renIn')?.value ?? ''
@@ -121,6 +128,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
   else if (e.key === 'r' && queue.length) { e.preventDefault(); renaming = sel; render() }
+  else if (e.key === 'n') { e.preventDefault(); newSession() }
 })
 
 $('#list').addEventListener('click', (e) => {

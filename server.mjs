@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { readMarkers } from './lib/markers.mjs'
 import { scanDesktopRecords } from './lib/sessions.mjs'
-import { buildQueue, DEFAULT_MAX_AGE_MS } from './lib/queue.mjs'
+import { buildQueue, newSessionLink, DEFAULT_MAX_AGE_MS } from './lib/queue.mjs'
 import { readState, setOverlay } from './lib/state.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
@@ -55,6 +55,16 @@ function openUrl(url) {
   const [cmd, args] =
     process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]] : ['xdg-open', [url]]
   return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 10000 }, (err) => (err ? reject(err) : resolve())))
+}
+
+/** `folder` if it is an absolute path to a directory still on this machine, else ''. */
+async function usableFolder(folder) {
+  if (typeof folder !== 'string' || !path.isAbsolute(folder)) return ''
+  try {
+    return (await fsp.stat(folder)).isDirectory() ? folder : ''
+  } catch {
+    return ''
+  }
 }
 
 function readJson(req) {
@@ -124,6 +134,16 @@ const server = http.createServer(async (req, res) => {
       if (!row.link) return send(res, 409, { error: 'terminal session: no desktop app session to open' })
       await openUrl(row.link)
       return send(res, 200, { ok: true, url: row.link, dryRun: DRY_OPEN })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/new') {
+      const { sessionId } = await readJson(req)
+      // A new session in the selected row's repo, or a plain new session with nothing selected.
+      // As with open, the folder comes from the queue on this side; the client never sends a path.
+      const row = sessionId ? (await currentQueue()).find((r) => r.sessionId === sessionId) : null
+      const folder = await usableFolder(row?.folder)
+      const link = newSessionLink(folder)
+      await openUrl(link)
+      return send(res, 200, { ok: true, url: link, folder, dryRun: DRY_OPEN })
     }
     if (req.method === 'POST' && url.pathname === '/api/rename') {
       const { sessionId, name } = await readJson(req)

@@ -56,8 +56,11 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 
 ## Keys
 
-`j`/`k` or arrows move · `Enter` open in Claude · `r` rename (overlay; Esc cancels; empty restores
-the app title) · `?` key sheet.
+`j`/`k` or arrows move · `Enter` open in Claude · `n` new Claude Code session · `r` rename
+(overlay; Esc cancels; empty restores the app title) · `?` key sheet.
+
+`n` opens a new session in the Claude desktop app via `claude://code/new`, in the selected
+session's repo (its root, not its worktree), or a plain new session when nothing is selected.
 
 ## Behaviour notes
 
