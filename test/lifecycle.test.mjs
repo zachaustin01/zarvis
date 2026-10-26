@@ -37,7 +37,7 @@ test('park / unpark / done round-trip through state.json and keep other state', 
   await parkSession(id(1), { reason: 'again' }, file)
   s = await readState(file)
   assert.equal(s.done[id(1)], undefined, 'parking un-dones')
-  assert.deepEqual(s.parked[id(1)].wake, { type: 'none', value: '' })
+  assert.equal(s.parked[id(1)].wake, null)
   await unparkSession(id(1), file)
   assert.deepEqual((await readState(file)).parked, {})
 })
@@ -71,8 +71,8 @@ test('queue filter: parked leave unless blocked or wake-ready; done always hidde
   ]
   const state = {
     parked: {
-      [id(2)]: { reason: 'r', wake: { type: 'none' } },
-      [id(3)]: { reason: 'r', wake: { type: 'none' } },
+      [id(2)]: { reason: 'r', wake: null },
+      [id(3)]: { reason: 'r', wake: null },
       [id(4)]: { reason: 'r', wake: { type: 'date', value: '2026-10-01' } },
     },
     done: { [id(5)]: true, [id(6)]: true },

@@ -250,7 +250,7 @@ async function commitPark() {
   if (!reason) return toast('A park needs a one-line reason')
   const { sessionId, name } = parking
   const date = $('#parkDate').value
-  const body = { sessionId, reason, wake: date ? { type: 'date', value: date } : { type: 'none', value: '' }, handoffNote: $('#parkNote').value }
+  const body = { sessionId, reason, wake: date ? { type: 'date', value: date } : null, handoffNote: $('#parkNote').value }
   closePark()
   await lifecycle('/api/park', body, `Parked “${name}”`, () => post('/api/unpark', { sessionId }))
 }
