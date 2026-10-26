@@ -162,3 +162,19 @@ test('list shows parked sessions, optionally for one manager', async () => {
   assert.match(mine.out[0], /S3 .*by S2 — finished · note: first line$/)
   assert.equal((await (await harness()).run(['list'])).out[0], 'nothing parked')
 })
+
+test('an impossible wake date is refused by the CLI, dry run or not; unknown command is one line plus usage', async () => {
+  const h = await harness()
+  for (const extra of [[], ['--dry-run']]) {
+    const r = await h.run(park(W, MGR, ['--wake', '2026-02-31', ...extra]))
+    assert.equal(r.code, 1)
+    assert.match(r.err[0], /YYYY-MM-DD/)
+  }
+  await assert.rejects(fsp.access(h.stateFile))
+  const u = await h.run(['frobnicate'])
+  assert.equal(u.code, 1)
+  assert.equal(u.err.length, 2)
+  assert.ok(u.err.every((l) => !l.includes('\n')))
+  assert.match(u.err[0], /^park: unknown command frobnicate$/)
+  assert.match(u.err[1], /^usage: npm run park -- park\|unpark\|list/)
+})

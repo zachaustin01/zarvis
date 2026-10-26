@@ -98,3 +98,11 @@ test('lifecycleOf names the parking manager; a bad parkedBy is refused', async (
   assert.equal(lifecycleOf(state, id(4), NOW, nameOf).parked, null)
   await assert.rejects(parkSession(id(1), { reason: 'r', parkedBy: '../x' }, await tmp()), /parkedBy/)
 })
+
+test('an impossible calendar date never rolls over: rejected by the shared validation', async () => {
+  const file = await tmp()
+  for (const value of ['2026-02-31', '2026-04-31', '2027-02-29']) {
+    await assert.rejects(parkSession(id(1), { reason: 'r', wake: { type: 'date', value } }, file), /YYYY-MM-DD/, value)
+  }
+  await parkSession(id(1), { reason: 'r', wake: { type: 'date', value: '2028-02-29' } }, file)
+})
