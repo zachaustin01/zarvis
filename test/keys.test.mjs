@@ -46,8 +46,10 @@ test('v toggles parked sessions on the Roles page: default hidden, remembered, s
 
 test('Tab cycles the views but leaves inputs and the key sheet alone, and is documented', async () => {
   const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])
-  assert.match(app, /e\.key === 'Tab'/)
-  assert.match(app, /closest\?\.\('input,textarea,select,\[contenteditable\]'\) \|\| help\.classList\.contains\('on'\)\) return\n\s+e\.preventDefault\(\)/) // bails before preventDefault
+  assert.match(app, /e\.key !== 'Tab'/)
+  // Window capture phase, so no pending second key or dialog handler can swallow Tab and let the browser move focus.
+  assert.match(app, /window\.addEventListener\('keydown', \(e\) => \{\n  if \(e\.key !== 'Tab'[\s\S]*?\}, true\)/)
+  assert.match(app, /closest\?\.\('input,textarea,select,\[contenteditable\]'\) \|\| pick \|\| parking \|\| \$\('#ovHelp'\)\.classList\.contains\('on'\)\) return\n\s+e\.preventDefault\(\)/) // bails before preventDefault
   assert.match(app, /nextView\(view, e\.shiftKey \? -1 : 1\)/)
   assert.match(html, /<b>Tab<\/b>/)
   assert.match(html, /Tab views/)

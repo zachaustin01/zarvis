@@ -550,6 +550,18 @@ function move(d) {
   document.querySelector('.q.sel')?.scrollIntoView({ block: 'nearest' })
 }
 
+// Tab is handled on window in the capture phase, like the other keyboard-first pages: nothing below (a pending
+// n/c second key, a dialog's own handlers) can swallow it, so the browser never gets to move focus to its own UI.
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab' || e.metaKey || e.ctrlKey || e.altKey) return
+  // Only a field being typed in (or an open dialog / the key sheet) keeps Tab for itself.
+  if (e.target.closest?.('input,textarea,select,[contenteditable]') || pick || parking || $('#ovHelp').classList.contains('on')) return
+  e.preventDefault()
+  awaitingNew = false
+  awaitingRole = false
+  setView(nextView(view, e.shiftKey ? -1 : 1))
+}, true)
+
 document.addEventListener('keydown', (e) => {
   if (pick || parking) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -572,12 +584,6 @@ document.addEventListener('keydown', (e) => {
     return
   }
   const help = $('#ovHelp')
-  if (e.key === 'Tab') {
-    // Tab cycles the views only when nothing wants it: not in an input, and not over the key sheet.
-    if (e.target.closest?.('input,textarea,select,[contenteditable]') || help.classList.contains('on')) return
-    e.preventDefault()
-    return setView(nextView(view, e.shiftKey ? -1 : 1))
-  }
   if (e.key === 'Escape') return help.classList.remove('on')
   if (e.key === '?') return help.classList.toggle('on')
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }
