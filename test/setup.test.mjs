@@ -85,3 +85,78 @@ test('--dry-run writes nothing', async () => {
   await assert.rejects(fsp.access(file))
   assert.match(logs[0], /zarvis-hook\.mjs/)
 })
+
+const SKILL_SRC = new URL('../skills/zarvis-interface/SKILL.md', import.meta.url)
+
+async function sandbox() {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-skill-'))
+  const settings = path.join(dir, 'settings.json')
+  const dest = path.join(dir, 'skills', 'zarvis-interface', 'SKILL.md')
+  return { dir, settings, dest, run: (args) => run([...args, '--settings', settings], () => {}) }
+}
+
+test('the shipped skill has the frontmatter Claude needs and the spec sections in order', async () => {
+  const text = await fsp.readFile(SKILL_SRC, 'utf8')
+  assert.match(text, /^---\nname: zarvis-interface\ndescription: .*\[zarvis: role=interface\]/s)
+  const heads = [...text.matchAll(/^## (.+)$/gm)].map((m) => m[1])
+  assert.deepEqual(heads, ['Role', 'Orient', 'May do', 'Ask first', 'Must not', 'Report format', 'Handoff briefs'])
+})
+
+test('setup installs the skill beside the settings, and re-running changes nothing', async () => {
+  const s = await sandbox()
+  await s.run([])
+  const shipped = await fsp.readFile(SKILL_SRC, 'utf8')
+  assert.equal(await fsp.readFile(s.dest, 'utf8'), shipped)
+  const before = await fsp.readdir(path.dirname(s.dest))
+  await s.run([])
+  assert.deepEqual(await fsp.readdir(path.dirname(s.dest)), before, 'no backup when identical')
+})
+
+test('a differing SKILL.md is backed up before it is overwritten', async () => {
+  const s = await sandbox()
+  await fsp.mkdir(path.dirname(s.dest), { recursive: true })
+  await fsp.writeFile(s.dest, 'my edits')
+  await s.run([])
+  const files = await fsp.readdir(path.dirname(s.dest))
+  const backup = files.find((f) => f.includes('zarvis-backup'))
+  assert.equal(await fsp.readFile(path.join(path.dirname(s.dest), backup), 'utf8'), 'my edits')
+  assert.equal(await fsp.readFile(s.dest, 'utf8'), await fsp.readFile(SKILL_SRC, 'utf8'))
+})
+
+test('uninstall removes the skill and its empty folder, and leaves other skills alone', async () => {
+  const s = await sandbox()
+  const other = path.join(s.dir, 'skills', 'other', 'SKILL.md')
+  await fsp.mkdir(path.dirname(other), { recursive: true })
+  await fsp.writeFile(other, 'theirs')
+  await s.run([])
+  await s.run(['uninstall'])
+  await assert.rejects(fsp.access(path.dirname(s.dest)))
+  assert.equal(await fsp.readFile(other, 'utf8'), 'theirs')
+  await s.run(['uninstall']) // nothing left: still fine
+})
+
+test('uninstall backs up an edited skill and keeps its folder', async () => {
+  const s = await sandbox()
+  await s.run([])
+  await fsp.writeFile(s.dest, 'edited')
+  await s.run(['uninstall'])
+  const files = await fsp.readdir(path.dirname(s.dest))
+  assert.equal(files.length, 1)
+  assert.match(files[0], /SKILL\.md\.zarvis-backup-/)
+})
+
+test('--dry-run writes neither the settings nor the skill', async () => {
+  const s = await sandbox()
+  const logs = []
+  await run(['--dry-run', '--settings', s.settings], (l) => logs.push(l))
+  await assert.rejects(fsp.access(path.join(s.dir, 'skills')))
+  assert.ok(logs.some((l) => /Would write .*SKILL\.md/.test(l)))
+})
+
+test('an unusable skill path stops setup before anything is written', async () => {
+  const s = await sandbox()
+  await fsp.mkdir(path.join(s.dir, 'skills'), { recursive: true })
+  await fsp.writeFile(path.join(s.dir, 'skills', 'zarvis-interface'), 'a file, not a folder')
+  await assert.rejects(s.run([]), /not a plain directory/)
+  await assert.rejects(fsp.access(s.settings), 'hooks not written either')
+})
