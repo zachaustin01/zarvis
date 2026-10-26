@@ -1,0 +1,9 @@
+{
+  "name": "zarvis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only attention queue over Claude Code desktop sessions. Zero dependencies.",
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": { "dev": "node --watch server.mjs", "start": "node server.mjs", "test": "node --test" }
+}
