@@ -1,5 +1,5 @@
 'use strict'
-import { hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
+import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
@@ -572,6 +572,12 @@ document.addEventListener('keydown', (e) => {
     return
   }
   const help = $('#ovHelp')
+  if (e.key === 'Tab') {
+    // Tab cycles the views only when nothing wants it: not in an input, and not over the key sheet.
+    if (e.target.closest?.('input,textarea,select,[contenteditable]') || help.classList.contains('on')) return
+    e.preventDefault()
+    return setView(nextView(view, e.shiftKey ? -1 : 1))
+  }
   if (e.key === 'Escape') return help.classList.remove('on')
   if (e.key === '?') return help.classList.toggle('on')
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }

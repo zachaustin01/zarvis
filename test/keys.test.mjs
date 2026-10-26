@@ -43,3 +43,13 @@ test('v toggles parked sessions on the Roles page: default hidden, remembered, s
   assert.match(html, /v parked in roles/)
   assert.match(readme, /`v` show\/hide parked sessions on the Roles page/)
 })
+
+test('Tab cycles the views but leaves inputs and the key sheet alone, and is documented', async () => {
+  const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])
+  assert.match(app, /e\.key === 'Tab'/)
+  assert.match(app, /closest\?\.\('input,textarea,select,\[contenteditable\]'\) \|\| help\.classList\.contains\('on'\)\) return\n\s+e\.preventDefault\(\)/) // bails before preventDefault
+  assert.match(app, /nextView\(view, e\.shiftKey \? -1 : 1\)/)
+  assert.match(html, /<b>Tab<\/b>/)
+  assert.match(html, /Tab views/)
+  assert.match(readme, /`Tab`\/`Shift\+Tab` cycle Queue/)
+})

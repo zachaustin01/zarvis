@@ -103,3 +103,9 @@ export function hideParked(t) {
   const count = (x) => nodesOf(x).filter((n) => n.parked && !n.done).length
   return { tree: out, hidden: count(t) - count(out) }
 }
+
+/** The views Tab cycles, in order. */
+export const VIEWS = ['queue', 'tree', 'parked']
+
+/** The next (dir 1) or previous (dir -1) view, looping. An unknown `current` starts from the first. */
+export const nextView = (current, dir = 1) => VIEWS[(Math.max(0, VIEWS.indexOf(current)) + dir + VIEWS.length) % VIEWS.length]

@@ -132,3 +132,15 @@ test('hideParked drops parked sessions, keeps a manager with an unparked worker,
   assert.equal(tree.unclassified.length, 0)
   assert.equal(hidden, 1 + 2 + 2 + 1) // a's worker, b's two, c and its worker, e
 })
+
+import { nextView, VIEWS } from '../public/projects.js'
+
+test('nextView cycles Queue -> Roles -> Parked and loops, both ways', () => {
+  assert.deepEqual(VIEWS, ['queue', 'tree', 'parked'])
+  assert.equal(nextView('queue'), 'tree')
+  assert.equal(nextView('tree'), 'parked')
+  assert.equal(nextView('parked'), 'queue')
+  assert.equal(nextView('queue', -1), 'parked')
+  assert.equal(nextView('tree', -1), 'queue')
+  assert.equal(nextView('bogus'), 'tree')
+})
