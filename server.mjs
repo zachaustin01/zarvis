@@ -6,7 +6,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { readMarkers, hookStatus, WORKING_DIR, ROLES_DIR, ZARVIS_HOME } from './lib/markers.mjs'
-import { classify, childrenOf, roleMarker, rolePrompt, ROLES } from './lib/roles.mjs'
+import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, ROLES } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
 import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
@@ -163,15 +163,15 @@ function readJson(req) {
     req.on('data', (c) => {
       size += c.length
       if (size > 16 * 1024) {
-        reject(new Error('body too large'))
+        reject(Object.assign(new Error('body too large'), { status: 413 }))
         req.destroy()
       } else chunks.push(c)
     })
     req.on('end', () => {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'))
-      } catch (e) {
-        reject(e)
+      } catch {
+        reject(Object.assign(new Error('request body is not valid JSON'), { status: 400 }))
       }
     })
     req.on('error', reject)
@@ -249,6 +249,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/new') {
       const { sessionId, role, parent } = await readJson(req)
+      if (!isNewSessionRole(role)) return send(res, 400, { error: 'unknown role' })
       // A new session in the selected row's repo, or a plain new session with nothing selected.
       // As with open, the folder comes from the queue on this side; the client never sends a path,
       // and the prompt is only ever a role tag built here from a validated role.
