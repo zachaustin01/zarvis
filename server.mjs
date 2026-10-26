@@ -6,7 +6,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { readMarkers, hookStatus, WORKING_DIR, ROLES_DIR, ZARVIS_HOME } from './lib/markers.mjs'
-import { classify, childrenOf, roleMarker, ROLES } from './lib/roles.mjs'
+import { classify, childrenOf, roleMarker, rolePrompt, ROLES } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
 import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
@@ -255,8 +255,8 @@ const server = http.createServer(async (req, res) => {
       const row = sessionId ? (await allRows()).find((r) => r.sessionId === sessionId) : null
       const folder = await usableFolder(row?.folder)
       const marker = roleMarker(role, parent)
-      // A manager's prompt also says where its workers are listed; only the tag is parsed.
-      const prompt = role === 'manager' && marker ? `${marker} Your workers are listed in ${ROSTER_FILE}.` : marker
+      // Managers and the interface also get one line saying where to learn the job; only the tag is parsed.
+      const prompt = rolePrompt(role, parent, ROSTER_FILE)
       const link = newSessionLink(folder, prompt)
       await openUrl(link)
       return send(res, 200, { ok: true, url: link, folder, marker, prompt, dryRun: DRY_OPEN })
