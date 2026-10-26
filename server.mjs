@@ -9,7 +9,7 @@ import { readMarkers, hookStatus, WORKING_DIR, ZARVIS_HOME } from './lib/markers
 import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
-import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
+import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
@@ -53,13 +53,16 @@ function requestAllowed(req) {
 /** A session's display name (overlay, else app title) by CLI id, for naming the parking manager. */
 const nameFn = (nodes, state) => (id) => state.overlays[id]?.name || nodes.get(id)?.title || ''
 
+/** CLI session id -> the cwd the queue resolved for it (hook marker first), for sessions that have a row. */
+const cwdsOf = (rows) => Object.fromEntries(rows.filter((r) => r.cwd).map((r) => [r.sessionId, r.cwd]))
+
 /** Every hook-signalled session with its lifecycle facts; parked and done ones included. */
 async function allRows() {
   const [markers, working] = await Promise.all([readMarkers(), readMarkers(WORKING_DIR)])
   if (!markers.length && !working.length) return []
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
   const rows = await buildQueue({ markers, working, records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
-  const nodes = classify({ records, roles: await roleRegistry(state) })
+  const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(rows) })
   return annotateRows(applyRoles(rows, nodes), state, Date.now(), nameFn(nodes, state))
 }
 
@@ -74,7 +77,7 @@ const STATE_RANK = { blocked: 0, waiting_on_child: 1, working: 2, idle: 3 }
 /** The role tree: the interface pinned, managers with their workers, then everything unclassified. */
 async function currentTree() {
   const [{ records }, state, queue] = await Promise.all([scanDesktopRecords(), readState(), allRows()])
-  const nodes = classify({ records, roles: await roleRegistry(state) })
+  const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(queue) })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
   const kids = childrenOf(nodes)
   const now = Date.now()
@@ -105,7 +108,7 @@ async function currentTree() {
       state: row?.state ?? 'unknown', // no hook signal: never guess
       kind: row?.kind ?? '',
       blockedChildren: row?.blockedChildren ?? [],
-      project: path.basename(splitWorktree(n.cwd).root) || '',
+      project: row?.project || path.basename(projectPathOf(n.cwd, recOf.get(n.sessionId)?.originCwd)) || '',
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),
     }
   }

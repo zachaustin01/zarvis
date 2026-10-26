@@ -137,3 +137,10 @@ test('roster lists parked workers apart, with reason, date, session id and the f
   assert.match(other, /workers: none live/)
   assert.ok(!/Old job — idle/.test(text), 'a parked worker is not listed as live')
 })
+
+test('a fresher cwd (from the hook marker) beats the record\'s', () => {
+  const scratch = '/app/scratch-workspaces/ws-1'
+  const r = { ...rec(1), cwd: scratch, originCwd: scratch }
+  assert.equal(classify({ records: [r] }).get(r.cliSessionId).cwd, scratch)
+  assert.equal(classify({ records: [r], cwds: { [r.cliSessionId]: '/r/proj' } }).get(r.cliSessionId).cwd, '/r/proj')
+})

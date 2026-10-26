@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { initiativeOf, buildQueue, deepLinkFor, newSessionLink, splitWorktree, pickRecord } from '../lib/queue.mjs'
+import { initiativeOf, buildQueue, deepLinkFor, newSessionLink, splitWorktree, pickRecord, projectPathOf, isScratch } from '../lib/queue.mjs'
 
 const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const B = 'bbbbbbbb-0000-4000-8000-000000000002'
@@ -97,4 +97,43 @@ test('a question marker is a blocked row of kind question, counted with the rest
   const w = [{ sessionId: A, state: 'idle', at: NOW - 900, seen: NOW - 900 }]
   const q2 = await buildQueue({ markers: [mk(A, 1000, { kind: 'question' })], working: w, records, now: NOW, deps })
   assert.deepEqual(q2.map((r) => r.state), ['blocked'])
+})
+
+const SCRATCH = '/Users/u/Library/Application Support/Claude/scratch-workspaces/ws-1'
+
+test('a session that left its scratch workspace is listed under the project its marker reports', async () => {
+  const recs = [{ sessionId: desk('d'), cliSessionId: D, title: 'Moved', cwd: SCRATCH, originCwd: SCRATCH }]
+  const [r] = await buildQueue({ markers: [mk(D, 5, { cwd: '/r/real-proj' })], records: recs, now: NOW, deps })
+  assert.equal(r.project, 'real-proj')
+  assert.equal(r.folder, '/r/real-proj')
+  assert.equal(r.cwd, '/r/real-proj')
+  assert.equal(r.branch, 'from-git') // read from the new checkout, not the scratch one
+})
+
+test('moved into a worktree: the project is the repo root, the worktree is named', async () => {
+  const recs = [{ sessionId: desk('d'), cliSessionId: D, title: 'Moved', cwd: SCRATCH, originCwd: SCRATCH, branch: 'claude/x' }]
+  const [r] = await buildQueue({ markers: [mk(D, 5, { cwd: '/r/real-proj/.claude/worktrees/wt9' })], records: recs, now: NOW, deps })
+  assert.equal(r.project, 'real-proj')
+  assert.equal(r.worktree, 'wt9')
+})
+
+test('without a marker cwd the record is the fallback, scratch or not', async () => {
+  const recs = [{ sessionId: desk('d'), cliSessionId: D, title: 'Still there', cwd: SCRATCH, originCwd: SCRATCH }]
+  const [r] = await buildQueue({ markers: [mk(D, 5)], records: recs, now: NOW, deps })
+  assert.equal(r.project, 'ws-1')
+  const [n] = await buildQueue({ markers: [mk(A, 5)], records, now: NOW, deps })
+  assert.equal(n.project, 'proj')
+})
+
+test('real worktree sessions keep the repo as their project even when the marker is the worktree', async () => {
+  const [r] = await buildQueue({ markers: [mk(B, 5, { cwd: '/r/proj/.claude/worktrees/wt1' })], records, now: NOW, deps })
+  assert.equal(r.project, 'proj')
+  assert.equal(r.folder, '/r/proj')
+})
+
+test('projectPathOf matches the scratch-workspaces path segment, not a substring', () => {
+  assert.equal(projectPathOf('/r/new', SCRATCH), '/r/new')
+  assert.equal(projectPathOf('/r/new', '/r/my-scratch-workspaces-notes'), '/r/my-scratch-workspaces-notes')
+  assert.equal(isScratch('C:\\Users\\u\\AppData\\Claude\\scratch-workspaces\\ws'), true)
+  assert.equal(isScratch('/r/scratch-workspaces-x/y'), false)
 })
