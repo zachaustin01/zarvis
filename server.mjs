@@ -5,15 +5,16 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { readMarkers } from './lib/markers.mjs'
+import { readMarkers, WORKING_DIR } from './lib/markers.mjs'
 import { scanDesktopRecords } from './lib/sessions.mjs'
-import { buildQueue, newSessionLink, DEFAULT_MAX_AGE_MS } from './lib/queue.mjs'
+import { buildQueue, newSessionLink, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { readState, setOverlay } from './lib/state.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
 const HOST = '127.0.0.1' // loopback only, by design
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public')
 const MAX_AGE_MS = (Number(process.env.ZARVIS_MAX_AGE_HOURS) || DEFAULT_MAX_AGE_MS / 3600000) * 3600000
+const WORKING_MAX_AGE_MS = (Number(process.env.ZARVIS_WORKING_MAX_AGE_MIN) || DEFAULT_WORKING_MAX_AGE_MS / 60000) * 60000
 const DRY_OPEN = process.env.ZARVIS_DRY_OPEN === '1' // report the URL instead of opening it
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' }
@@ -44,10 +45,10 @@ function requestAllowed(req) {
 }
 
 async function currentQueue() {
-  const markers = await readMarkers()
-  if (!markers.length) return []
+  const [markers, working] = await Promise.all([readMarkers(), readMarkers(WORKING_DIR)])
+  if (!markers.length && !working.length) return []
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
-  return buildQueue({ markers, records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS })
+  return buildQueue({ markers, working, records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
 }
 
 function openUrl(url) {

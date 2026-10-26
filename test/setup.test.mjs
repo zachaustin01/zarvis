@@ -15,7 +15,7 @@ test('addHooks adds one entry per event and keeps everything else', () => {
   assert.equal(after.model, 'opus')
   assert.deepEqual(Object.keys(after.hooks).sort(), Object.keys(HOOK_EVENTS).sort())
   assert.deepEqual(after.hooks.PreToolUse[0], OTHER, 'the user hook is untouched and stays first')
-  assert.equal(after.hooks.PreToolUse[1].hooks[0].command, hookCommand(HOOK, 'clear'))
+  assert.equal(after.hooks.PreToolUse[1].hooks[0].command, hookCommand(HOOK, 'resume'))
   assert.equal(after.hooks.Notification[0].matcher, 'permission_prompt')
   assert.equal(after.hooks.Notification[0].hooks[0].command, hookCommand(HOOK, 'set'))
   assert.deepEqual(before, { model: 'opus', hooks: { PreToolUse: [OTHER] } }, 'input not mutated')

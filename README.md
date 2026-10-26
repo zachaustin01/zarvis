@@ -1,9 +1,9 @@
 # Zarvis
 
 Private, read-only attention queue for Claude Code desktop sessions. It shows which sessions are
-blocked on a permission prompt (longest wait first); **Enter** opens that session in the Claude
+blocked on a permission prompt (longest wait first), then which are working, then which are idle; **Enter** opens that session in the Claude
 desktop app via its `claude://` deep link. There is no approve/deny here. While running, Zarvis
-never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` (hook markers) and
+never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers) and
 `~/.zarvis/state.json` (overlay names). The one exception is `npm run setup`, which adds its hook
 to your Claude settings when you run it.
 
@@ -41,9 +41,13 @@ Claude file, and only when you run it. Doing it by hand instead, the entries are
 {
   "hooks": {
     "Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" set" }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" clear" }] }],
-    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" clear" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" clear" }] }]
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" start" }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" work" }] }],
+    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" idle" }] }],
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" idle" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" done" }] }]
   }
 }
 ```
@@ -76,3 +80,8 @@ session's repo (its root, not its worktree), or a plain new session when nothing
 ```bash
 npm test     # node --test, no test dependencies
 ```
+- Working sessions come from the same hook: a prompt starts the clock, each tool call refreshes it, and
+  Stop turns it into an idle entry (SessionStart makes one too), which lasts until SessionEnd or
+  `ZARVIS_MAX_AGE_HOURS`, newest first. A working session quiet for 30 min (`ZARVIS_WORKING_MAX_AGE_MIN`) drops out,
+  since an interrupted turn fires no Stop. A blocked session is never also listed as working.
+

@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { parseMarker, readMarkers } from '../lib/markers.mjs'
-import { pendingTool, buildMarker, summarizeInput } from '../hooks/zarvis-hook.mjs'
+import { pendingTool, buildMarker, buildWorking, summarizeInput } from '../hooks/zarvis-hook.mjs'
 
 const ID = 'f6cce3a1-cd4c-4de5-bb8d-e7375ea36a85'
 
@@ -40,4 +40,16 @@ test('buildMarker falls back to the message text for the tool name', async () =>
   assert.equal(m.tool, 'WebFetch')
   assert.equal(m.at, 42)
   assert.equal(summarizeInput('Edit', { file_path: '/a/b' }), '/a/b')
+})
+
+test('buildWorking keeps the turn start across refreshes and restarts it without one', () => {
+  assert.equal(buildWorking({ session_id: ID }, { at: 10 }, 99).at, 10)
+  assert.equal(buildWorking({ session_id: ID }, { at: 10 }, 99).seen, 99)
+  assert.equal(buildWorking({ session_id: ID }, null, 99).at, 99)
+})
+
+test('buildWorking restarts the clock when the state changes', () => {
+  assert.equal(buildWorking({ session_id: ID }, { at: 10, state: 'idle' }, 99).at, 99)
+  assert.equal(buildWorking({ session_id: ID }, { at: 10, state: 'idle' }, 99, 'idle').at, 10)
+  assert.equal(buildWorking({ session_id: ID }, null, 99, 'idle').state, 'idle')
 })

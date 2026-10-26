@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 /**
  * Claude Code hook for Zarvis. Not run by the server: point your settings.json at it
- * (see README). `set` marks the session blocked, `clear` removes the marker.
+ * (see README). `set` marks the session blocked; the other modes track whether it is working.
  *
- *   Notification (matcher permission_prompt) -> `set`
- *   PreToolUse / PermissionDenied / Stop     -> `clear`
+ *   Notification (matcher permission_prompt) -> `set`    blocked marker
+ *   UserPromptSubmit                         -> `start`  working marker, clock restarts
+ *   PreToolUse / PermissionDenied            -> `resume` blocked marker off, working on
+ *   PostToolUse                              -> `work`   working marker refreshed (clock kept)
+ *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle
+ *   SessionEnd                               -> `done`   both markers off
  *
- * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/.
+ * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/ and working/.
  * The transcript is read (never written) to find which tool is waiting, because the
  * Notification payload only carries a sentence like "Claude needs your permission to use Bash".
  * Never throws and never prints: a hook must not disturb the session.
@@ -17,6 +21,7 @@ import os from 'node:os'
 
 const HOME = process.env.ZARVIS_HOME || path.join(os.homedir(), '.zarvis')
 const DIR = path.join(HOME, 'blocked')
+const WORKING_DIR = path.join(HOME, 'working')
 const SAFE_ID = /^[A-Za-z0-9_-]{8,80}$/
 const TAIL_BYTES = 256 * 1024
 
@@ -97,6 +102,28 @@ export async function buildMarker(payload, now = Date.now()) {
   }
 }
 
+/** The working marker for a payload. `prev` keeps the turn's start time across refreshes. */
+export function buildWorking(payload, prev, now = Date.now(), state = 'working') {
+  const at = Number(prev?.at)
+  // The clock carries over only while the state does: working -> working keeps the turn start.
+  const keep = Number.isFinite(at) && at > 0 && (prev?.state ?? 'working') === state
+  return {
+    sessionId: payload.session_id,
+    state,
+    at: keep ? at : now,
+    seen: now,
+    cwd: typeof payload.cwd === 'string' ? payload.cwd : '',
+    transcriptPath: typeof payload.transcript_path === 'string' ? payload.transcript_path : '',
+  }
+}
+
+async function writeAtomic(file, marker) {
+  await fsp.mkdir(path.dirname(file), { recursive: true })
+  const tmp = `${file}.${process.pid}.tmp`
+  await fsp.writeFile(tmp, JSON.stringify(marker))
+  await fsp.rename(tmp, file)
+}
+
 async function main() {
   const mode = process.argv[2]
   const chunks = []
@@ -110,14 +137,27 @@ async function main() {
   const id = payload?.session_id
   if (typeof id !== 'string' || !SAFE_ID.test(id)) return
   const file = path.join(DIR, `${id}.json`)
+  const workFile = path.join(WORKING_DIR, `${id}.json`)
   if (mode === 'set') {
-    const marker = await buildMarker(payload)
-    await fsp.mkdir(DIR, { recursive: true })
-    const tmp = `${file}.${process.pid}.tmp`
-    await fsp.writeFile(tmp, JSON.stringify(marker))
-    await fsp.rename(tmp, file)
+    await writeAtomic(file, await buildMarker(payload))
   } else if (mode === 'clear') {
     await fsp.rm(file, { force: true })
+  } else if (mode === 'done') {
+    await Promise.all([fsp.rm(file, { force: true }), fsp.rm(workFile, { force: true })])
+  } else if (mode === 'idle') {
+    await fsp.rm(file, { force: true })
+    await writeAtomic(workFile, buildWorking(payload, null, Date.now(), 'idle'))
+  } else if (mode === 'start' || mode === 'resume' || mode === 'work') {
+    let prev = null
+    if (mode !== 'start') {
+      try {
+        prev = JSON.parse(await fsp.readFile(workFile, 'utf8'))
+      } catch {
+        /* first sign of life for this session */
+      }
+    }
+    if (mode !== 'work') await fsp.rm(file, { force: true })
+    await writeAtomic(workFile, buildWorking(payload, prev))
   }
 }
 

@@ -6,6 +6,7 @@ const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const B = 'bbbbbbbb-0000-4000-8000-000000000002'
 const C = 'cccccccc-0000-4000-8000-000000000003'
 const D = 'dddddddd-0000-4000-8000-000000000004'
+const E = 'eeeeeeee-0000-4000-8000-000000000005'
 const desk = (n) => `local_${n.repeat(8)}-0000-4000-8000-000000000000`
 const NOW = 1_000_000_000
 const deps = { findTranscript: async () => null, transcriptMeta: async () => ({}), gitBranchOf: async () => 'from-git' }
@@ -62,4 +63,16 @@ test('helpers', () => {
 test('newSessionLink opens a new desktop session, in a folder when given one', () => {
   assert.equal(newSessionLink(''), 'claude://code/new')
   assert.equal(newSessionLink('/Users/a b/repo'), 'claude://code/new?folder=%2FUsers%2Fa+b%2Frepo')
+})
+
+const wk = (id, ago, seenAgo = 0, state = 'working') => ({ sessionId: id, state, at: NOW - ago, seen: NOW - seenAgo })
+
+test('working sessions follow blocked ones, never twice, and go stale sooner', async () => {
+  const q = await buildQueue({ markers: [mk(A, 1000)], working: [wk(A, 9000), wk(B, 50000), wk(D, 99999, 31 * 60 * 1000)], records, now: NOW, deps })
+  assert.deepEqual(q.map((r) => [r.sessionId, r.state]), [[A, 'blocked'], [B, 'working']])
+})
+
+test('idle sessions come last, newest first, and age out on the long limit', async () => {
+  const q = await buildQueue({ markers: [], working: [wk(A, 5000, 0, 'idle'), wk(B, 1000, 0, 'idle'), wk(E, 50, 0), wk(D, 13 * 3600 * 1000, 0, 'idle')], records: [...records, { sessionId: desk('d'), cliSessionId: D, title: 'D', cwd: '/r/d' }, { sessionId: desk('e'), cliSessionId: E, title: 'E', cwd: '/r/e' }], now: NOW, deps })
+  assert.deepEqual(q.map((r) => [r.sessionId, r.state]), [[E, 'working'], [B, 'idle'], [A, 'idle']])
 })
