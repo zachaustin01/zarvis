@@ -208,6 +208,38 @@ puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists che
 **Upgrading.** The guard is two new hook entries (a second `PreToolUse` and `PostToolUse`, each with
 `"timeout": 5`, running beside the existing ones). Re-run `npm run setup` and restart open sessions to pick them up.
 
+## Pushing events
+
+The footer ticker shows the last dozen state changes Zarvis sees. Sessions and scripts can add their own
+lines, and they survive a page reload:
+
+```bash
+npm run event -- "pushed PROJ-12 to branch fix-login" --kind push --url https://github.com/me/repo/pull/12 --by <session id>
+```
+
+- `--kind` is `push`, `pr`, `info` (default), `done`, `warn`, or any other word of up to 20 characters (shown as a neutral tag).
+  `--url` must be http(s), at most 300 characters. `--dry-run` prints the line without writing it.
+- `--by` takes a CLI session id or the app's `local_…` id. Without it the command uses `CLAUDE_CODE_SESSION_ID` from
+  the environment (set in Claude Code sessions), else the event has no session. The ticker shows the session's name when it knows it.
+- Text is cut to 200 characters, one line, control characters stripped. A bad argument exits 1 with one line; trouble
+  writing the file prints a line to stderr and exits 0, so a logging step never fails an agent's task.
+- **File**: `~/.zarvis/events.jsonl` (`$ZARVIS_HOME`), one JSON object per line: `{"at":<ms>,"sessionId":"…","kind":"push","text":"…","url":"…"}`
+  (`sessionId` and `url` optional). Each event is one `O_APPEND` write of one short line, which concurrent appenders on a local disk
+  do not interleave (not guaranteed on network filesystems; the reader skips any torn line). Past 1000 lines the file is trimmed to the
+  newest 500. The server serves the latest as `events` in the live payload and as JSON from `GET /api/events` (the same URL is the SSE stream
+  when asked with `Accept: text/event-stream`).
+- **Automatic events**: the existing `PostToolUse` hook logs `pushed <branch> to <remote>` after a successful `git push` and
+  `opened a PR` (with the URL when `gh` prints it) after `gh pr create`. No extra setup; `npm run setup` is unchanged.
+  Turn them off with `ZARVIS_AUTO_EVENTS=0` in the environment of the Claude session, or for good with `npm run event -- --auto off`
+  (`--auto on` / `--auto status`).
+
+To have an agent log other things, paste this into a project's `CLAUDE.md` (adjust the clone path):
+
+```markdown
+After every git push, run: npm run --prefix /path/to/zarvis event -- 'pushed <branch>' --kind push --by $CLAUDE_CODE_SESSION_ID
+When a task is finished, run the same with --kind done and a one-line summary.
+```
+
 ## Behaviour notes
 
 - Working sessions come from the same hook: a prompt starts the clock, each tool call refreshes it, and

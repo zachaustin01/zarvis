@@ -13,6 +13,7 @@ import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, ini
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
+import { readEvents } from './lib/events.mjs'
 import { annotateRows, visibleRows, lifecycleOf, hideDone, archivedParked } from './lib/lifecycle.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
@@ -167,6 +168,19 @@ async function currentClaims() {
   return entries.map((e) => claimView(e, now, claimProbes, names)).sort((a, b) => b.holder.lastWrite - a.holder.lastWrite)
 }
 
+const EVENTS_SHOWN = 30 // pushed events sent to the browser (it shows 12)
+
+/** The newest pushed events (oldest first), each with the display name of its session when that is known. */
+async function currentEvents() {
+  const events = readEvents(ZARVIS_HOME, EVENTS_SHOWN)
+  if (!events.some((e) => e.sessionId)) return events
+  const [{ records }, state] = await Promise.all([scanDesktopRecords(), readState()])
+  const names = {}
+  for (const r of records) if (r.cliSessionId && r.title) names[r.cliSessionId] = r.title
+  for (const [id, o] of Object.entries(state.overlays)) if (o?.name) names[id] = o.name
+  return events.map((e) => (names[e.sessionId] ? { ...e, name: names[e.sessionId] } : e))
+}
+
 function openUrl(url) {
   if (DRY_OPEN) return Promise.resolve()
   const [cmd, args] =
@@ -237,13 +251,15 @@ let lastSig = ''
 let lastQueue = []
 let lastHook = { status: 'absent', lastAt: 0 }
 let lastClaims = []
-const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook, claims: lastClaims })
+let lastEvents = []
+const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook, claims: lastClaims, events: lastEvents })
 async function tick() {
   try {
     lastQueue = await currentQueue()
     lastHook = hookStatus([...(await readMarkers()), ...(await readMarkers(WORKING_DIR))])
     lastClaims = await currentClaims()
-    const sig = JSON.stringify([lastQueue.map(({ waitMs, ...r }) => r), lastHook, lastClaims])
+    lastEvents = await currentEvents()
+    const sig = JSON.stringify([lastQueue.map(({ waitMs, ...r }) => r), lastHook, lastClaims, lastEvents])
     if (sig !== lastSig) {
       lastSig = sig
       for (const c of clients) c.write(`data: ${JSON.stringify(payload())}\n\n`)
@@ -260,6 +276,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/queue') {
       await tick()
       return send(res, 200, payload())
+    }
+    // /api/events is the live stream for an EventSource (Accept: text/event-stream) and the pushed events as JSON for anything else.
+    if (req.method === 'GET' && url.pathname === '/api/events' && !/text\/event-stream/.test(req.headers.accept || '')) {
+      return send(res, 200, { now: Date.now(), events: await currentEvents() })
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' })

@@ -62,3 +62,42 @@ export function diffEvents(prev, rows) {
   }
   return out
 }
+
+export const TICKER_MAX = 12
+const pad = (n) => String(n).padStart(2, '0')
+
+/** Identity of a ticker entry: pushed events are de-duplicated on (at, sessionId, text). Local transitions carry their own `key`. */
+export const evKey = (e) => e.key ?? `${e.at}|${e.sessionId || ''}|${e.text}`
+
+/**
+ * Merge `incoming` into the ticker's `items` (both newest-first for `items`, oldest-first for `incoming`, as the server
+ * and diffEvents emit them): drops ones already shown, orders by time with the newest first, keeps `max`.
+ * Returns { items, added } where `added` are the new entries that made it into the list.
+ */
+export function mergeTicker(items, incoming, max = TICKER_MAX) {
+  const have = new Set(items.map(evKey))
+  const fresh = []
+  for (const e of incoming) {
+    const k = evKey(e)
+    if (have.has(k)) continue
+    have.add(k)
+    fresh.unshift({ ...e, key: k })
+  }
+  const merged = [...fresh, ...items].sort((a, b) => b.at - a.at).slice(0, max) // sort is stable: ties keep fresh first
+  const kept = new Set(merged)
+  return { items: merged, added: fresh.filter((e) => kept.has(e)) }
+}
+
+/** Clock time for a ticker entry; an entry from an earlier day gets the date in front. */
+export function evTime(at, now = Date.now()) {
+  const d = new Date(at)
+  const t = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return d.toDateString() === new Date(now).toDateString() ? t : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${t}`
+}
+
+const KNOWN_KINDS = ['push', 'pr', 'done', 'warn', 'info']
+/** CSS class for a pushed event's kind: the known kinds as themselves, any other word as the neutral 'other'. */
+export const evKindClass = (kind) => (KNOWN_KINDS.includes(kind) ? kind : 'other')
+
+/** An http(s) URL to link to, or ''. The server already checks; the browser does too, since the text is untrusted. */
+export const safeUrl = (u) => (/^https?:\/\/[^\s]+$/i.test(String(u ?? '')) && String(u).length <= 300 ? String(u) : '')

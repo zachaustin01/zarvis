@@ -22,6 +22,10 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 .tk .ev{color:var(--t2);font-size:12px;flex:none}.tk .ev b{font-weight:400}
 .tk .ev.blocked b{color:var(--am)}.tk .ev.resumed b,.tk .ev.finished b{color:var(--gr)}.tk .ev.parked b{color:var(--t3)}.tk .ev.arrived b{color:var(--cy)}
 .tk .ev:nth-child(n+6){opacity:.45}
+.tk .ev .kd{font-style:normal;font-size:10px;letter-spacing:.08em;text-transform:uppercase;border:1px solid currentColor;border-radius:3px;padding:0 4px;color:var(--t3)}
+.tk .ev em{font-style:normal;color:var(--t1)}
+.tk .ev a{color:var(--cy);text-decoration:none}.tk .ev a:hover{text-decoration:underline}
+.tk .ev.pushed.k-push .kd,.tk .ev.pushed.k-pr .kd{color:var(--cy)}.tk .ev.pushed.k-done .kd{color:var(--gr)}.tk .ev.pushed.k-warn .kd{color:var(--am)}.tk .ev.pushed.k-info .kd{color:var(--t2)}
 .tk .ev.new{animation:evin .35s ease-out 1}
 @keyframes evin{from{opacity:0;transform:translateX(-16px)}}
 body.tk-off #tkList{display:none}

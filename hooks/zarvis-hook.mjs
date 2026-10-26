@@ -7,7 +7,8 @@
  *   Notification (matcher permission_prompt) -> `set`    blocked marker (the same prompt, ~6 s later)
  *   UserPromptSubmit                         -> `start`  working marker, clock restarts
  *   PreToolUse / PermissionDenied            -> `resume` blocked marker off, working on
- *   PostToolUse                              -> `work`   working marker refreshed (clock kept)
+ *   PostToolUse                              -> `work`   working marker refreshed (clock kept); a successful `git push` /
+ *                                                       `gh pr create` also appends a ticker event (see autoEvents)
  *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle; but if the turn
  *                                                       ended on a question for the user (see askedQuestion), a blocked
  *                                                       marker with kind "question" is written instead
@@ -25,7 +26,7 @@
  * `start` also registers a role when the session's FIRST prompt begins with `[zarvis: role=manager]`
  * (or interface / worker, optionally `parent=<session id>`); the same text elsewhere is ignored.
  *
- * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/ and claims/.
+ * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/ and claims/ (plus one line in events.jsonl after a push).
  * The transcript is read (never written) to find which tool is waiting, because the
  * Notification payload only carries a sentence like "Claude needs your permission to use Bash".
  * Never throws and never prints: a hook must not disturb the session.
@@ -352,6 +353,21 @@ async function main() {
       if (mode === 'start' || !blocked || (blocked.agentId || '') === agentId) await fsp.rm(file, { force: true })
     }
     await writeAtomic(workFile, buildWorking(payload, prev))
+    if (mode === 'work') await autoEvents(payload)
+  }
+}
+
+/**
+ * A successful `git push` / `gh pr create` in a Bash call becomes a ticker event (lib/events.mjs). Off with
+ * ZARVIS_AUTO_EVENTS=0 or `npm run event -- --auto off`. The module is only loaded when the command looks like one.
+ */
+async function autoEvents(payload) {
+  const command = payload.tool_name === 'Bash' && typeof payload.tool_input?.command === 'string' ? payload.tool_input.command : ''
+  if (!/\bpush\b|\bpr\b/.test(command)) return
+  try {
+    await (await import('../lib/events.mjs')).logAutoEvents(payload, HOME)
+  } catch {
+    /* an event is only a log: never disturb the session */
   }
 }
 

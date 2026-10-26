@@ -1,5 +1,5 @@
 'use strict'
-import { fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents } from '/fx.js'
+import { fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -275,19 +275,51 @@ function setTicker(open) {
   try { localStorage.setItem('zarvis.ticker', open ? '1' : '0') } catch { /* storage blocked */ }
   paintTickerState()
 }
+let tickerItems = [] // newest first: diffed transitions and events pushed through `npm run event`
+function paintTicker(added, seed) {
+  const box = $('#tkList')
+  const fresh = new Set(added)
+  const now = Date.now()
+  box.replaceChildren(...tickerItems.map((ev) => {
+    const el = document.createElement('span')
+    el.className = `ev mono ${ev.pushed ? `pushed k-${evKindClass(ev.kind)}` : ev.kind}${fresh.has(ev) && !seed ? ' new' : ''}`
+    el.append(`${evTime(ev.at, now)} `)
+    if (ev.pushed) {
+      const kd = document.createElement('i')
+      kd.className = 'kd'
+      kd.textContent = ev.kind
+      el.append(kd, ' ')
+      if (ev.name) el.append(Object.assign(document.createElement('em'), { textContent: `${ev.name} ` }))
+    }
+    el.append(Object.assign(document.createElement('b'), { textContent: ev.text }))
+    const href = ev.pushed ? safeUrl(ev.url) : ''
+    if (href) {
+      const a = Object.assign(document.createElement('a'), { href, target: '_blank', rel: 'noopener noreferrer', textContent: '↗', title: href })
+      a.setAttribute('aria-label', 'open link')
+      el.append(' ', a)
+    }
+    if (el.classList.contains('new')) setTimeout(() => el.classList.remove('new'), 400)
+    return el
+  }))
+}
+function mergeInto(incoming, seed = false) {
+  const r = mergeTicker(tickerItems, incoming, TICKER_MAX)
+  if (!r.added.length && r.items.length === tickerItems.length) return
+  tickerItems = r.items
+  paintTicker(r.added, seed)
+}
 function pushEvents(rows) {
   const events = diffEvents(tickerSnap, rows)
   tickerSnap = snapshot(rows)
-  const box = $('#tkList')
-  const t = new Date().toTimeString().slice(0, 8)
-  for (const ev of events) {
-    const el = document.createElement('span')
-    el.className = `ev mono new ${ev.kind}`
-    el.innerHTML = `${t} <b>${esc(ev.text)}</b>`
-    box.insertBefore(el, box.firstChild)
-    setTimeout(() => el.classList.remove('new'), 400)
-  }
-  while (box.children.length > TICKER_MAX) box.lastChild.remove()
+  const at = Date.now()
+  mergeInto(events.map((ev) => ({ ...ev, at, key: `t${at}|${ev.id}|${ev.text}`, sessionId: ev.id })))
+}
+/** Events pushed by sessions and scripts (server payload). The first batch seeds the strip without animating. */
+let pushedSeeded = false
+function pushPushed(list) {
+  if (!Array.isArray(list)) return
+  mergeInto(list.filter((e) => e && typeof e.text === 'string').map((e) => ({ ...e, pushed: true })), !pushedSeeded)
+  pushedSeeded = true
 }
 $('#tkLbl').addEventListener('click', () => setTicker(!tickerOpen))
 paintTickerState()
@@ -783,6 +815,7 @@ es.onmessage = (m) => {
   live(true)
   setHook(d.hook)
   claims = Array.isArray(d.claims) ? d.claims : []
+  pushPushed(d.events)
   setQueue(d.queue)
 }
 es.onerror = () => live(false)

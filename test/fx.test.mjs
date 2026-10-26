@@ -76,3 +76,53 @@ test('diffEvents: a question is a blocked event, a blocked row that goes idle fi
   assert.deepEqual(diffEvents(snapshot([row('x', 'blocked')]), [row('x', 'blocked')]), [])
   assert.deepEqual(diffEvents(snapshot([row('x', 'blocked', { parked: {} })]), [row('x', 'blocked', { parked: {} })]), [])
 })
+
+import { mergeTicker, evKey, evKindClass, safeUrl, evTime, TICKER_MAX } from '../public/fx.js'
+
+const pe = (at, text, extra = {}) => ({ at, kind: 'push', text, pushed: true, ...extra })
+
+test('mergeTicker: newest first by time, pushed and transitions interleaved', () => {
+  const a = mergeTicker([], [pe(1, 'a'), pe(3, 'c')])
+  const b = mergeTicker(a.items, [{ at: 2, kind: 'blocked', text: 'b', key: 't2' }])
+  assert.deepEqual(b.items.map((e) => e.text), ['c', 'b', 'a'])
+  assert.deepEqual(b.added.map((e) => e.text), ['b'])
+})
+
+test('mergeTicker: de-dupes on (at, sessionId, text), also across repeated payloads', () => {
+  const first = mergeTicker([], [pe(1, 'a', { sessionId: 's' })])
+  const again = mergeTicker(first.items, [pe(1, 'a', { sessionId: 's' }), pe(1, 'a', { sessionId: 't' })])
+  assert.equal(again.items.length, 2)
+  assert.deepEqual(again.added.map((e) => e.sessionId), ['t'])
+  assert.equal(evKey({ at: 1, text: 'a' }), '1||a')
+})
+
+test('mergeTicker: keeps at most 12, dropping the oldest; an evicted old event is not "added"', () => {
+  const many = Array.from({ length: 20 }, (_, i) => pe(100 + i, `e${i}`))
+  const r = mergeTicker([], many)
+  assert.equal(TICKER_MAX, 12)
+  assert.equal(r.items.length, 12)
+  assert.equal(r.items[0].text, 'e19')
+  assert.equal(r.items.at(-1).text, 'e8')
+  assert.equal(r.added.length, 12)
+  const old = mergeTicker(r.items, [pe(1, 'ancient')])
+  assert.deepEqual(old.added, [])
+  assert.equal(old.items.length, 12)
+})
+
+test('evKindClass, safeUrl and evTime', () => {
+  assert.equal(evKindClass('push'), 'push')
+  assert.equal(evKindClass('my-kind'), 'other')
+  assert.equal(evKindClass('"><x'), 'other')
+  assert.equal(safeUrl('https://a.example/x?y=1'), 'https://a.example/x?y=1')
+  for (const u of ['javascript:alert(1)', 'data:text/html,x', '', undefined, 'https://a b', `https://h/${'a'.repeat(300)}`]) assert.equal(safeUrl(u), '')
+  const now = Date.now()
+  assert.match(evTime(now, now), /^\d\d:\d\d:\d\d$/)
+  assert.match(evTime(now - 3 * 86400000, now), /^\d\d-\d\d \d\d:\d\d:\d\d$/)
+})
+
+test('XSS: the ticker renders event text only through textContent / properties, never innerHTML', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../public/app.js', import.meta.url), 'utf8')
+  const start = src.indexOf('function paintTicker')
+  const body = src.slice(start, src.indexOf('function mergeInto', start))
+  assert.ok(body.includes('textContent') && !/innerHTML|insertAdjacentHTML/.test(body))
+})
