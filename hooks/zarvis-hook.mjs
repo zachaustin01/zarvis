@@ -10,7 +10,10 @@
  *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle
  *   SessionEnd                               -> `done`   both markers off
  *
- * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/ and working/.
+ * `start` also registers a role when the prompt carries `[zarvis: role=manager]` (or interface /
+ * worker, optionally `parent=<session id>`); the first marker a session shows wins.
+ *
+ * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/ and roles/.
  * The transcript is read (never written) to find which tool is waiting, because the
  * Notification payload only carries a sentence like "Claude needs your permission to use Bash".
  * Never throws and never prints: a hook must not disturb the session.
@@ -22,12 +25,19 @@ import os from 'node:os'
 const HOME = process.env.ZARVIS_HOME || path.join(os.homedir(), '.zarvis')
 const DIR = path.join(HOME, 'blocked')
 const WORKING_DIR = path.join(HOME, 'working')
+const ROLES_DIR = path.join(HOME, 'roles')
 const SAFE_ID = /^[A-Za-z0-9_-]{8,80}$/
 const TAIL_BYTES = 256 * 1024
 
 /** One-line summary of a tool_use input. */
 export function summarizeInput(name, input) {
   if (!input || typeof input !== 'object') return ''
+  if (name === 'AskUserQuestion' && Array.isArray(input.questions)) {
+    return input.questions
+      .map((q) => [q?.question, ...(Array.isArray(q?.options) ? q.options.map((o) => `  • ${o?.label}`) : [])].join('\n'))
+      .join('\n\n')
+      .slice(0, 1500)
+  }
   const pick = input.command ?? input.file_path ?? input.path ?? input.url ?? input.pattern ?? input.description
   if (typeof pick === 'string') return pick.slice(0, 1000)
   try {
@@ -124,6 +134,12 @@ async function writeAtomic(file, marker) {
   await fsp.rename(tmp, file)
 }
 
+/** The role tag for a UserPromptSubmit payload, or null. Exported for tests. */
+export function buildRoleTag(payload, now = Date.now()) {
+  const m = /\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(typeof payload.prompt === 'string' ? payload.prompt : '')
+  return m ? { sessionId: payload.session_id, role: m[1].toLowerCase(), parent: m[2] || '', at: now } : null
+}
+
 async function main() {
   const mode = process.argv[2]
   const chunks = []
@@ -154,6 +170,17 @@ async function main() {
         prev = JSON.parse(await fsp.readFile(workFile, 'utf8'))
       } catch {
         /* first sign of life for this session */
+      }
+    }
+    if (mode === 'start') {
+      const tag = buildRoleTag(payload)
+      if (tag) {
+        await fsp.mkdir(ROLES_DIR, { recursive: true })
+        try {
+          await fsp.writeFile(path.join(ROLES_DIR, `${id}.json`), JSON.stringify(tag), { flag: 'wx' })
+        } catch {
+          /* already tagged: the first marker wins */
+        }
       }
     }
     if (mode !== 'work') await fsp.rm(file, { force: true })

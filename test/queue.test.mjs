@@ -76,3 +76,8 @@ test('idle sessions come last, newest first, and age out on the long limit', asy
   const q = await buildQueue({ markers: [], working: [wk(A, 5000, 0, 'idle'), wk(B, 1000, 0, 'idle'), wk(E, 50, 0), wk(D, 13 * 3600 * 1000, 0, 'idle')], records: [...records, { sessionId: desk('d'), cliSessionId: D, title: 'D', cwd: '/r/d' }, { sessionId: desk('e'), cliSessionId: E, title: 'E', cwd: '/r/e' }], now: NOW, deps })
   assert.deepEqual(q.map((r) => [r.sessionId, r.state]), [[E, 'working'], [B, 'idle'], [A, 'idle']])
 })
+
+test('newSessionLink can prefill the prompt', () => {
+  assert.equal(newSessionLink('', '[zarvis: role=manager]'), 'claude://code/new?q=%5Bzarvis%3A+role%3Dmanager%5D')
+  assert.equal(newSessionLink('/r', 'hi'), 'claude://code/new?folder=%2Fr&q=hi')
+})

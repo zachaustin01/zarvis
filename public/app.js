@@ -2,11 +2,23 @@
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
+let view = 'queue' // 'queue' | 'tree'
+let tree = { interface: [], managers: [], orphans: [], unclassified: [] }
+let nodes = [] // the tree flattened in display order, for j/k
+let pick = null // the attach picker: { mgr, rows, checked, idx }
+let awaitingNew = false // after `n`: the next key picks the new session's role
+let awaitingRole = false // after `c`: the next key picks the role
 let sel = null // sessionId of the selected row
 let renaming = null // sessionId being renamed
 let seen = new Set()
 let first = true
 let fresh = new Set()
+
+const ICON = { interface: '◆', manager: '▣', worker: '●', unclassified: '?' }
+const STATE_LABEL = { blocked: 'needs you', waiting_on_child: 'waiting on worker', working: 'working', idle: 'idle', unknown: 'no signal' }
+const ifaceFirst = () => [...queue.filter((r) => r.role === 'interface'), ...queue.filter((r) => r.role !== 'interface')]
+const items = () => (view === 'tree' ? nodes : ifaceFirst())
+const flatten = (t) => [...t.interface, ...t.managers.flatMap((m) => [m, ...m.children]), ...t.orphans, ...t.unclassified]
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
@@ -25,32 +37,109 @@ function crumbs(r) {
   return parts.map(esc).join(' › ')
 }
 
+const heading = (text) => `<div class="hd sec">${text}</div>`
+const SECTION = { working: 'Working', idle: 'Idle', blocked: 'Needs you', waiting_on_child: 'Waiting on a worker' }
+
+function warn(r) {
+  return r.warnings?.length ? ` <span class="warn" title="${esc(r.warnings.join('; '))}">▲</span>` : ''
+}
+
+function treeRow(r, depth) {
+  const name =
+    renaming === r.sessionId
+      ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
+      : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
+  const hint = r.suggested ? ` <span class="ap">suggested ${esc(r.suggested)} · c to confirm</span>` : ''
+  const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
+  return (
+    `<div class="q tr s-${r.state}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
+    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${name}${warn(r)}${hint}${roll}` +
+    `<span class="wt">${esc(STATE_LABEL[r.state] || r.state)}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
+  )
+}
+
+function renderTree() {
+  $('#side').innerHTML = ''
+  document.querySelector('.wrap').classList.remove('has-side')
+  const t = tree
+  const part = (title, rows) => (rows.length ? heading(title) + rows.map((r) => treeRow(r, 0)).join('') : '')
+  const mgr = t.managers.map((m) => treeRow(m, 0) + m.children.map((c) => treeRow(c, 1)).join('')).join('')
+  $('#list').innerHTML =
+    part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
+    '<div class="empty">No sessions.</div>'
+  if (!nodes.some((r) => r.sessionId === sel) && nodes.length) sel = nodes[0].sessionId
+  if (renaming) {
+    const inp = $('#renIn')
+    if (inp && document.activeElement !== inp) {
+      inp.focus()
+      inp.select()
+    }
+  }
+}
+
+function setView(v) {
+  view = v
+  document.querySelectorAll('.pill[data-view]').forEach((p) => p.classList.toggle('on', p.dataset.view === v))
+  if (v === 'tree') loadTree()
+  else render()
+}
+
+async function loadTree() {
+  if (view !== 'tree' || renaming) return
+  try {
+    tree = await (await fetch('/api/tree')).json()
+    nodes = flatten(tree)
+    renderTree()
+  } catch {
+    /* next poll */
+  }
+}
+setInterval(loadTree, 2000)
+
+function rowHtml(r, now) {
+  const working = r.state === 'working'
+  const idle = r.state === 'idle'
+  const od = r.state === 'blocked' && now - r.since > OVERDUE_MS
+  const name =
+    renaming === r.sessionId
+      ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
+      : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
+  const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.tool)}</span>${esc(r.command)}</div>` : ''
+  return (
+    `<div class="q${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
+    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key">${crumbs(r)}</span>${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
+    `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? 'Idle — waiting for your next prompt' : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
+    cmd +
+    `<span class="go">ENTER ↵ OPEN</span></div>`
+  )
+}
+
 function render() {
-  $('#qb').textContent = queue.length || ''
+  if (view === 'tree') return renderTree()
+  $('#qb').textContent = queue.filter((r) => r.state === 'blocked').length || ''
   const list = $('#list')
+  const side = $('#side')
   if (!queue.length) {
+    side.innerHTML = ''
+    document.querySelector('.wrap').classList.remove('has-side')
     list.innerHTML = '<div class="empty">Nothing waiting on you.</div>'
     return
   }
   if (!queue.some((r) => r.sessionId === sel)) sel = queue[0].sessionId
   const now = Date.now()
-  list.innerHTML = queue
-    .map((r) => {
-      const od = now - r.since > OVERDUE_MS
-      const name =
-        renaming === r.sessionId
-          ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
-          : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
-      const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.tool)}</span>${esc(r.command)}</div>` : ''
-      return (
-        `<div class="q${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
-        `<div class="r1"><span class="key">${crumbs(r)}</span>${name}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
-        `<div class="prompt">${esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
-        cmd +
-        `<span class="go">ENTER ↵ OPEN</span></div>`
-      )
-    })
-    .join('')
+  const iface = queue.filter((r) => r.role === 'interface')
+  const rest = queue.filter((r) => r.role !== 'interface')
+  document.querySelector('.wrap').classList.toggle('has-side', iface.length > 0)
+  side.innerHTML = iface.length ? heading('Interface') + iface.map((r) => rowHtml(r, now)).join('') : ''
+  let last = ''
+  list.innerHTML =
+    rest
+      .map((r) => {
+        const head = r.state !== last ? heading(SECTION[r.state]) : ''
+        last = r.state
+        return head + rowHtml(r, now)
+      })
+      .join('') || (iface.length ? '<div class="empty">Nothing else waiting on you.</div>' : '')
   if (renaming) {
     const inp = $('#renIn')
     if (inp && document.activeElement !== inp) {
@@ -70,12 +159,12 @@ function setQueue(q) {
   render()
 }
 
-function toast(msg) {
+function toast(msg, ms = 2600) {
   const t = $('#toast')
   t.textContent = msg
   t.classList.add('on')
   clearTimeout(toast.t)
-  toast.t = setTimeout(() => t.classList.remove('on'), 2600)
+  toast.t = setTimeout(() => t.classList.remove('on'), ms)
 }
 
 async function post(path, body) {
@@ -84,41 +173,147 @@ async function post(path, body) {
 }
 
 async function openSel() {
-  const r = queue.find((x) => x.sessionId === sel)
+  const r = items().find((x) => x.sessionId === sel)
   if (!r) return
-  const { ok, data } = await post('/api/open', { sessionId: r.sessionId })
+  // A manager with a blocked worker: the leaf-only rule says go to the worker that is blocked.
+  const target = r.blockedChildren?.[0]?.sessionId || r.sessionId
+  const { ok, data } = await post('/api/open', { sessionId: target })
   toast(ok ? `Opening “${r.name}” in Claude…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'Open failed')
 }
 
-async function newSession() {
-  const r = queue.find((x) => x.sessionId === sel)
-  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId })
+async function newSession(role) {
+  const r = items().find((x) => x.sessionId === sel)
+  // A worker started with a manager selected is attached to it; the server builds the tag.
+  const parent = role === 'worker' && r?.role === 'manager' ? r.sessionId : ''
+  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId, role, parent })
   const where = data.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
-  toast(ok ? `Opening a new Claude Code session${where}…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'New session failed')
+  const tag = data.marker ? ` with ${data.marker} in the prompt box (not sent)` : ''
+  toast(ok ? `Opening a new Claude Code session${where}${tag}…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'New session failed', data.marker ? 7000 : 2600)
 }
 
 async function commitRename() {
   const id = renaming
   const val = $('#renIn')?.value ?? ''
   renaming = null
-  const r = queue.find((x) => x.sessionId === id)
+  const r = items().find((x) => x.sessionId === id)
   // Typing the app's own title back is the same as clearing the overlay.
   await post('/api/rename', { sessionId: id, name: r && val.trim() === r.title ? '' : val })
 }
 
+async function classifySel(role) {
+  const r = items().find((x) => x.sessionId === sel)
+  if (!r) return
+  const { ok, data } = await post('/api/classify', { sessionId: r.sessionId, role })
+  toast(ok ? (role ? `“${r.name}” is now a ${role}` : `“${r.name}” unclassified`) : data.error || 'Classify failed')
+  loadTree()
+}
+
+async function classifyGroup() {
+  const todo = tree.unclassified.filter((r) => !r.suggested)
+  for (const r of todo) await post('/api/classify', { sessionId: r.sessionId, role: 'worker' })
+  toast(todo.length ? `Classified ${todo.length} as workers` : 'Nothing to classify')
+  loadTree()
+}
+
+/** Sessions that could become workers of `mgr`: unclassified ones, and workers of other managers. */
+function pickCandidates(mgr) {
+  const mine = new Set(mgr.children.map((c) => c.sessionId))
+  return [...tree.unclassified, ...tree.orphans, ...tree.managers.filter((m) => m.sessionId !== mgr.sessionId).flatMap((m) => m.children)].filter((r) => !mine.has(r.sessionId))
+}
+
+function pickRows() {
+  const f = $('#pickIn').value.trim().toLowerCase()
+  return pick.rows.filter((r) => !f || `${r.name} ${r.title} ${r.project}`.toLowerCase().includes(f))
+}
+
+function renderPick() {
+  const rows = pickRows()
+  pick.idx = Math.min(pick.idx, Math.max(0, rows.length - 1))
+  $('#pickHd').textContent = `Attach to “${pick.mgr.name}” (${pick.checked.size} ticked)`
+  $('#pickList').innerHTML =
+    rows.map((r, i) => `<div class="pk${i === pick.idx ? ' cur' : ''}" data-i="${i}"><span class="bx">${pick.checked.has(r.sessionId) ? '[x]' : '[ ]'}</span><span>${esc(r.name)}</span><span class="ap">${esc(r.project)}${r.role === 'worker' ? ' · worker elsewhere' : ''}</span></div>`).join('') ||
+    '<div class="empty" style="font-size:13px;padding:12px 4px">No matches.</div>'
+  document.querySelector('.pk.cur')?.scrollIntoView({ block: 'nearest' })
+}
+
+function openPick() {
+  const mgr = items().find((x) => x.sessionId === sel)
+  if (view !== 'tree' || mgr?.role !== 'manager') return toast('Select a manager in the role tree first (t)')
+  pick = { mgr, rows: pickCandidates(mgr), checked: new Set(), idx: 0 }
+  $('#pickIn').value = ''
+  $('#ovPick').classList.add('on')
+  renderPick()
+  $('#pickIn').focus()
+}
+
+function closePick() {
+  pick = null
+  $('#ovPick').classList.remove('on')
+  $('#pickIn').blur()
+}
+
+async function commitPick() {
+  const { mgr, checked } = pick
+  closePick()
+  if (!checked.size) return toast('Nothing ticked')
+  for (const id of checked) await post('/api/classify', { sessionId: id, role: 'worker', parent: mgr.sessionId })
+  toast(`Attached ${checked.size} to “${mgr.name}”`)
+  loadTree()
+}
+
+$('#pickIn').addEventListener('input', () => { pick.idx = 0; renderPick() })
+$('#pickIn').addEventListener('keydown', (e) => {
+  e.stopPropagation()
+  const rows = pickRows()
+  if (e.key === 'Escape') closePick()
+  else if (e.key === 'ArrowDown') { e.preventDefault(); pick.idx = Math.min(rows.length - 1, pick.idx + 1); renderPick() }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); pick.idx = Math.max(0, pick.idx - 1); renderPick() }
+  else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitPick() }
+  else if (e.key === 'Enter') {
+    e.preventDefault()
+    const r = rows[pick.idx]
+    if (r) pick.checked.has(r.sessionId) ? pick.checked.delete(r.sessionId) : pick.checked.add(r.sessionId)
+    renderPick()
+  }
+})
+$('#pickList').addEventListener('click', (e) => {
+  const row = e.target.closest('.pk')
+  const r = row && pickRows()[Number(row.dataset.i)]
+  if (!r) return
+  pick.checked.has(r.sessionId) ? pick.checked.delete(r.sessionId) : pick.checked.add(r.sessionId)
+  pick.idx = Number(row.dataset.i)
+  renderPick()
+})
+$('#pickGo').addEventListener('click', () => pick && commitPick())
+
 function move(d) {
-  const i = queue.findIndex((r) => r.sessionId === sel)
-  const n = Math.min(queue.length - 1, Math.max(0, i + d))
-  if (queue[n]) sel = queue[n].sessionId
+  const list = items()
+  const i = list.findIndex((r) => r.sessionId === sel)
+  const n = Math.min(list.length - 1, Math.max(0, i + d))
+  if (list[n]) sel = list[n].sessionId
   render()
   document.querySelector('.q.sel')?.scrollIntoView({ block: 'nearest' })
 }
 
 document.addEventListener('keydown', (e) => {
+  if (pick) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
   if (renaming) {
     if (e.key === 'Enter') { e.preventDefault(); commitRename() }
     else if (e.key === 'Escape') { renaming = null; render() }
+    return
+  }
+  if (awaitingNew) {
+    awaitingNew = false
+    $('#toast').classList.remove('on')
+    const role = { i: 'interface', m: 'manager', w: 'worker', p: '', Enter: '' }[e.key]
+    if (role !== undefined) { e.preventDefault(); newSession(role) }
+    return
+  }
+  if (awaitingRole) {
+    awaitingRole = false
+    const role = { i: 'interface', m: 'manager', w: 'worker', x: '' }[e.key]
+    if (role !== undefined) { e.preventDefault(); classifySel(role) }
     return
   }
   const help = $('#ovHelp')
@@ -127,27 +322,35 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
-  else if (e.key === 'r' && queue.length) { e.preventDefault(); renaming = sel; render() }
-  else if (e.key === 'n') { e.preventDefault(); newSession() }
+  else if (e.key === 'a') { e.preventDefault(); openPick() }
+  else if (e.key === 't') setView('tree')
+  else if (e.key === 'h' || e.key === 'q') setView('queue')
+  else if (e.key === 'c') { e.preventDefault(); awaitingRole = true; toast('Classify: i interface · m manager · w worker · x clear') }
+  else if (e.key === 'C' && view === 'tree') { e.preventDefault(); classifyGroup() }
+  else if (e.key === 'r' && items().length) { e.preventDefault(); renaming = sel; render() }
+  else if (e.key === 'n') { e.preventDefault(); awaitingNew = true; toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000) }
 })
 
-$('#list').addEventListener('click', (e) => {
-  const q = e.target.closest('.q')
-  if (!q || e.target.tagName === 'INPUT') return
-  sel = q.dataset.id
-  render()
-})
-$('#list').addEventListener('dblclick', (e) => { if (e.target.closest('.q')) openSel() })
+document.querySelectorAll('.pill[data-view]').forEach((p) => p.addEventListener('click', () => setView(p.dataset.view)))
+for (const el of [$('#list'), $('#side')]) {
+  el.addEventListener('click', (e) => {
+    const q = e.target.closest('.q')
+    if (!q || e.target.tagName === 'INPUT') return
+    sel = q.dataset.id
+    render()
+  })
+  el.addEventListener('dblclick', (e) => { if (e.target.closest('.q')) openSel() })
+}
 $('#helpBtn').addEventListener('click', () => $('#ovHelp').classList.toggle('on'))
 $('#ovHelp').addEventListener('click', (e) => { if (e.target.id === 'ovHelp') e.currentTarget.classList.remove('on') })
 
 // Wait timers tick locally; the server only pushes when the queue changes.
 setInterval(() => {
   const now = Date.now()
-  document.querySelectorAll('.wt').forEach((el) => {
+  document.querySelectorAll('.wt[data-since]').forEach((el) => {
     const since = Number(el.dataset.since)
     el.textContent = fmt(now - since)
-    el.closest('.q').classList.toggle('od', now - since > OVERDUE_MS)
+    el.closest('.q').classList.toggle('od', !el.closest('.q').classList.contains('wk') && now - since > OVERDUE_MS)
   })
 }, 1000)
 

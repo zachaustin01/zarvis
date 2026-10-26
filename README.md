@@ -66,7 +66,34 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 `n` opens a new session in the Claude desktop app via `claude://code/new`, in the selected
 session's repo (its root, not its worktree), or a plain new session when nothing is selected.
 
+## Roles
+
+Every session is the **interface** (one), a **project manager**, or a **worker** (one layer under a
+manager). The tree is Zarvis's own registry (`~/.zarvis/state.json`), not the app's spawn links.
+Press `t` for the role tree, `h` for the queue.
+
+- Tag by hand: `c`, then `i` / `m` / `w` / `x` (clear). In the tree, `Shift+C` makes every
+  unclassified session a worker.
+- Tag at session start: put `[zarvis: role=manager]` (or `interface`; `worker parent=<session id>`) in the
+  first prompt. The hook records it under `~/.zarvis/roles/`; a hand-set role overrides it.
+- A session spawned by a manager becomes its worker; one that has spawned children is only
+  *suggested* as a manager. Spawn links from the interface are ignored.
+- A manager with a blocked worker is **waiting on worker** and Enter jumps to the worker, so a blocked
+  leaf never appears once per tier. Rule breaks show a ▲ and never block anything.
+
+## Roster
+
+Zarvis keeps `~/.zarvis/roster.md` current: every manager with the workers attached to it, each
+with its state and session ids. A manager session is an ordinary Claude session that knows nothing
+about Zarvis, so `n` then `m` prefills its first prompt with the role tag plus a line pointing at
+this file. It refreshes on every classify and every few seconds.
+
 ## Behaviour notes
+
+- Working sessions come from the same hook: a prompt starts the clock, each tool call refreshes it, and
+  Stop turns it into an idle entry (SessionStart makes one too), which lasts until SessionEnd or
+  `ZARVIS_MAX_AGE_HOURS`, newest first. A working session quiet for 30 min (`ZARVIS_WORKING_MAX_AGE_MIN`) drops out,
+  since an interrupted turn fires no Stop. A blocked session is never also listed as working.
 
 - Only sessions with their own marker appear (leaf-only); a parent waiting on a child never does.
 - Markers are dropped if the session record is archived/deleted, the session has no record or
@@ -80,8 +107,3 @@ session's repo (its root, not its worktree), or a plain new session when nothing
 ```bash
 npm test     # node --test, no test dependencies
 ```
-- Working sessions come from the same hook: a prompt starts the clock, each tool call refreshes it, and
-  Stop turns it into an idle entry (SessionStart makes one too), which lasts until SessionEnd or
-  `ZARVIS_MAX_AGE_HOURS`, newest first. A working session quiet for 30 min (`ZARVIS_WORKING_MAX_AGE_MIN`) drops out,
-  since an interrupted turn fires no Stop. A blocked session is never also listed as working.
-
