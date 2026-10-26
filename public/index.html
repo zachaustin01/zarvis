@@ -11,6 +11,7 @@
   <span class="brand">STATION</span>
   <span class="pill on" data-view="queue" style="cursor:pointer">Queue <span class="badge num" id="qb"></span></span>
   <span class="pill" data-view="tree" style="cursor:pointer">Roles</span>
+  <span class="pill" data-view="parked" style="cursor:pointer">Parked</span>
   <span class="sp"></span>
   <span class="pill" id="helpBtn">? keys</span>
   <span class="mono" id="hookst" title="Hook status unknown">hook: …</span>
@@ -19,7 +20,7 @@
 <main class="wrap">
   <input id="flt" placeholder="Search roles (/) — also finds done sessions" hidden>
   <div class="cols"><aside id="side"></aside><div id="list"></div></div>
-  <div class="hint">j/k move · i interface · Enter open in Claude · n new session · p park · d done · u undo · r rename · c classify · t roles · h/q queue · ? keys</div>
+  <div class="hint">j/k move · i interface · Enter open in Claude · n new session · p park · d done · u unpark · z undo · P parked · r rename · c classify · t roles · h/q queue · ? keys</div>
 </main>
 
 <div class="ov" id="ovHelp"><div class="box">
@@ -34,8 +35,10 @@
     <b>c</b><span>Classify the selection: i interface, m manager, w worker, x clear. In the role tree, Shift+C makes every unclassified session a worker</span>
     <b>p</b><span>Park the selection: a one-line reason, an optional wake date, a handoff note (⌘/Ctrl+Enter saves). On a parked session, unparks it. Parked sessions leave the queue unless blocked or wake-ready</span>
     <b>d</b><span>Mark done (hidden unless searched with / in the role tree); on a done session, brings it back</span>
-    <b>u</b><span>Undo the last park, unpark or done</span>
-    <b>/</b><span>Search the role tree, done sessions included. Esc clears</span>
+    <b>u</b><span>Unpark the selected session</span>
+    <b>z</b><span>Undo the last park, unpark or done</span>
+    <b>P</b><span>Parked view: every parked session with its reason, who parked it, and its handoff note. / searches the notes too</span>
+    <b>/</b><span>Search the role tree or Parked view, done sessions included. Esc clears</span>
     <b>r</b><span>Rename (overlay only). Esc cancels, empty restores the app title</span>
     <b>?</b><span>This sheet · Esc closes</span>
   </div>

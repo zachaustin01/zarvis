@@ -66,20 +66,47 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 ## Keys
 
 `j`/`k` or arrows move · `i` jump to the interface session · `Enter` open in Claude · `n` new Claude Code session · `r` rename
-(overlay; Esc cancels; empty restores the app title) · `p` park · `d` done · `u` undo ·
-`/` search the role tree · `?` key sheet.
+(overlay; Esc cancels; empty restores the app title) · `p` park · `d` done · `u` unpark · `z` undo ·
+`P` parked view · `/` search the role tree · `?` key sheet.
 
 `n` opens a new session in the Claude desktop app via `claude://code/new`, in the selected
 session's repo (its root, not its worktree), or a plain new session when nothing is selected.
 
 ## Park and done
 
-`p` parks the selected session: a one-line reason, an optional wake date and a handoff note
-(Enter or ⌘/Ctrl+Enter saves). A parked session leaves the "Needs you" queue and shows dim with a
-hollow dot in the role tree; a *blocked* parked session still appears in the queue, marked. When
-its wake date passes it is marked **wake ready** and returns to the queue. `p` on a parked session
-unparks it. `d` marks a session done: hidden everywhere unless you search the role tree (`/`), where
-`d` brings it back. `u` undoes the last park, unpark or done.
+`p` parks the selected session: a one-line reason, an optional wake date (`YYYY-MM-DD`, blank for
+none) and a handoff note (Enter or ⌘/Ctrl+Enter saves). A parked session leaves the "Needs you"
+queue and shows dim with a hollow dot in the role tree; a *blocked* parked session still appears in
+the queue, marked. When its wake date passes it is marked **wake ready** and returns to the queue.
+`u` (or `p` again) unparks. `d` marks a session done: hidden everywhere unless you search the role
+tree (`/`), where `d` brings it back. `z` undoes the last park, unpark or done.
+
+`P` opens the **Parked** view: every parked session with its reason, when and by whom it was parked
+(a manager's name, or "by hand"), the wake date, and the full handoff note. `/` searches names,
+reasons and notes; `u` unparks the selected one.
+
+### Managers parking their own workers
+
+A manager can park a finished worker so it drops out of your attention and can be found again:
+
+```bash
+npm run park -- park <workerSessionId> --by <managerSessionId> --reason "PR 7 merged" --note "..." [--wake YYYY-MM-DD]
+npm run park -- unpark <workerSessionId> --by <managerSessionId>
+npm run park -- list [--by <managerSessionId>]
+```
+
+It writes the same `parked` entry as the UI (plus `parkedBy`), straight to `~/.zarvis/state.json`,
+so it works with the server stopped and a running server picks it up within a second. Ids may be
+CLI session ids or the app's `local_…` ids. Guardrails: `--by` is required and must be a manager; the
+target must be a worker of that manager according to Zarvis's classification (never the interface or
+a manager); a session that is blocked or working per its hook markers is refused unless `--force`;
+`--dry-run` validates and prints what it would do. A refusal exits 1 with one line why. Parked
+workers are listed under each manager's "Parked" subsection in `~/.zarvis/roster.md`, with the
+reason, date, session id and the first line of the note.
+
+The `zarvis-manager` skill tells managers when to park (their own workers, only once finished,
+checked, and idle) and how. `npm run setup` fills in the absolute path of this clone in the
+installed copy of that skill, so re-run it if you move the clone.
 
 State lives in `~/.zarvis/state.json` (`parked`, `done`); nothing is written to Claude's files.
 Endpoints: `POST /api/park`, `/api/unpark`, `/api/done`. Ticket-status wake conditions are not built.

@@ -80,3 +80,6 @@ input:focus,textarea:focus{border-color:var(--cy)}
 .kv{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;font-size:13px}
 .kv b{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:400;color:var(--cy)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+
+.q.pkv .prompt{color:var(--t1)}
+.note{white-space:pre-wrap;color:var(--t2);font-size:12px;margin-top:6px;border-left:2px solid var(--edge);padding-left:8px;max-height:9em;overflow:auto}
