@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { wakeTime, isWakeReady, annotateRows, visibleRows, hideDone } from '../lib/lifecycle.mjs'
+import { wakeTime, isWakeReady, lifecycleOf, annotateRows, visibleRows, hideDone } from '../lib/lifecycle.mjs'
 import { readState, parkSession, unparkSession, setDone, setOverlay } from '../lib/state.mjs'
 
 const id = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`
@@ -28,7 +28,7 @@ test('park / unpark / done round-trip through state.json and keep other state', 
   await setOverlay(id(1), 'Mine', file)
   await parkSession(id(1), { reason: '  waiting on\nreview ', wake: { type: 'date', value: '2026-11-01' }, handoffNote: ' next: merge ' }, file, 5)
   let s = await readState(file)
-  assert.deepEqual(s.parked[id(1)], { parkedAt: 5, reason: 'waiting on review', wake: { type: 'date', value: '2026-11-01' }, handoffNote: 'next: merge' })
+  assert.deepEqual(s.parked[id(1)], { parkedAt: 5, parkedBy: '', reason: 'waiting on review', wake: { type: 'date', value: '2026-11-01' }, handoffNote: 'next: merge' })
   assert.equal(s.overlays[id(1)].name, 'Mine')
   await setDone(id(1), true, file)
   s = await readState(file)
@@ -88,4 +88,13 @@ test('hideDone prunes done nodes, children included', () => {
   const t = hideDone({ interface: [n(1)], managers: [{ ...n(2), children: [n(3), n(4, true)] }, { ...n(5, true), children: [n(6)] }], orphans: [n(7, true)], unclassified: [n(8)] })
   assert.deepEqual(t.managers.map((m) => [m.sessionId, m.children.map((c) => c.sessionId)]), [[id(2), [id(3)]]])
   assert.deepEqual([t.orphans.length, t.unclassified.length], [0, 1])
+})
+
+test('lifecycleOf names the parking manager; a bad parkedBy is refused', async () => {
+  const state = { parked: { [id(1)]: { parkedAt: 1, parkedBy: id(2), reason: 'r', wake: null }, [id(3)]: { parkedAt: 1, parkedBy: '', reason: 'r', wake: null } }, done: {} }
+  const nameOf = (x) => (x === id(2) ? 'Auth manager' : '')
+  assert.equal(lifecycleOf(state, id(1), NOW, nameOf).parked.parkedByName, 'Auth manager')
+  assert.equal(lifecycleOf(state, id(3), NOW, nameOf).parked.parkedByName, '')
+  assert.equal(lifecycleOf(state, id(4), NOW, nameOf).parked, null)
+  await assert.rejects(parkSession(id(1), { reason: 'r', parkedBy: '../x' }, await tmp()), /parkedBy/)
 })

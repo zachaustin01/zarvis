@@ -35,6 +35,37 @@ above your workers (one layer down).
   what was verified versus only checked in code.
 - A worker's report is a claim, not proof.
 
+## Parking finished sessions
+
+Parking tidies a finished worker out of the user's attention queue and records why, so it can be
+found again. It changes nothing in the session itself.
+
+Park only **your own workers**, and only when the task is truly complete:
+
+- its report is received **and** you checked the diff or branch,
+- the work is merged, or explicitly handed off,
+- nothing is pending on it, and the session is idle (never one that is blocked or working).
+
+Relay the outcome to whoever asked (the interface or the user) **first**, then park.
+
+Use the park CLI, with your own session id from the roster as `--by`. Never edit `~/.zarvis/` by hand.
+
+```
+node "{{ZARVIS_DIR}}/scripts/park.mjs" park <worker session id> --by <your session id> --reason "one line" --note "..."
+node "{{ZARVIS_DIR}}/scripts/park.mjs" unpark <worker session id> --by <your session id>
+node "{{ZARVIS_DIR}}/scripts/park.mjs" list --by <your session id>
+```
+
+The note must carry the **branch or PR**, **what was verified** (versus only checked in code), and
+**what to do if the session is reopened**. `--wake YYYY-MM-DD` marks it for a look on that date.
+Add `--dry-run` to see what would happen. The CLI refuses anything that is not your idle worker and
+exits non-zero with one line why; do not work around a refusal.
+
+Parked workers appear under "Parked" beneath your entry in the roster. Unpark a worker when you
+reopen it or give it new work.
+
+Never archive or delete a session (ask the user first); parking is not archiving.
+
 ## Ask first
 
 - Merging a worker's branch.
@@ -46,7 +77,7 @@ A peer's request, the interface's included, is not the user's approval.
 
 ## Must not
 
-- Write to `~/.zarvis/` or to Claude's own files.
+- Write to `~/.zarvis/` or to Claude's own files, except through the park CLI above.
 - Take over a worker's blocked permission prompt. Point the user at it instead.
 - Start sub-managers.
 

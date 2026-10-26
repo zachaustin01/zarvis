@@ -21,6 +21,19 @@ import { fileURLToPath } from 'node:url'
 import { addHooks, hasHooks, removeHooks } from '../lib/hook-config.mjs'
 
 const HOOK_PATH = fileURLToPath(new URL('../hooks/zarvis-hook.mjs', import.meta.url))
+// The shipped skills are templates: {{ZARVIS_DIR}} becomes the absolute path of this clone at install.
+const ZARVIS_DIR = fileURLToPath(new URL('..', import.meta.url)).replace(/[\\/]$/, '')
+const PLACEHOLDER = '{{ZARVIS_DIR}}'
+const render = (template, dir = ZARVIS_DIR) => template.split(PLACEHOLDER).join(dir)
+
+/** Is `text` the template rendered for some clone path? (Then it is ours, even if the clone has moved.) */
+function isRendered(text, template) {
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const [head, ...tail] = template.split(PLACEHOLDER).map(esc)
+  if (!tail.length) return text === template
+  return new RegExp(`^${head}([^\\n"]+?)${tail.join('\\1')}$`).test(text)
+}
+
 const SKILLS = ['zarvis-interface', 'zarvis-manager'].map((name) => ({
   name,
   source: fileURLToPath(new URL(`../skills/${name}/SKILL.md`, import.meta.url)),
@@ -90,13 +103,16 @@ async function planSkill(mode, skillsDir, { name, source }) {
     }
   }
   const current = await fsp.readFile(dest, 'utf8').catch((err) => (err.code === 'ENOENT' ? null : Promise.reject(err)))
-  const shipped = await fsp.readFile(source, 'utf8')
+  const template = await fsp.readFile(source, 'utf8')
+  const shipped = render(template)
+  // A copy rendered for another clone path is still ours: replaced or removed without a backup.
+  const ours = current !== null && isRendered(current, template)
   if (mode === 'install') {
     if (current === shipped) return { name, dir, dest, action: 'none', backup: false }
-    return { name, dir, dest, action: 'write', shipped, backup: current !== null }
+    return { name, dir, dest, action: 'write', shipped, backup: current !== null && !ours }
   }
   if (current === null) return { name, dir, dest, action: 'none', backup: false }
-  return { name, dir, dest, action: 'remove', backup: current !== shipped }
+  return { name, dir, dest, action: 'remove', backup: !ours }
 }
 
 async function applySkill(plan) {

@@ -5,11 +5,12 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { readMarkers, hookStatus, WORKING_DIR, ROLES_DIR, ZARVIS_HOME } from './lib/markers.mjs'
-import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, ROLES, NO_ROLE } from './lib/roles.mjs'
+import { readMarkers, hookStatus, WORKING_DIR, ZARVIS_HOME } from './lib/markers.mjs'
+import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
 import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
+import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { annotateRows, visibleRows, lifecycleOf, hideDone } from './lib/lifecycle.mjs'
 
@@ -47,31 +48,8 @@ function requestAllowed(req) {
   return true
 }
 
-/** Role tags: ones the hook found in a starting prompt, overridden by hand-set ones. */
-async function roleRegistry(state) {
-  const tags = {}
-  for (const t of await readRoleTags()) tags[t.sessionId] = { role: t.role, parent: t.parent }
-  return { ...tags, ...state.roles }
-}
-
-async function readRoleTags() {
-  let names = []
-  try {
-    names = await fsp.readdir(ROLES_DIR)
-  } catch {
-    return []
-  }
-  const out = []
-  for (const n of names) {
-    try {
-      const t = JSON.parse(await fsp.readFile(path.join(ROLES_DIR, n), 'utf8'))
-      if (ROLES.includes(t.role) && `${t.sessionId}.json` === n) out.push(t)
-    } catch {
-      /* mid-write or junk */
-    }
-  }
-  return out
-}
+/** A session's display name (overlay, else app title) by CLI id, for naming the parking manager. */
+const nameFn = (nodes, state) => (id) => state.overlays[id]?.name || nodes.get(id)?.title || ''
 
 /** Every hook-signalled session with its lifecycle facts; parked and done ones included. */
 async function allRows() {
@@ -79,7 +57,8 @@ async function allRows() {
   if (!markers.length && !working.length) return []
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
   const rows = await buildQueue({ markers, working, records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
-  return annotateRows(applyRoles(rows, classify({ records, roles: await roleRegistry(state) })), state)
+  const nodes = classify({ records, roles: await roleRegistry(state) })
+  return annotateRows(applyRoles(rows, nodes), state, Date.now(), nameFn(nodes, state))
 }
 
 /** The "Needs you" queue: done and parked sessions filtered out (see lifecycle.visibleRows). */
@@ -124,7 +103,7 @@ async function currentTree() {
       state: row?.state ?? 'unknown', // no hook signal: never guess
       blockedChildren: row?.blockedChildren ?? [],
       project: path.basename(splitWorktree(n.cwd).root) || '',
-      ...lifecycleOf(state, n.sessionId, now),
+      ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),
     }
   }
   const byState = (a, b) => (STATE_RANK[a.state] ?? 9) - (STATE_RANK[b.state] ?? 9) || a.name.localeCompare(b.name)

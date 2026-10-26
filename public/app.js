@@ -3,10 +3,11 @@ import { projectsOf, filterRows, hiddenBlocked, filterTreeByProject, cycleProjec
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
-let view = 'queue' // 'queue' | 'tree'
+let view = 'queue' // 'queue' | 'tree' | 'parked'
 let tree = { interface: [], managers: [], orphans: [], unclassified: [] }
 let rawTree = null // the server's tree, done sessions included
 let nodes = [] // the tree flattened in display order, for j/k
+let parkedList = [] // parked sessions, newest first: the Parked view
 let pick = null // the attach picker: { mgr, rows, checked, idx }
 let awaitingNew = false // after `n`: the next key picks the new session's role
 let awaitingRole = false // after `c`: the next key picks the role
@@ -32,11 +33,11 @@ const ifaceFirst = () => {
   const q = visibleQueue()
   return [...q.filter((r) => r.role === 'interface'), ...q.filter((r) => r.role !== 'interface')]
 }
-const items = () => (view === 'tree' ? nodes : ifaceFirst())
-/** Done sessions are hidden unless searched; a search matches name, title, project and park reason. */
+const items = () => (view === 'tree' ? nodes : view === 'parked' ? parkedList : ifaceFirst())
+/** Done sessions are hidden unless searched; a search matches name, title, project, park reason and handoff note. */
 function filterTree(t, q) {
   q = q.trim().toLowerCase()
-  const hit = (n) => (q ? `${n.name} ${n.title} ${n.project} ${n.branch} ${n.parked?.reason || ''}`.toLowerCase().includes(q) : !n.done)
+  const hit = (n) => (q ? `${n.name} ${n.title} ${n.project} ${n.branch} ${n.parked?.reason || ''} ${n.parked?.handoffNote || ''} ${n.parked?.parkedByName || ''}`.toLowerCase().includes(q) : !n.done)
   const keep = (n) => hit(n) || (n.children || []).some(hit)
   return {
     interface: t.interface.filter(hit),
@@ -79,7 +80,8 @@ function warn(r) {
 function lifeTag(r) {
   if (!r.parked) return ''
   const wake = r.wakeReady ? '<span class="wr">wake ready</span>' : r.parked.wake?.type === 'date' ? `<span class="ap">wakes ${esc(r.parked.wake.value)}</span>` : ''
-  return `<span class="pd" title="parked">○</span><span class="ap">${esc(r.parked.reason)}</span>${wake}`
+  const by = r.parked.parkedByName ? `<span class="ap">by ${esc(r.parked.parkedByName)}</span>` : ''
+  return `<span class="pd" title="parked">○</span><span class="ap">${esc(r.parked.reason)}</span>${by}${wake}`
 }
 
 /** Tree status text: the real state first, so a parked-but-blocked session still says it needs you. */
@@ -124,21 +126,53 @@ function renderTree() {
   }
 }
 
+const when = (ms) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+/** The Parked view: every parked session with its reason, who parked it, when, and its handoff note. */
+function renderParked() {
+  $('#side').innerHTML = ''
+  document.querySelector('.wrap').classList.remove('has-side')
+  $('#list').innerHTML =
+    parkedList
+      .map((r) => {
+        const p = r.parked
+        const wake = r.wakeReady ? ' · <span class="wr">wake ready</span>' : p.wake ? ` · wakes ${esc(p.wake.value)}` : ''
+        const by = p.parkedBy ? `by ${esc(p.parkedByName || p.parkedBy)}` : 'by hand'
+        return (
+          `<div class="q tr pkv${r.sessionId === sel ? ' sel' : ''}" data-id="${esc(r.sessionId)}">` +
+          `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span><span class="pd">○</span><span class="key${r.branch || r.worktree ? '' : ' nb'}">${crumbs(r)}</span><span class="nm">${esc(r.name)}</span>` +
+          `<span class="wt">parked ${esc(when(p.parkedAt))}</span></div>` +
+          `<div class="prompt">${esc(p.reason)} · ${by}${wake}</div>` +
+          (p.handoffNote ? `<div class="note">${esc(p.handoffNote)}</div>` : '') +
+          `<span class="go">ENTER ↵ OPEN · u UNPARK</span></div>`
+        )
+      })
+      .join('') || '<div class="empty">Nothing parked.</div>'
+  if (!parkedList.some((r) => r.sessionId === sel) && parkedList.length) sel = parkedList[0].sessionId
+}
+
+/** Re-filter the server's tree for the current search and draw whichever tree-backed view is open. */
+function applyTree() {
+  tree = viewTree()
+  nodes = flatten(tree)
+  parkedList = nodes.filter((n) => n.parked && !n.done).sort((a, b) => b.parked.parkedAt - a.parked.parkedAt)
+  if (view === 'parked') renderParked()
+  else renderTree()
+}
+
 function setView(v) {
   view = v
   document.querySelectorAll('.pill[data-view]').forEach((p) => p.classList.toggle('on', p.dataset.view === v))
-  $('#flt').hidden = v !== 'tree'
-  if (v === 'tree') loadTree()
+  $('#flt').hidden = v === 'queue'
+  if (v !== 'queue') loadTree()
   else render()
 }
 
 async function loadTree() {
-  if (view !== 'tree' || renaming) return
+  if (view === 'queue' || renaming) return
   try {
     rawTree = await (await fetch('/api/tree')).json()
-    tree = viewTree()
-    nodes = flatten(tree)
-    renderTree()
+    applyTree()
   } catch {
     /* next poll */
   }
@@ -166,7 +200,7 @@ function rowHtml(r, now) {
 function setProject(p) {
   project = p
   try { localStorage.setItem('zarvis.project', p) } catch { /* storage blocked */ }
-  if (view === 'tree' && rawTree) { tree = viewTree(); nodes = flatten(tree) }
+  if (view !== 'queue' && rawTree) applyTree()
   render()
 }
 
@@ -194,6 +228,7 @@ $('#projbar').addEventListener('click', (e) => {
 function render() {
   renderBar()
   if (view === 'tree') return renderTree()
+  if (view === 'parked') return renderParked()
   const vq = visibleQueue()
   $('#qb').textContent = vq.filter((r) => r.state === 'blocked' && !r.parked).length || '' // what the "Needs you" section holds
   const list = $('#list')
@@ -274,8 +309,16 @@ async function lifecycle(path, body, label, back) {
   const { ok, data } = await post(path, body)
   if (!ok) return toast(data.error || 'Failed')
   undo = back ? { label, run: back } : null
-  toast(back ? `${label} · u to undo` : label)
+  toast(back ? `${label} · z to undo` : label)
   loadTree()
+}
+
+function unparkSel() {
+  const r = items().find((x) => x.sessionId === sel)
+  if (!r) return
+  if (!r.parked) return toast('Not parked (p parks it)')
+  const prev = r.parked
+  lifecycle('/api/unpark', { sessionId: r.sessionId }, `Unparked “${r.name}”`, () => post('/api/park', { sessionId: r.sessionId, ...prev, wake: prev.wake }))
 }
 
 function parkSel() {
@@ -334,7 +377,7 @@ for (const id of ['#parkReason', '#parkDate', '#parkNote']) {
 }
 $('#parkGo').addEventListener('click', () => parking && commitPark())
 
-$('#flt').addEventListener('input', (e) => { filter = e.target.value; if (rawTree) { tree = viewTree(); nodes = flatten(tree); renderTree() } })
+$('#flt').addEventListener('input', (e) => { filter = e.target.value; if (rawTree) applyTree() })
 $('#flt').addEventListener('keydown', (e) => {
   e.stopPropagation()
   if (e.key === 'Escape') { e.target.value = ''; e.target.dispatchEvent(new Event('input')); e.target.blur() }
@@ -485,8 +528,10 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'a') { e.preventDefault(); openPick() }
   else if (e.key === 'p' && items().length) { e.preventDefault(); parkSel() }
   else if (e.key === 'd' && items().length) { e.preventDefault(); doneSel() }
-  else if (e.key === 'u') { e.preventDefault(); undoLast() }
-  else if (e.key === '/' && view === 'tree') { e.preventDefault(); $('#flt').focus() }
+  else if (e.key === 'u') { e.preventDefault(); unparkSel() }
+  else if (e.key === 'z') { e.preventDefault(); undoLast() }
+  else if (e.key === 'P') setView('parked')
+  else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
   else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); setProject(cycleProject(projectList().map((p) => p.project), activeProject(), e.key === 'g' ? 1 : -1)) }
   else if (e.key === 'i') { e.preventDefault(); jumpToInterface() }
   else if (e.key === 't') setView('tree')

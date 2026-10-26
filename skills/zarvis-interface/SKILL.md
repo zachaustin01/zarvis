@@ -22,6 +22,9 @@ Do this once at the start, and again when the user asks. Do not re-read it every
   worker, working, idle, no signal).
 - Use `list_sessions` and `get_session` for titles, PRs, branches and recent activity.
 - Find your own entry under "Interface" in the roster.
+- Parked workers are listed under "Parked" beneath each manager (state `parked`, the reason, the
+  date, the session id and the first line of the handoff note). Look there before assuming a
+  worker is gone. You may ask a manager to park or unpark its workers; you do not park sessions yourself.
 
 ## May do
 
