@@ -10,6 +10,7 @@
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
     "setup": "node scripts/setup.mjs",
+    "park": "node scripts/park.mjs",
     "uninstall-hook": "node scripts/setup.mjs uninstall",
     "test": "node --test"
   }

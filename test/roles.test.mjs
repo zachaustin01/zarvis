@@ -122,3 +122,17 @@ test('setRole stores NO_ROLE with no parent; empty still drops the entry', async
   await setRole(id(3), '', '', file)
   assert.deepEqual((await readState(file)).roles, {})
 })
+
+test('roster lists parked workers apart, with reason, date, session id and the first line of the note', () => {
+  const live = { sessionId: id(3), name: 'Live', state: 'idle', project: 'api', branch: 'main' }
+  const parked = { sessionId: id(5), desktopSessionId: `local_${id(5)}`, name: 'Old  job', state: 'idle', project: 'api', branch: 'fix/x', parked: { parkedAt: Date.UTC(2026, 9, 26, 12), reason: 'merged in PR 7', wake: { type: 'date', value: '2026-11-01' }, handoffNote: '\nBranch fix/x, PR 7.\nVerified by tests.' } }
+  const tree = { interface: [], managers: [{ sessionId: id(2), name: 'Auth', project: 'api', children: [live, parked] }, { sessionId: id(4), name: 'Done', project: '', children: [{ ...parked, sessionId: id(6) }] }], orphans: [], unclassified: [] }
+  const text = renderRoster(tree)
+  const [auth, other] = text.split('## Manager: ').slice(1)
+  assert.match(auth, /- workers:\n  - Live — idle/)
+  assert.match(auth, /- parked .*:\n  - Old job — parked — merged in PR 7 — 2026-10-26 — wakes 2026-11-01 — api › fix\/x/)
+  assert.match(auth, new RegExp(`session \\\`${id(5)}\\\` · app[^\\n]*\\n    note: Branch fix/x, PR 7\\.\\n`))
+  assert.ok(!/Verified by tests/.test(auth), 'only the first line of the note')
+  assert.match(other, /workers: none live/)
+  assert.ok(!/Old job — idle/.test(text), 'a parked worker is not listed as live')
+})
