@@ -15,6 +15,14 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 .sp{flex:1}
 .hk{margin-right:14px;font-size:12px;letter-spacing:.06em;color:var(--t3)}.hk.live{color:var(--gr)}.hk.stale{color:var(--am)}
 .live{color:var(--gr)}.live.off{color:var(--rd)}
+.projbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:1180px;margin:14px auto -8px;padding:0 20px}
+.projbar[hidden]{display:none}
+.chip{cursor:pointer;border:1px solid var(--edge);padding:1px 10px;font-size:12px;letter-spacing:.04em;color:var(--t2);user-select:none}
+.chip[data-p]:not([data-p=""]){border-color:hsl(var(--ph) 40% 32%)}
+.chip.on{color:var(--t1);background:#0f2538;border-color:var(--cy)}
+.chip b{margin-left:6px;font-weight:600}.chip .nd{color:var(--am)}.chip .rn{color:var(--gr)}
+.chip.hid{color:var(--am);border-color:var(--am)}
+.projbar .g{margin-left:auto}
 .wrap{max-width:860px;margin:0 auto;padding:22px 20px}
 .cols{display:flex;gap:20px;align-items:flex-start}
 #list{flex:1;min-width:0}
