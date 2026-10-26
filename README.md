@@ -1,6 +1,6 @@
 # Zarvis
 
-Private, read-only attention queue for Claude Code desktop sessions. It shows which sessions are
+Local, read-only attention queue for Claude Code desktop sessions. It shows which sessions are
 blocked on a permission prompt (longest wait first), then which are working, then which are idle; **Enter** opens that session in the Claude
 desktop app via its `claude://` deep link. There is no approve/deny here. While running, Zarvis
 never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers) and
@@ -8,6 +8,10 @@ never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` a
 to your Claude settings when you run it.
 
 **Zero npm dependencies.** Needs only Node >= 22.13.
+
+> **Unofficial.** Zarvis is a personal tool, not affiliated with or endorsed by Anthropic. It reads the
+> Claude desktop app's local session records and uses its `claude://` links, none of which are a
+> documented interface, so an app update can break it. It runs only on your machine and sends nothing anywhere.
 
 ## Run
 
@@ -107,3 +111,7 @@ this file. It refreshes on every classify and every few seconds.
 ```bash
 npm test     # node --test, no test dependencies
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).

@@ -2,6 +2,7 @@
   "name": "zarvis",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Read-only attention queue over Claude Code desktop sessions. Zero dependencies.",
   "type": "module",
   "engines": { "node": ">=22.13" },
