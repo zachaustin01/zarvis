@@ -103,7 +103,7 @@ Press `t` for the role tree, `h` for the queue.
 
 `npm run setup` also installs two skills from `skills/` to `~/.claude/skills/`: `zarvis-interface`
 and `zarvis-manager`, with the same rules as the hook: a differing existing
-`SKILL.md` is backed up first, only that one file is touched, re-running is safe, `--dry-run`
+`SKILL.md` is backed up first, only Zarvis's own `SKILL.md` files are touched, re-running is safe, `--dry-run`
 writes nothing, and `--skills-dir <dir>` (or `CLAUDE_SKILLS_DIR`) picks another folder. With
 `--settings <file>` the skill goes to a `skills/` folder beside that file. `npm run uninstall-hook`
 removes it.

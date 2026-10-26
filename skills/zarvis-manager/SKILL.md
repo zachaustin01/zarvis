@@ -1,6 +1,6 @@
 ---
 name: zarvis-manager
-description: Use when the opening prompt contains `[zarvis: role=manager]`, or when the user asks you to manage worker sessions for a project, delegate work to workers, or check on the workers listed in the Zarvis roster.
+description: "Use when the opening prompt contains `[zarvis: role=manager]`, or when the user asks you to manage worker sessions for a project, delegate work to workers, or check on the workers listed in the Zarvis roster."
 ---
 
 # Zarvis manager session
@@ -16,7 +16,8 @@ above your workers (one layer down).
 
 ## Orient
 
-- Read `~/.zarvis/roster.md` for your workers and their states, and call `list_sessions` with
+- Read the roster file (default `~/.zarvis/roster.md`, or under `$ZARVIS_HOME`) for your workers and
+  their states. Find your own entry under "Manager" by your session id, name or project. Call `list_sessions` with
   `linked: true` for the sessions you started.
 - Check the repo's `git status` and `git log` before assigning work.
 

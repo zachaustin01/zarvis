@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { classify, childrenOf, roleMarker, rolePrompt } from '../lib/roles.mjs'
+import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole } from '../lib/roles.mjs'
 import { renderRoster } from '../lib/roster.mjs'
 import { applyRoles } from '../lib/queue.mjs'
 import { setRole, readState } from '../lib/state.mjs'
@@ -84,9 +84,14 @@ test('roster lists each manager with its workers and is stable across renders', 
 })
 
 test('rolePrompt gives the interface and managers a pointer line, and others only the tag', () => {
-  assert.equal(rolePrompt('interface'), '[zarvis: role=interface] Use the zarvis-interface skill (installed by npm run setup) for your role.')
+  assert.equal(rolePrompt('interface'), '[zarvis: role=interface] Use the zarvis-interface skill (installed by npm run setup) for your role. The roster is ~/.zarvis/roster.md.')
   assert.equal(rolePrompt('manager', '', '/r.md'), '[zarvis: role=manager] Your workers are listed in /r.md. Use the zarvis-manager skill (installed by npm run setup) for your role.')
   assert.equal(rolePrompt('worker', id(2)), `[zarvis: role=worker parent=${id(2)}]`)
   assert.equal(rolePrompt('boss'), '')
   assert.equal(rolePrompt('interface').startsWith(roleMarker('interface')), true, 'the hook-parsed tag leads')
+})
+
+test('only a real role or an empty one may start a new session', () => {
+  for (const ok of ['interface', 'manager', 'worker', '', undefined]) assert.equal(isNewSessionRole(ok), true, String(ok))
+  for (const bad of ['boss', 'Manager', 'p', 7]) assert.equal(isNewSessionRole(bad), false, String(bad))
 })
