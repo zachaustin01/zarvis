@@ -11,6 +11,9 @@
  *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle
  *   SessionEnd                               -> `done`   both markers off
  *   SubagentStop                             -> `agentstop` blocked marker off if that subagent owned it
+ *   PreToolUse (second entry, timeout 5)     -> `guard`  claim the checkout a write / git command touches, or ASK when another live session holds it
+ *   PostToolUse (second entry, timeout 5)    -> `guardpost` an allowed ask joins the claim's sharers
+ *   (SessionEnd `done` also releases the session's checkout claims; see lib/claims.mjs)
  *
  * Subagents: their tool events and permission prompts carry the PARENT's session_id plus `agent_id`.
  * The parent is the visible session, so a subagent's prompt blocks the parent. But an event from a
@@ -20,7 +23,7 @@
  * `start` also registers a role when the session's FIRST prompt begins with `[zarvis: role=manager]`
  * (or interface / worker, optionally `parent=<session id>`); the same text elsewhere is ignored.
  *
- * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/ and roles/.
+ * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/ and claims/.
  * The transcript is read (never written) to find which tool is waiting, because the
  * Notification payload only carries a sentence like "Claude needs your permission to use Bash".
  * Never throws and never prints: a hook must not disturb the session.
@@ -35,6 +38,7 @@ const WORKING_DIR = path.join(HOME, 'working')
 const ROLES_DIR = path.join(HOME, 'roles')
 const SAFE_ID = /^[A-Za-z0-9_-]{8,80}$/
 const TAIL_BYTES = 256 * 1024
+const GUARD_TIMEOUT_MS = 400 // the claim guard runs before every tool call: past this it gives up silently
 
 /** One-line summary of a tool_use input. */
 export function summarizeInput(name, input) {
@@ -179,8 +183,24 @@ async function readJson(file) {
   }
 }
 
+/**
+ * The claim guard: prints at most one `ask` decision, never a deny. Any error or the self-timeout prints
+ * nothing and exits 0, which changes nothing about the tool call.
+ */
+async function guardMode(mode, payload) {
+  const claims = await import('../lib/claims.mjs')
+  const ctx = { home: HOME, now: Date.now(), deps: claims.realDeps, self: () => claims.sessionProcess({}), name: (sid) => claims.sessionName(sid) }
+  if (mode === 'guardpost') return claims.guardPost(payload, ctx)
+  const out = claims.guard(payload, ctx)
+  if (out) process.stdout.write(JSON.stringify(out))
+}
+
+let guardTimer = null
+
 async function main() {
   const mode = process.argv[2]
+  const guarding = mode === 'guard' || mode === 'guardpost'
+  if (guarding) guardTimer = setTimeout(() => process.exit(0), GUARD_TIMEOUT_MS)
   const chunks = []
   for await (const c of process.stdin) chunks.push(c)
   let payload
@@ -194,6 +214,14 @@ async function main() {
   const file = path.join(DIR, `${id}.json`)
   const workFile = path.join(WORKING_DIR, `${id}.json`)
   const agentId = typeof payload.agent_id === 'string' ? payload.agent_id : ''
+  if (guarding) {
+    try {
+      await guardMode(mode, payload)
+    } catch {
+      /* a failed guard must not disturb the session */
+    }
+    return
+  }
   if (mode === 'set') {
     const next = await buildMarker(payload)
     const prev = await readJson(file)
@@ -205,6 +233,11 @@ async function main() {
     await fsp.rm(file, { force: true })
   } else if (mode === 'done') {
     await Promise.all([fsp.rm(file, { force: true }), fsp.rm(workFile, { force: true })])
+    try {
+      ;(await import('../lib/claims.mjs')).releaseSession(HOME, id)
+    } catch {
+      /* the claims are best effort; they also expire */
+    }
   } else if (mode === 'idle') {
     if (agentId) return // a subagent's lifecycle event says nothing about the visible session
     // A turn can end while a background subagent still waits on a prompt: that prompt stands.
@@ -252,5 +285,5 @@ async function main() {
 
 // Only run when executed directly, so tests can import the helpers.
 if (process.argv[1]?.endsWith('zarvis-hook.mjs')) {
-  main().catch(() => {})
+  main().catch(() => {}).finally(() => clearTimeout(guardTimer))
 }

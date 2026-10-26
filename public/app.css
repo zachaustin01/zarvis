@@ -94,3 +94,8 @@ input:focus,textarea:focus{border-color:var(--cy)}
 
 .q.pkv .prompt{color:var(--t1)}
 .note{white-space:pre-wrap;color:var(--t2);font-size:12px;margin-top:6px;border-left:2px solid var(--edge);padding-left:8px;max-height:9em;overflow:auto}
+
+.clm{color:var(--gr);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;border:1px solid #2f7a58;padding:0 6px;margin-left:6px;white-space:nowrap}
+.clm.sh{color:var(--am);border-color:var(--am)}.clm.off{color:var(--t3);border-color:var(--edge)}
+.ck{border:1px solid var(--edge);margin-bottom:8px;padding:6px 12px 6px 14px;background:#08101a}
+.ck.off{opacity:.6}

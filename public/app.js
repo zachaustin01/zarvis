@@ -22,6 +22,7 @@ let fresh = new Set()
 let project = '' // project filter; '' = all projects (persisted)
 let showParked = false // Roles page: parked sessions hidden by default (the Parked view, p, lists them); persisted
 let hiddenParkedN = 0 // how many the Roles page is hiding right now
+let claims = [] // checkout claims from the server, newest write first
 let roleFilter = '' // queue role filter: '' | 'manager' | 'worker' (persisted)
 try { project = localStorage.getItem('zarvis.project') || '' } catch { /* storage blocked */ }
 try { showParked = localStorage.getItem('zarvis.showParked') === '1' } catch { /* storage blocked */ }
@@ -66,7 +67,38 @@ function fmt(ms) {
 // Managers stay in the main checkout and write no code, so their branch/worktree is never shown.
 const showsWhere = (r) => r.role !== 'manager'
 
+/** `⛓ LABEL` on the session that holds a checkout; `⛓ LABEL ⇄` on one sharing it. Dim when the claim is stale. */
+function claimTag(r) {
+  const held = claims.filter((c) => c.holder.sessionId === r.sessionId)
+  const shared = claims.filter((c) => c.shared.some((s) => s.sessionId === r.sessionId))
+  return [...held.map((c) => [c, false]), ...shared.map((c) => [c, true])]
+    .map(([c, sh]) => `<span class="clm${sh ? ' sh' : ''}${c.live ? '' : ' off'}" title="${esc(sh ? `shares ${c.root} with ${c.holder.name}` : `holds ${c.root}${c.shared.length ? ` · shared with ${c.shared.map((s) => s.name).join(', ')}` : ''}${c.live ? '' : ' · stale'}`)}">⛓ ${esc(c.label)}${sh ? ' ⇄' : c.shared.length ? ' +' + c.shared.length : ''}</span>`)
+    .join('')
+}
+
+/** The Roles view's Checkouts section: every claimed checkout, who holds it, who shares it. */
+function claimsSection() {
+  if (!claims.length) return ''
+  const home = (p) => p.replace(/^\/(Users|home)\/[^/]+/, '~')
+  return (
+    heading('Checkouts') +
+    claims
+      .map(
+        (c) =>
+          `<div class="ck${c.live ? '' : ' off'}"><div class="r1"><span class="clm${c.live ? '' : ' off'}">⛓ ${esc(c.label)}</span><span class="nm">${esc(c.holder.name)}</span>` +
+          `${c.shared.length ? `<span class="ap">shared with ${esc(c.shared.map((s) => s.name).join(', '))}</span>` : ''}` +
+          `<span class="wt">${c.live ? 'live' : c.stale ? 'stale' : 'dead'} · ${esc(ago(c.holder.lastWrite))}</span></div>` +
+          `<div class="prompt mono">${esc(home(c.root))}${c.branch && c.branch !== c.label ? ` · ${esc(c.branch)}` : ''}</div></div>`,
+      )
+      .join('')
+  )
+}
+
 function crumbs(r) {
+  return crumbBase(r) + claimTag(r)
+}
+
+function crumbBase(r) {
   const parts = [r.project ? `<span class="pj" style="color:hsl(${projectHue(r.project)} 65% 68%)">${esc(r.project)}</span>` : '']
   if (!showsWhere(r)) return parts.join('') || 'manager'
   if (r.initiative) parts.push(esc(r.initiative))
@@ -124,7 +156,7 @@ function renderTree() {
   const mgr = t.managers.map((m) => treeRow(m, 0) + m.children.map((c) => treeRow(c, 1)).join('')).join('')
   const renameSnap = snapRename()
   $('#list').innerHTML =
-    part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
+    claimsSection() + part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
     `<div class="empty">${hiddenParkedN ? `Everything here is parked (${hiddenParkedN} hidden) · v shows them, p lists them` : 'No sessions.'}</div>`
   if (!nodes.some((r) => r.sessionId === sel) && nodes.length) sel = nodes[0].sessionId
   restoreRename(renameSnap)
@@ -655,7 +687,13 @@ function setHook(h) {
     : st === 'unknown' ? 'Hook status unknown'
     : `Last hook event ${fmt(Date.now() - h.lastAt)} ago`
 }
-es.onmessage = (m) => { const d = JSON.parse(m.data); live(true); setHook(d.hook); setQueue(d.queue) }
+es.onmessage = (m) => {
+  const d = JSON.parse(m.data)
+  live(true)
+  setHook(d.hook)
+  claims = Array.isArray(d.claims) ? d.claims : []
+  setQueue(d.queue)
+}
 es.onerror = () => live(false)
 render()
 loadTree()

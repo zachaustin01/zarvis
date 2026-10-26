@@ -3,7 +3,8 @@
 Local, read-only attention queue for Claude Code desktop sessions. It shows which sessions are
 blocked on a permission prompt (longest wait first), then which are working, then which are idle; **Enter** opens that session in the Claude
 desktop app via its `claude://` deep link. There is no approve/deny here. While running, Zarvis
-never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers) and
+never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers),
+`~/.zarvis/claims/*.json` (checkout claims, written by the hook and the claims CLI) and
 `~/.zarvis/state.json` (overlay names). The one exception is `npm run setup`, which adds its hook
 to your Claude settings and installs the `zarvis-interface` and `zarvis-manager` skills into `~/.claude/skills/` when you run it.
 
@@ -49,8 +50,14 @@ instead, the entries are:
     "Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" set" }] }],
     "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" set" }] }],
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" start" }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" work" }] }],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] },
+      { "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" guard", "timeout": 5 }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" work" }] },
+      { "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" guardpost", "timeout": 5 }] }
+    ],
     "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" idle" }] }],
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" idle" }] }],
@@ -150,6 +157,56 @@ Zarvis keeps `~/.zarvis/roster.md` current: every manager with the workers attac
 with its state and session ids. A manager session is an ordinary Claude session that knows nothing
 about Zarvis, so `n` then `m` prefills its first prompt with the role tag plus a line pointing at
 this file and one pointing at the `zarvis-manager` skill. It refreshes on every classify and every few seconds.
+
+## Checkout claims
+
+Two sessions editing the same checkout trip over each other's uncommitted work. Zarvis makes that
+visible and, through the hook, makes the second session ask first.
+
+**What is enforced.** A session *claims* a checkout (the worktree root containing the file or the
+`git` command) on its first Edit / Write / MultiEdit / NotebookEdit or `git` command there. The claim
+is labelled with a Jira key found in the branch name (`PROJ-123`), else the branch name, or the key you
+gave `claim <KEY>`, and is released when the session ends. When *another live session* holds the
+checkout, the `guard` PreToolUse hook returns `permissionDecision: "ask"` naming the holder (name,
+label, branch, last write), and you decide: **Allow** means "share this checkout". While a checkout
+is shared, whole-tree git (`add -A` / `add .` / `add -u`, `commit -a`, `stash`, `checkout`, `switch`,
+`reset`, `restore .`, `clean`, `rebase`, `merge`, `cherry-pick`, `pull`) asks **every time**, for the
+holder and the sharer alike; a plain `git status` or a single-file edit does not. A subagent's calls
+count as its parent session's, so they never conflict with it.
+
+**Ask, never deny.** The hook never blocks anything on its own. On any internal error (an unreadable
+claim file, a bad payload) or after a 400 ms self-timeout it prints nothing and exits 0, which changes
+nothing about the tool call. It does only file reads on the hot path; the one exception is a single
+`ps -o lstart=` call when a claim is created or another session's claim is being judged, to tell a
+reused process id from the real one.
+
+**What is not detected.** Only the write tools and `git` commands are seen. Other shell writes
+(`sed -i`, redirects, `npm install`, a formatter run) are not. `git` is found as a command word, also
+after `&&`, `;`, `|` and with `-C <dir>`, best effort: `git` hidden behind an alias, a script or `eval`
+is not. A claim is per checkout (worktree root), not per file.
+
+**Takeover.** A claim is taken over, silently, by the next session that writes there when its holder's
+process is gone (or the pid now belongs to a different process), its session ended, or nobody wrote in
+the checkout for 8 hours. Holders refresh their last-write time at most once a minute.
+
+**Claim and release by hand.**
+
+```bash
+npm run claims -- claim PROJ-123 --by <sessionId> [--root <dir>] [--dry-run]   # label the checkout (default: the current directory's)
+npm run claims -- release --by <sessionId> [--root <dir>] [--dry-run]           # no --root: all of that session's claims
+npm run claims -- list [--json]
+```
+
+`--by` is a CLI session id or the app's `local_…` id. A refusal (another live session holds it) exits 1 with
+one line why. Claims live in `~/.zarvis/claims/<id>.json` (id = first 16 hex of the sha1 of the checkout's
+real path), written atomically; a new claim is created exclusively, so two sessions cannot both create it.
+
+**Where you see them.** `~/.zarvis/roster.md` has a *Checkouts* section (root, label, branch, holder,
+sharers, last write, live/stale); `GET /api/claims` and the live-update payload carry them; the dashboard
+puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists checkouts at the top of the Roles view.
+
+**Upgrading.** The guard is two new hook entries (a second `PreToolUse` and `PostToolUse`, each with
+`"timeout": 5`, running beside the existing ones). Re-run `npm run setup` and restart open sessions to pick them up.
 
 ## Behaviour notes
 

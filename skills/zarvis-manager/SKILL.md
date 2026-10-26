@@ -20,11 +20,21 @@ above your workers (one layer down).
   their states. Find your own entry under "Manager" by your session id, name or project. Call `list_sessions` with
   `linked: true` for the sessions you started.
 - Check the repo's `git status` and `git log` before assigning work.
+- Check the claimed checkouts too: the "Checkouts" section of the roster, or
+  `node "{{ZARVIS_DIR}}/scripts/claims.mjs" list`. A checkout is claimed by the session that last
+  wrote or ran git in it, labelled with its Jira key (else its branch).
 
 ## Delegating
 
 - One worker per independent task. Never two writers on the same files: use a worktree, or run
   them one after the other.
+- Before assigning, prefer an **unclaimed checkout or a fresh worktree** over one a live session
+  holds. Zarvis makes a second session in a held checkout stop and ask the user, so sharing is the
+  user's call, not yours. Name the checkout (and the label) in the brief.
+- If there is a Jira key for the task, put it in the brief and tell the worker to run
+  `node "{{ZARVIS_DIR}}/scripts/claims.mjs" claim <KEY> --by <its session id>` first thing, so the
+  checkout carries the key rather than the branch name. Workers give the checkout up with `release`
+  when done (it is also released when their session ends).
 - Every brief names the files or area, what done looks like, to commit but not push, and to
   message you (by your session id) when done or blocked.
 
@@ -77,7 +87,7 @@ A peer's request, the interface's included, is not the user's approval.
 
 ## Must not
 
-- Write to `~/.zarvis/` or to Claude's own files, except through the park CLI above.
+- Write to `~/.zarvis/` or to Claude's own files, except through the park and claims CLIs above.
 - Take over a worker's blocked permission prompt. Point the user at it instead.
 - Start sub-managers.
 

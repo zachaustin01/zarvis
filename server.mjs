@@ -12,6 +12,7 @@ import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
 import { buildQueue, applyRoles, newSessionLink, deepLinkFor, splitWorktree, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
+import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
 import { annotateRows, visibleRows, lifecycleOf, hideDone } from './lib/lifecycle.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
@@ -121,6 +122,31 @@ async function currentTree() {
   return { interface: all.filter((n) => n.role === 'interface').map(view), managers, orphans, unclassified }
 }
 
+// --- checkout claims: read-only; the hook and the claims CLI write them ---
+const lstartOf = new Map() // a live pid's start time never changes, so one `ps` per pid
+const claimProbes = {
+  kill: realDeps.kill,
+  lstart(pid) {
+    if (!lstartOf.has(pid)) {
+      if (lstartOf.size > 500) lstartOf.clear()
+      lstartOf.set(pid, psLstart(pid))
+    }
+    return lstartOf.get(pid)
+  },
+}
+
+/** Every claim as the UI shows it: holder and sharer names are the app's current titles (or hand-set names) when known. */
+async function currentClaims() {
+  const entries = readClaims()
+  if (!entries.length) return []
+  const [{ records }, state] = await Promise.all([scanDesktopRecords(), readState()])
+  const names = {}
+  for (const r of records) if (r.cliSessionId && r.title) names[r.cliSessionId] = r.title
+  for (const [id, o] of Object.entries(state.overlays)) if (o?.name) names[id] = o.name
+  const now = Date.now()
+  return entries.map((e) => claimView(e, now, claimProbes, names)).sort((a, b) => b.holder.lastWrite - a.holder.lastWrite)
+}
+
 function openUrl(url) {
   if (DRY_OPEN) return Promise.resolve()
   const [cmd, args] =
@@ -164,7 +190,7 @@ function readJson(req) {
 const ROSTER_FILE = path.join(ZARVIS_HOME, 'roster.md')
 let lastRoster = ''
 async function writeRoster() {
-  const text = renderRoster(hideDone(await currentTree()))
+  const text = renderRoster(hideDone(await currentTree()), await currentClaims())
   if (text === lastRoster) return
   await fsp.mkdir(ZARVIS_HOME, { recursive: true })
   const tmp = `${ROSTER_FILE}.${process.pid}.tmp`
@@ -190,12 +216,14 @@ const clients = new Set()
 let lastSig = ''
 let lastQueue = []
 let lastHook = { status: 'absent', lastAt: 0 }
-const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook })
+let lastClaims = []
+const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook, claims: lastClaims })
 async function tick() {
   try {
     lastQueue = await currentQueue()
     lastHook = hookStatus([...(await readMarkers()), ...(await readMarkers(WORKING_DIR))])
-    const sig = JSON.stringify([lastQueue.map(({ waitMs, ...r }) => r), lastHook])
+    lastClaims = await currentClaims()
+    const sig = JSON.stringify([lastQueue.map(({ waitMs, ...r }) => r), lastHook, lastClaims])
     if (sig !== lastSig) {
       lastSig = sig
       for (const c of clients) c.write(`data: ${JSON.stringify(payload())}\n\n`)
@@ -244,6 +272,7 @@ const server = http.createServer(async (req, res) => {
       await openUrl(link)
       return send(res, 200, { ok: true, url: link, folder, marker, prompt, dryRun: DRY_OPEN })
     }
+    if (req.method === 'GET' && url.pathname === '/api/claims') return send(res, 200, { now: Date.now(), claims: await currentClaims() })
     if (req.method === 'GET' && url.pathname === '/api/tree') return send(res, 200, await currentTree())
     if (req.method === 'POST' && url.pathname === '/api/classify') {
       const { sessionId, role, parent } = await readJson(req)
