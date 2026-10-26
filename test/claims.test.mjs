@@ -23,6 +23,8 @@ import {
   labelFor,
   jiraKey,
   gitInvocations,
+  isReadOnlyGit,
+  managerOf,
   isWholeTree,
   touchedRoots,
   sessionProcess,
@@ -106,11 +108,11 @@ test('git commands claim: plain, git -C from elsewhere, chained, env prefixed', 
   const w = world()
   const [r1, r2, r3] = [repo(), repo(), repo()]
   const away = tmp('zarvis-away-')
-  assert.equal(guard(bash(A, 'git status', r1), w.ctx(A)), null)
+  assert.equal(guard(bash(A, 'git add src/a.js', r1), w.ctx(A)), null)
   assert.equal(claimOf(w, r1).holder.sessionId, A)
-  assert.equal(guard(bash(A, `git -C ${r2} log --oneline`, away), w.ctx(A)), null)
+  assert.equal(guard(bash(A, `git -C ${r2} commit -m x`, away), w.ctx(A)), null)
   assert.equal(claimOf(w, r2).holder.sessionId, A)
-  assert.equal(guard(bash(A, 'npm test && FOO=1 git diff | head', r3), w.ctx(A)), null)
+  assert.equal(guard(bash(A, 'npm test && FOO=1 git fetch | head', r3), w.ctx(A)), null)
   assert.equal(claimOf(w, r3).holder.sessionId, A)
   assert.deepEqual(readClaims(w.home).length, 3)
   const none = repo()
@@ -258,6 +260,95 @@ test('isWholeTree classification', () => {
   assert.equal(t('git restore --staged .'), true)
   assert.equal(t('git push'), false)
   assert.equal(t('git fetch'), false)
+})
+
+// --- read-only git does not touch a checkout; a holder's own manager as sharer does not trigger the whole-tree ask ---
+
+const ro = (line) => {
+  const [i] = gitInvocations(line, '/w')
+  return isReadOnlyGit(i.sub, i.args)
+}
+
+test('read-only git subcommands are read-only; writes that look like reads, and unknown ones, are not', () => {
+  for (const c of ['log', 'log --oneline -5 main..HEAD', 'show HEAD~1', 'diff', 'diff --stat main', 'diff -- a.txt', 'status', 'status -sb', 'grep -n foo', 'blame a.js', 'rev-parse HEAD', 'rev-list --count main..', 'ls-files', 'ls-tree HEAD', 'cat-file -p HEAD', 'merge-base a b', 'describe --tags', 'shortlog -sn', 'branch', 'branch -a', 'branch -vv', 'branch --list "x*"', 'branch --show-current', 'branch --contains abc', 'branch -r --merged main', 'tag', 'tag -l "v*"', 'tag -n3', 'tag --points-at HEAD', 'remote', 'remote -v', 'remote show origin', 'remote get-url origin', 'stash list', 'stash show -p', 'worktree list', 'reflog', 'reflog show HEAD', 'log -p -- src/--output']) {
+    assert.equal(ro(`git ${c}`), true, c)
+  }
+  for (const c of ['diff --output=out.patch', 'diff --output out.patch', 'log --output=x', 'show --out=x', 'branch -d x', 'branch -D x', 'branch -m old new', 'branch newbranch', 'branch -f x HEAD', 'branch --set-upstream-to=o/x', 'branch --unset-upstream', 'tag -d v1', 'tag v1', 'tag -a v1 -m x', 'tag -f v1', 'remote add o url', 'remote remove o', 'remote rename a b', 'remote set-url o u', 'remote prune o', 'remote update', 'stash', 'stash pop', 'stash drop', 'reflog expire --all', 'reflog delete x', 'worktree add ../x', 'commit -m x', 'add a', 'fetch', 'push', 'config user.name x', 'frobnicate', 'gc']) {
+    assert.equal(ro(`git ${c}`), false, c)
+  }
+})
+
+test('read-only git never claims or asks; any non-read-only git in a chain still does', () => {
+  const w = world()
+  const r = repo()
+  guard(edit(A, path.join(r, 'a')), w.ctx(A))
+  for (const cmd of ['git log', 'git -C ' + r + ' show HEAD', 'git diff && git status | head', 'git grep x; git blame y', 'git branch -a', 'git remote -v']) {
+    assert.equal(guard(bash(B, cmd, r), w.ctx(B)), null, cmd)
+    assert.deepEqual(touchedRoots(bash(B, cmd, r)), [], cmd)
+    assert.deepEqual(claimOf(w, r).pending, {}, 'no pending ask recorded')
+  }
+  const away = tmp('zarvis-away-')
+  assert.equal(claimOf(w, r).shared.length, 0)
+  assert.equal(guard(bash(B, `git -C ${r} log && git -C ${r} branch -d x`, away), w.ctx(B)).hookSpecificOutput.permissionDecision, 'ask', 'a delete behind a read still counts')
+  assert.equal(guard(bash(B, `git diff --output=o.patch`, r), w.ctx(B)).hookSpecificOutput.permissionDecision, 'ask')
+  const fresh = repo()
+  assert.equal(guard(bash(A, 'git log', fresh), w.ctx(A)), null)
+  assert.equal(claimOf(w, fresh), null, 'a read-only git alone does not even claim')
+})
+
+test('the full review story: a manager reading the worker\'s checkout never becomes a sharer', () => {
+  const w = world()
+  const r = repo()
+  guard(edit(A, path.join(r, 'a')), w.ctx(A))
+  for (const cmd of ['git log', 'git show HEAD', 'git diff main', 'git grep -n x']) guard(bash(B, cmd, r), w.ctx(B))
+  assert.equal(claimOf(w, r).shared.length, 0)
+  assert.equal(guard(bash(A, 'git add -A', r), w.ctx(A)), null)
+})
+
+/** Share `r` with `who` the way a user's Allow does. */
+function shareWith(w, r, who) {
+  const pre = edit(who, path.join(r, `s-${who[0]}`), { tool_use_id: `toolu_${who[0]}` })
+  guard(pre, w.ctx(who))
+  guardPost(pre, w.ctx(who))
+}
+const tagParent = (w, worker, parent) => {
+  fs.mkdirSync(path.join(w.home, 'roles'), { recursive: true })
+  fs.writeFileSync(path.join(w.home, 'roles', `${worker}.json`), JSON.stringify({ sessionId: worker, role: 'worker', parent, at: NOW }))
+}
+
+test('the holder\'s own manager as the only sharer does not trigger the whole-tree ask; another sharer still does', () => {
+  const w = world()
+  const r = repo()
+  guard(edit(A, path.join(r, 'a')), w.ctx(A))
+  shareWith(w, r, B)
+  assert.match(guard(bash(A, 'git add -A', r), w.ctx(A)).hookSpecificOutput.permissionDecisionReason, /sharing with name-b/, 'no manager known: asks as today')
+  tagParent(w, A, B)
+  assert.equal(managerOf(w.home, A), B)
+  assert.equal(guard(bash(A, 'git add -A', r), w.ctx(A)), null, 'manager-only share: no ask')
+  assert.equal(guard(bash(A, 'git reset --hard', r), w.ctx(A)), null)
+  assert.ok(guard(bash(B, 'git add -A', r), w.ctx(B)), 'the manager\'s own whole-tree git there still asks')
+  assert.equal(guard(edit(B, path.join(r, 'b2')), w.ctx(B)), null, 'its write-tool edits are a plain share, as before')
+  shareWith(w, r, C)
+  const out = guard(bash(A, 'git add -A', r), w.ctx(A))
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /sharing with name-c\./)
+  assert.doesNotMatch(out.hookSpecificOutput.permissionDecisionReason, /name-b/, 'only the non-manager sharers are named')
+})
+
+test('managerOf: tag parent, a hand-set role in state.json overrides it, junk and self-parent are nobody', () => {
+  const w = world()
+  assert.equal(managerOf(w.home, A), '')
+  tagParent(w, A, B)
+  assert.equal(managerOf(w.home, A), B)
+  fs.writeFileSync(path.join(w.home, 'state.json'), JSON.stringify({ roles: { [A]: { role: 'worker', parent: C } } }))
+  assert.equal(managerOf(w.home, A), C)
+  fs.writeFileSync(path.join(w.home, 'state.json'), JSON.stringify({ roles: { [A]: { role: 'worker' } } }))
+  assert.equal(managerOf(w.home, A), '', 'a hand-set role without a parent wins over the tag')
+  fs.writeFileSync(path.join(w.home, 'state.json'), '{not json')
+  assert.equal(managerOf(w.home, A), B, 'corrupt state.json falls back to the tag')
+  tagParent(w, A, A)
+  assert.equal(managerOf(w.home, A), '')
+  fs.writeFileSync(path.join(w.home, 'roles', `${A}.json`), 'junk')
+  assert.equal(managerOf(w.home, A), '')
 })
 
 // --- takeover ---
@@ -609,6 +700,46 @@ test('CLI errors are one line and exit 1; the app\'s local_ id resolves through 
   const ok = await run(['claim', 'K-1', '--by', `local_${A}`], { opts: { deps: { records: [rec] } } })
   assert.equal(ok.code, 0)
   assert.equal(claimOf(w, r).holder.sessionId, A)
+})
+
+test('CLI unshare: holder or the sharer itself drops a share; errors are one line; --dry-run writes nothing; local_ ids work', async () => {
+  const w = world()
+  const r = repo()
+  const run = cli(w, r)
+  await run(['claim', 'K-1', '--by', A])
+  shareWith(w, r, B)
+  assert.equal(claimOf(w, r).shared.length, 1)
+  assert.deepEqual((await run(['unshare', r, B, '--by', A, '--dry-run'])).out, [`would unshare name-b from K-1 ${r}`])
+  assert.equal(claimOf(w, r).shared.length, 1)
+  const bad = await run(['unshare', r, B, '--by', C], { as: C })
+  assert.equal(bad.code, 1)
+  assert.match(bad.err[0], /only the holder .* or the sharer itself may unshare/)
+  assert.deepEqual((await run(['unshare', r, B, '--by', A])).out, [`unshared name-b from K-1 ${r}`])
+  assert.deepEqual(claimOf(w, r).shared, [])
+  assert.equal(claimOf(w, r).holder.sessionId, A)
+  shareWith(w, r, B)
+  assert.equal((await run(['unshare', r, B, '--by', B], { as: B })).code, 0, 'the sharer leaves by itself')
+  assert.deepEqual(claimOf(w, r).shared, [])
+  for (const [args, re] of [
+    [['unshare', r, B, '--by', A], /is not sharing/],
+    [['unshare', r, '--by', A], /unshare needs a checkout and a session/],
+    [['unshare', '--by', A], /unshare needs a checkout and a session/],
+    [['unshare', tmp(), B, '--by', A], /not inside a git checkout/],
+    [['unshare', repo(), B, '--by', A], /is not claimed/],
+    [['unshare', r, 'x', '--by', A], /session must be a session id/],
+    [['unshare', r, B], /--by <your session id> is required/],
+    [['unshare', r, B, A, '--by', A], /unexpected argument/],
+  ]) {
+    const res = await run(args)
+    assert.equal(res.code, 1, args.join(' '))
+    assert.equal(res.err.length, 1)
+    assert.match(res.err[0], re)
+  }
+  shareWith(w, r, B)
+  const recs = [{ sessionId: `local_${B}`, cliSessionId: B, title: 'T', cwd: r }, { sessionId: `local_${A}`, cliSessionId: A, title: 'T', cwd: r }]
+  assert.equal((await run(['unshare', r, `local_${B}`, '--by', `local_${A}`], { opts: { deps: { records: recs } } })).code, 0)
+  assert.deepEqual(claimOf(w, r).shared, [])
+  assert.match((await run(['unshare', r, `local_${C}`, '--by', A], { opts: { deps: { records: recs } } })).err[0], /session local_.* is not a session Zarvis knows/)
 })
 
 // --- visibility ---

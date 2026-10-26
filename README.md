@@ -165,14 +165,20 @@ Two sessions editing the same checkout trip over each other's uncommitted work. 
 visible and, through the hook, makes the second session ask first.
 
 **What is enforced.** A session *claims* a checkout (the worktree root containing the file or the
-`git` command) on its first Edit / Write / MultiEdit / NotebookEdit or `git` command there. The claim
+`git` command) on its first Edit / Write / MultiEdit / NotebookEdit or `git` command there that can write; read-only git (`log`, `show`, `diff`, `status`, `grep`, `blame`, `rev-parse`,
+`rev-list`, `ls-files`, `ls-tree`, `cat-file`, `merge-base`, `describe`, `shortlog`, `branch` / `tag` / `remote -v`
+that only list, `stash list`, `worktree list`, ...) neither claims nor asks, so a manager reviewing its worker's
+checkout with `git -C <dir> log / diff` never becomes a sharer. Commands that look read-only but write
+(`diff --output`, `branch -d`, `tag -d`, `remote add`) and any git command Zarvis does not know count as writes. The claim
 is labelled with a Jira key found in the branch name (`PROJ-123`), else the branch name, or the key you
 gave `claim <KEY>`, and is released when the session ends. When *another live session* holds the
 checkout, the `guard` PreToolUse hook returns `permissionDecision: "ask"` naming the holder (name,
 label, branch, last write), and you decide: **Allow** means "share this checkout". While a checkout
 is shared, whole-tree git (`add -A` / `add .` / `add -u`, `commit -a`, `stash`, `checkout`, `switch`,
 `reset`, `restore .`, `clean`, `rebase`, `merge`, `cherry-pick`, `pull`) asks **every time**, for the
-holder and the sharer alike; a plain `git status` or a single-file edit does not. A subagent's calls
+holder and the sharer alike; a plain `git status` or a single-file edit does not. The one exception on the
+holder's side: if the only sharer is the holder's own manager (the `parent=` of its role tag, or a hand-set
+role's parent), the holder's whole-tree git does not ask because of that share. A subagent's calls
 count as its parent session's, so they never conflict with it.
 
 **Ask, never deny.** The hook never blocks anything on its own. On any internal error (an unreadable
@@ -195,10 +201,11 @@ the checkout for 8 hours. Holders refresh their last-write time at most once a m
 ```bash
 npm run claims -- claim PROJ-123 --by <sessionId> [--root <dir>] [--dry-run]   # label the checkout (default: the current directory's)
 npm run claims -- release --by <sessionId> [--root <dir>] [--dry-run]           # no --root: all of that session's claims
+npm run claims -- unshare <root> <session> --by <sessionId> [--dry-run]         # drop a sharer; --by is the holder or the sharer itself
 npm run claims -- list [--json]
 ```
 
-`--by` is a CLI session id or the app's `local_…` id. A refusal (another live session holds it) exits 1 with
+`--by` (and `<session>` in `unshare`) is a CLI session id or the app's `local_…` id; `unshare` is for a share made by mistake, without waiting for SessionEnd. A refusal (another live session holds it) exits 1 with
 one line why. Claims live in `~/.zarvis/claims/<id>.json` (id = first 16 hex of the sha1 of the checkout's
 real path), written atomically; a new claim is created exclusively, so two sessions cannot both create it.
 

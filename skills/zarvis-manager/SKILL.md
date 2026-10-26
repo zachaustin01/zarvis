@@ -22,7 +22,10 @@ above your workers (one layer down).
 - Check the repo's `git status` and `git log` before assigning work.
 - Check the claimed checkouts too: the "Checkouts" section of the roster, or
   `node "{{ZARVIS_DIR}}/scripts/claims.mjs" list`. A checkout is claimed by the session that last
-  wrote or ran git in it, labelled with its Jira key (else its branch).
+  wrote or ran git in it, labelled with its Jira key (else its branch). Read-only git there
+  (`git -C <checkout> log / show / diff / grep`) is fine and does not make you a sharer. If you were
+  made a sharer by mistake, drop it with
+  `node "{{ZARVIS_DIR}}/scripts/claims.mjs" unshare <checkout> <your session id> --by <your session id>`.
 
 ## Delegating
 
