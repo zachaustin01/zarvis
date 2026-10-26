@@ -8,7 +8,9 @@
  *   UserPromptSubmit                         -> `start`  working marker, clock restarts
  *   PreToolUse / PermissionDenied            -> `resume` blocked marker off, working on
  *   PostToolUse                              -> `work`   working marker refreshed (clock kept)
- *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle
+ *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle; but if the turn
+ *                                                       ended on a question for the user (see askedQuestion), a blocked
+ *                                                       marker with kind "question" is written instead
  *   SessionEnd                               -> `done`   both markers off
  *   SubagentStop                             -> `agentstop` blocked marker off if that subagent owned it
  *   PreToolUse (second entry, timeout 5)     -> `guard`  claim the checkout a write / git command touches, or ASK when another live session holds it
@@ -80,6 +82,65 @@ export function pendingTool(tailText) {
     }
   }
   return { tool: '', command: '' }
+}
+
+const WRAP_UP = 'mcp__ccd_turn__wrap_up'
+
+/**
+ * The question the final turn ended with, or null. Walks the transcript tail backwards to the last
+ * tool_use of the turn: it counts only when that is the desktop app's wrap_up with a non-empty `ask`
+ * (a recap alone asks nothing) or AskUserQuestion that nothing has answered, and no real user message
+ * came after it. A real user message (not a tool_result, not a meta/injected one) ends the search, so
+ * an older wrap_up never counts. Subagent (sidechain) records are ignored.
+ */
+export function askedQuestion(tailText) {
+  const lines = String(tailText).split('\n')
+  const answered = new Set()
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let r
+    try {
+      r = JSON.parse(lines[i])
+    } catch {
+      continue // partial first line of the tail, or a half-written last line
+    }
+    if (!r || typeof r !== 'object' || r.isSidechain) continue
+    const content = r.message?.content
+    if (r.type === 'user' && !r.isMeta) {
+      const parts = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : []
+      for (const p of parts) if (p?.type === 'tool_result' && p.tool_use_id) answered.add(p.tool_use_id)
+      if (parts.some((p) => p?.type === 'text' && String(p.text ?? '').trim())) return null // the user replied
+      continue
+    }
+    if (r.type !== 'assistant' || !Array.isArray(content)) continue
+    for (let j = content.length - 1; j >= 0; j--) {
+      const p = content[j]
+      if (p?.type !== 'tool_use') continue
+      if (p.name === WRAP_UP) {
+        const ask = typeof p.input?.ask === 'string' ? p.input.ask.trim() : ''
+        return ask ? { tool: p.name, ask: ask.slice(0, 1500) } : null
+      }
+      if (p.name === 'AskUserQuestion' && !answered.has(p.id)) {
+        const text = summarizeInput(p.name, p.input)
+        return text ? { tool: p.name, ask: text } : null
+      }
+      return null // the turn's last tool call was something else
+    }
+  }
+  return null
+}
+
+/** The blocked marker for a session whose turn ended waiting on the user's answer. Exported for tests. */
+export function buildQuestionMarker(payload, q, now = Date.now()) {
+  return {
+    sessionId: payload.session_id,
+    kind: 'question',
+    at: now,
+    cwd: typeof payload.cwd === 'string' ? payload.cwd : '',
+    message: 'Waiting for your answer',
+    tool: '',
+    command: q.ask,
+    transcriptPath: typeof payload.transcript_path === 'string' ? payload.transcript_path : '',
+  }
 }
 
 async function readTail(file) {
@@ -241,7 +302,18 @@ async function main() {
   } else if (mode === 'idle') {
     if (agentId) return // a subagent's lifecycle event says nothing about the visible session
     // A turn can end while a background subagent still waits on a prompt: that prompt stands.
-    if (!(await readJson(file))?.agentId) await fsp.rm(file, { force: true })
+    if (!(await readJson(file))?.agentId) {
+      let q = null
+      if (typeof payload.transcript_path === 'string' && payload.hook_event_name !== 'SessionStart') {
+        try {
+          q = askedQuestion(await readTail(payload.transcript_path))
+        } catch {
+          /* transcript missing or unreadable: plain idle */
+        }
+      }
+      if (q) await writeAtomic(file, buildQuestionMarker(payload, q))
+      else await fsp.rm(file, { force: true })
+    }
     await writeAtomic(workFile, buildWorking(payload, null, Date.now(), 'idle'))
   } else if (mode === 'start' || mode === 'resume' || mode === 'work') {
     let prev = null

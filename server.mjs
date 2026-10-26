@@ -102,6 +102,7 @@ async function currentTree() {
       suggested: n.suggested,
       warnings: n.warnings,
       state: row?.state ?? 'unknown', // no hook signal: never guess
+      kind: row?.kind ?? '',
       blockedChildren: row?.blockedChildren ?? [],
       project: path.basename(splitWorktree(n.cwd).root) || '',
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),

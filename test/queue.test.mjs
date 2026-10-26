@@ -87,3 +87,14 @@ test('initiativeOf finds a ticket id in the branch, else the worktree name', () 
   assert.equal(initiativeOf('main', 'ABC-9-spike'), 'ABC-9')
   assert.equal(initiativeOf('main', ''), '')
 })
+
+test('a question marker is a blocked row of kind question, counted with the rest of Needs you', async () => {
+  const q = await buildQueue({ markers: [mk(A, 1000, { kind: 'question', tool: '', command: 'Ship it?', message: 'Waiting for your answer' }), mk(B, 500)], records, now: NOW, deps })
+  assert.deepEqual(q.map((r) => [r.sessionId, r.state, r.kind]), [[A, 'blocked', 'question'], [B, 'blocked', 'permission']])
+  assert.equal(q[0].prompt, 'Waiting for your answer')
+  assert.equal(q[0].command, 'Ship it?')
+  // a working/idle marker for a session that asked is hidden behind its blocked one
+  const w = [{ sessionId: A, state: 'idle', at: NOW - 900, seen: NOW - 900 }]
+  const q2 = await buildQueue({ markers: [mk(A, 1000, { kind: 'question' })], working: w, records, now: NOW, deps })
+  assert.deepEqual(q2.map((r) => r.state), ['blocked'])
+})

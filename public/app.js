@@ -128,7 +128,7 @@ function lifeTag(r) {
 /** Tree status text: the real state first, so a parked-but-blocked session still says it needs you. */
 function treeStatus(r) {
   if (r.done) return 'done · d to undo'
-  const real = STATE_LABEL[r.state] || r.state
+  const real = r.state === 'blocked' && r.kind === 'question' ? 'needs your answer' : STATE_LABEL[r.state] || r.state
   if (!r.parked) return real
   return r.state === 'unknown' ? 'parked · u to unpark' : `${real} · parked · u to unpark`
 }
@@ -239,7 +239,7 @@ function rowHtml(r, now) {
     renaming === r.sessionId
       ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
       : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
-  const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.tool)}</span>${esc(r.command)}</div>` : ''
+  const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
     `<div class="q${r.parked ? ' pkd' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
     `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +

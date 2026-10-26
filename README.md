@@ -219,6 +219,12 @@ puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists che
   blocks the parent, showing the subagent's tool and command. Other agents' tool calls don't clear it,
   the parent's Stop doesn't either (a background subagent may still wait), and it clears when that
   agent's next tool call starts, the agent stops, a new prompt is submitted, or the session ends.
+- A turn that ends on a question for you also counts as **needs you**: when Stop fires, the hook reads the
+  transcript tail, and if the turn's last tool call was the desktop app's `wrap_up` with an `ask` (a recap
+  alone does not count) or an unanswered `AskUserQuestion`, it writes a blocked marker with `kind: "question"`
+  (row text "Waiting for your answer", the question as the command line) instead of an idle one. It clears like
+  any blocked marker: a new prompt, the next tool call, SessionEnd. An unreadable transcript just means idle.
+  No new hook events: nothing to re-run.
 - Only sessions with their own marker appear (leaf-only); a parent waiting on a child never does.
 - Markers are dropped if the session record is archived/deleted, the session has no record or
   transcript, or the marker is older than 12 h (`ZARVIS_MAX_AGE_HOURS`).

@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { parseMarker, readMarkers, hookStatus } from '../lib/markers.mjs'
-import { pendingTool, buildMarker, buildWorking, summarizeInput } from '../hooks/zarvis-hook.mjs'
+import { pendingTool, buildMarker, buildWorking, summarizeInput, askedQuestion, buildQuestionMarker } from '../hooks/zarvis-hook.mjs'
 
 const ID = 'f6cce3a1-cd4c-4de5-bb8d-e7375ea36a85'
 
@@ -185,4 +185,73 @@ test('a bare Notification from a subagent reads the subagent\'s own transcript f
   await fsp.writeFile(path.join(dir, ID, 'subagents', 'agent-abc123def.jsonl'), JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 's1', name: 'Bash', input: { command: 'rm -rf build' } }] } }) + '\n')
   const m = await buildMarker({ session_id: ID, transcript_path: tp, agent_id: 'abc123def', agent_type: 'Explore', message: 'Claude needs your permission' }, 5)
   assert.deepEqual([m.tool, m.command, m.agentId, m.agentType], ['Bash', 'rm -rf build', 'abc123def', 'Explore'])
+})
+
+// --- question detection (a turn that ends on a question for the user) ---
+
+const jl = (...recs) => recs.map((r) => JSON.stringify(r)).join('\n')
+const asst = (...content) => ({ type: 'assistant', message: { role: 'assistant', content } })
+const userText = (text) => ({ type: 'user', message: { role: 'user', content: text } })
+const toolResult = (id) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } })
+const wrap = (id, input) => ({ type: 'tool_use', id, name: 'mcp__ccd_turn__wrap_up', input })
+
+test('askedQuestion: wrap_up with an ask is a question, even with the result and a closing message after it', () => {
+  const t = jl(
+    userText('do the thing'),
+    asst(wrap('w1', { recap: 'Done.', ask: 'Ship it?', actions: [{ label: 'Yes' }] })),
+    toolResult('w1'),
+    asst({ type: 'text', text: 'All done, see above.' }),
+  )
+  assert.deepEqual(askedQuestion(t), { tool: 'mcp__ccd_turn__wrap_up', ask: 'Ship it?' })
+})
+
+test('askedQuestion: wrap_up with only a recap asks nothing', () => {
+  assert.equal(askedQuestion(jl(userText('go'), asst(wrap('w1', { recap: 'Done.' })), toolResult('w1'))), null)
+  assert.equal(askedQuestion(jl(userText('go'), asst(wrap('w1', { recap: 'Done.', ask: '   ' })))), null)
+})
+
+test('askedQuestion: an unanswered AskUserQuestion counts, an answered one does not', () => {
+  const ask = { type: 'tool_use', id: 'q1', name: 'AskUserQuestion', input: { questions: [{ question: 'Which DB?', options: [{ label: 'PG' }, { label: 'SQLite' }] }] } }
+  const got = askedQuestion(jl(userText('go'), asst(ask)))
+  assert.equal(got.tool, 'AskUserQuestion')
+  assert.match(got.ask, /Which DB\?/)
+  assert.equal(askedQuestion(jl(userText('go'), asst(ask), toolResult('q1'), asst({ type: 'text', text: 'Using PG.' }))), null)
+})
+
+test('askedQuestion: an older wrap_up followed by a user message and a plain turn is not a question', () => {
+  const t = jl(
+    userText('go'),
+    asst(wrap('w1', { recap: 'r', ask: 'Ship it?' })),
+    toolResult('w1'),
+    userText('yes'),
+    asst({ type: 'text', text: 'Shipped.' }),
+  )
+  assert.equal(askedQuestion(t), null)
+  // and the user's reply right after the question clears it too
+  assert.equal(askedQuestion(jl(asst(wrap('w1', { ask: 'Ship it?' })), toolResult('w1'), userText('yes'))), null)
+  assert.equal(askedQuestion(jl(asst(wrap('w1', { ask: 'Ship it?' })), toolResult('w1'), { type: 'user', message: { content: [{ type: 'text', text: 'yes' }] } })), null)
+})
+
+test('askedQuestion: another tool call after the wrap_up, or a different last tool, is not a question', () => {
+  const bash = { type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'ls' } }
+  assert.equal(askedQuestion(jl(userText('go'), asst(wrap('w1', { ask: 'Ship it?' })), toolResult('w1'), asst(bash))), null)
+})
+
+test('askedQuestion: meta and sidechain records are ignored; partial or junk lines never throw', () => {
+  const t = jl(asst(wrap('w1', { ask: 'Ship it?' })), toolResult('w1'), { type: 'user', isMeta: true, message: { content: 'system reminder' } }, { ...asst({ type: 'tool_use', id: 's1', name: 'Bash', input: {} }), isSidechain: true })
+  assert.equal(askedQuestion(t)?.ask, 'Ship it?')
+  assert.deepEqual(askedQuestion(t + '\n{"type":"assistant","message":{"cont'), askedQuestion(t))
+  assert.deepEqual(askedQuestion('garbage\n{"type":"user"'), null)
+  assert.equal(askedQuestion(''), null)
+  assert.equal(askedQuestion(null), null)
+})
+
+test('buildQuestionMarker is a blocked marker of kind question, and parseMarker keeps the kind', () => {
+  const m = buildQuestionMarker({ session_id: ID, cwd: '/r', transcript_path: '/t.jsonl' }, { tool: 'x', ask: 'Ship it?' }, 7)
+  const p = parseMarker(m)
+  assert.equal(p.kind, 'question')
+  assert.equal(p.command, 'Ship it?')
+  assert.equal(p.tool, '')
+  assert.equal(p.message, 'Waiting for your answer')
+  assert.equal(parseMarker({ sessionId: ID, at: 5 }).kind, 'permission')
 })
