@@ -21,7 +21,7 @@
 <main class="wrap">
   <input id="flt" placeholder="Search roles (/) — also finds done sessions" hidden>
   <div class="cols"><aside id="side"></aside><div id="list"></div></div>
-  <div class="hint">j/k move · g project · i interface · Enter open in Claude · n new session · p park · d done · u unpark · z undo · P parked · r rename · c classify · t roles · h/q queue · ? keys</div>
+  <div class="hint">j/k move · g project · i interface · Enter open in Claude · n new session · P park · d done · u unpark · z undo · p parked · r rename · c classify · t roles · h/q queue · ? keys</div>
 </main>
 
 <div class="ov" id="ovHelp"><div class="box">
@@ -35,11 +35,11 @@
     <b>a</b><span>In the role tree, with a manager selected: attach existing sessions to it as workers</span>
     <b>t h q</b><span>Role tree · attention queue (h or q)</span>
     <b>c</b><span>Classify the selection: i interface, m manager, w worker, x clear. In the role tree, Shift+C makes every unclassified session a worker</span>
-    <b>p</b><span>Park the selection: a one-line reason, an optional wake date, a handoff note (⌘/Ctrl+Enter saves). On a parked session, unparks it. Parked sessions leave the queue unless blocked or wake-ready</span>
+    <b>P</b><span>Park the selection (Shift+P): a one-line reason, an optional wake date, a handoff note (⌘/Ctrl+Enter saves). On a parked session, unparks it. Parked sessions leave the queue unless blocked or wake-ready</span>
     <b>d</b><span>Mark done (hidden unless searched with / in the role tree); on a done session, brings it back</span>
     <b>u</b><span>Unpark the selected session</span>
     <b>z</b><span>Undo the last park, unpark or done</span>
-    <b>P</b><span>Parked view: every parked session with its reason, who parked it, and its handoff note. / searches the notes too</span>
+    <b>p</b><span>Parked view: every parked session with its reason, who parked it, and its handoff note. / searches the notes too</span>
     <b>/</b><span>Search the role tree or Parked view, done sessions included. Esc clears</span>
     <b>r</b><span>Rename (overlay only). Esc cancels, empty restores the app title</span>
     <b>?</b><span>This sheet · Esc closes</span>

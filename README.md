@@ -66,22 +66,22 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 ## Keys
 
 `j`/`k` or arrows move · `i` jump to the interface session · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude · `n` new Claude Code session · `r` rename
-(overlay; Esc cancels; empty restores the app title) · `p` park · `d` done · `u` unpark · `z` undo ·
-`P` parked view · `/` search the role tree · `?` key sheet.
+(overlay; Esc cancels; empty restores the app title) · `P` park (Shift+P) · `d` done · `u` unpark · `z` undo ·
+`p` parked view · `/` search the role tree · `?` key sheet.
 
 `n` opens a new session in the Claude desktop app via `claude://code/new`, in the selected
 session's repo (its root, not its worktree), or a plain new session when nothing is selected.
 
 ## Park and done
 
-`p` parks the selected session: a one-line reason, an optional wake date (`YYYY-MM-DD`, blank for
+`P` (Shift+P) parks the selected session: a one-line reason, an optional wake date (`YYYY-MM-DD`, blank for
 none) and a handoff note (Enter or ⌘/Ctrl+Enter saves). A parked session leaves the "Needs you"
 queue and shows dim with a hollow dot in the role tree; a *blocked* parked session still appears in
 the queue, marked. When its wake date passes it is marked **wake ready** and returns to the queue.
-`u` (or `p` again) unparks. `d` marks a session done: hidden everywhere unless you search the role
+`u` (or `P` again) unparks. `d` marks a session done: hidden everywhere unless you search the role
 tree (`/`), where `d` brings it back. `z` undoes the last park, unpark or done.
 
-`P` opens the **Parked** view: every parked session with its reason, when and by whom it was parked
+`p` opens the **Parked** view: every parked session with its reason, when and by whom it was parked
 (a manager's name, or "by hand"), the wake date, and the full handoff note. `/` searches names,
 reasons and notes; `u` unparks the selected one.
 

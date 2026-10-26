@@ -89,7 +89,7 @@ function treeStatus(r) {
   if (r.done) return 'done · d to undo'
   const real = STATE_LABEL[r.state] || r.state
   if (!r.parked) return real
-  return r.state === 'unknown' ? 'parked · p to unpark' : `${real} · parked · p to unpark`
+  return r.state === 'unknown' ? 'parked · u to unpark' : `${real} · parked · u to unpark`
 }
 
 function treeRow(r, depth) {
@@ -330,7 +330,7 @@ async function lifecycle(path, body, label, back) {
 function unparkSel() {
   const r = items().find((x) => x.sessionId === sel)
   if (!r) return
-  if (!r.parked) return toast('Not parked (p parks it)')
+  if (!r.parked) return toast('Not parked (Shift+P parks it)')
   const prev = r.parked
   lifecycle('/api/unpark', { sessionId: r.sessionId }, `Unparked “${r.name}”`, () => post('/api/park', { sessionId: r.sessionId, ...prev, wake: prev.wake }))
 }
@@ -540,11 +540,11 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
   else if (e.key === 'a') { e.preventDefault(); openPick() }
-  else if (e.key === 'p' && items().length) { e.preventDefault(); parkSel() }
+  else if (e.key === 'P' && items().length) { e.preventDefault(); parkSel() }
   else if (e.key === 'd' && items().length) { e.preventDefault(); doneSel() }
   else if (e.key === 'u') { e.preventDefault(); unparkSel() }
   else if (e.key === 'z') { e.preventDefault(); undoLast() }
-  else if (e.key === 'P') setView('parked')
+  else if (e.key === 'p') setView('parked')
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
   else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); setProject(cycleProject(projectList().map((p) => p.project), activeProject(), e.key === 'g' ? 1 : -1)) }
   else if (e.key === 'i') { e.preventDefault(); jumpToInterface() }
