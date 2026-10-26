@@ -2,9 +2,10 @@
 
 Private, read-only attention queue for Claude Code desktop sessions. It shows which sessions are
 blocked on a permission prompt (longest wait first); **Enter** opens that session in the Claude
-desktop app via its `claude://` deep link. There is no approve/deny here, and Zarvis never writes
-to Claude's files. Its only writes are `~/.zarvis/blocked/*.json` (hook markers) and
-`~/.zarvis/state.json` (overlay names).
+desktop app via its `claude://` deep link. There is no approve/deny here. While running, Zarvis
+never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` (hook markers) and
+`~/.zarvis/state.json` (overlay names). The one exception is `npm run setup`, which adds its hook
+to your Claude settings when you run it.
 
 **Zero npm dependencies.** Needs only Node >= 22.13.
 
@@ -12,24 +13,37 @@ to Claude's files. Its only writes are `~/.zarvis/blocked/*.json` (hook markers)
 
 ```bash
 git clone https://github.com/zachaustin01/zarvis && cd zarvis
-npm install && npm run dev      # or: node server.mjs
+npm run setup                   # installs the Claude Code hook (see below)
+npm run dev                     # or: node server.mjs
 ```
 
 Open http://127.0.0.1:5274 (override with `ZARVIS_PORT`). The server binds to 127.0.0.1 only and
 rejects any Host/Origin that is not its own. `npm install` installs nothing; it is optional.
 
-## Install the hook (you edit your own settings)
+## The hook
 
-Blocked state is not visible anywhere in Claude's files, so it comes from an opt-in hook. Add this
-to `~/.claude/settings.json`, replacing the path with where you cloned this repo:
+Blocked state is not visible anywhere in Claude's files, so it comes from an opt-in hook. Without
+it the queue is always empty. `npm run setup` adds it to `~/.claude/settings.json`:
+
+- Only Zarvis's own entries are added. Your other hooks and settings are kept as they are.
+- The previous file is backed up beside it (`settings.json.zarvis-backup-<time>`) first, and an
+  invalid settings file is never written.
+- Running it again is safe, including after moving the clone: it leaves exactly one set, pointing
+  at the current `hooks/zarvis-hook.mjs`.
+- `--dry-run` prints the result without writing; `--settings <file>` (or `CLAUDE_SETTINGS`) targets
+  another settings file.
+- Sessions already open need a restart to pick it up.
+
+`npm run uninstall-hook` takes the entries out again. Setup is the one time Zarvis writes to a
+Claude file, and only when you run it. Doing it by hand instead, the entries are:
 
 ```json
 {
   "hooks": {
-    "Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs set" }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs clear" }] }],
-    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs clear" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "node /ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs clear" }] }]
+    "Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" set" }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" clear" }] }],
+    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" clear" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" clear" }] }]
   }
 }
 ```

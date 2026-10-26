@@ -5,5 +5,11 @@
   "description": "Read-only attention queue over Claude Code desktop sessions. Zero dependencies.",
   "type": "module",
   "engines": { "node": ">=22.13" },
-  "scripts": { "dev": "node --watch server.mjs", "start": "node server.mjs", "test": "node --test" }
+  "scripts": {
+    "dev": "node --watch server.mjs",
+    "start": "node server.mjs",
+    "setup": "node scripts/setup.mjs",
+    "uninstall-hook": "node scripts/setup.mjs uninstall",
+    "test": "node --test"
+  }
 }
