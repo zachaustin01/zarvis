@@ -55,3 +55,19 @@ test('Tab cycles the views but leaves inputs and the key sheet alone, and is doc
   assert.match(html, /Tab views/)
   assert.match(readme, /`Tab`\/`Shift\+Tab` cycle Queue/)
 })
+
+test('HUD effects: fuse, glow, brackets and arrival sweep are wired and honour reduced motion', async () => {
+  const [app, css] = await Promise.all([read('public/app.js'), read('public/app.css')])
+  assert.match(app, /fuseHtml\(r, now\)/)
+  assert.match(app, /updateAmbient\(now\)/) // re-evaluated every second, so overdue turns the glow red
+  assert.match(css, /\.q\.sel::after/)
+  assert.match(css, /body\.has-od/)
+  assert.match(css, /prefers-reduced-motion:reduce\)\{[^}]*\.fuse/)
+  assert.match(css, /tab-hidden/)
+})
+
+test('tab title and favicon are driven from updateAmbient and redrawn only when the state flips', async () => {
+  const app = await read('public/app.js')
+  assert.match(app, /updateTab\(attention\(queue, now, OVERDUE_MS\)\)/)
+  assert.match(app, /if \(fav\.key === faviconKey\) return/)
+})

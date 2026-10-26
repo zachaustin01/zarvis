@@ -1,4 +1,5 @@
 'use strict'
+import { fuseVars, glowState, attention, tabTitle, faviconState } from '/fx.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -245,9 +246,62 @@ function rowHtml(r, now) {
     `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? 'Idle — waiting for your next prompt' : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
+    fuseHtml(r, now) +
+    (fresh.has(r.sessionId) ? '<i class="sweep"></i>' : '') +
     `<span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
+
+/** The wait fuse: a time-driven CSS animation started part-way via a negative delay, so list redraws don't restart it. */
+function fuseHtml(r, now) {
+  if (r.state !== 'blocked' || r.parked) return ''
+  const f = fuseVars(r.since, now, OVERDUE_MS)
+  return `<i class="fuse" style="--p:${f.p};--d:${f.d}"></i>`
+}
+
+/** Ambient edge glow on <body>: amber while anything needs you, red once any wait is overdue. Not filtered: it is the attention signal. */
+function updateAmbient(now = Date.now()) {
+  const g = glowState(queue, now, OVERDUE_MS)
+  document.body.classList.toggle('has-blocked', g !== '')
+  document.body.classList.toggle('has-od', g === 'overdue')
+  updateTab(attention(queue, now, OVERDUE_MS))
+}
+
+const FAVICON_COLORS = { idle: '#4d6678', amber: '#ffb347', red: '#ff4d5e' }
+let faviconKey = ''
+/** Tab title and a canvas favicon ring; the canvas is redrawn only when its picture would change. */
+function updateTab(att) {
+  const title = tabTitle(att)
+  if (document.title !== title) document.title = title
+  const fav = faviconState(att)
+  if (fav.key === faviconKey) return
+  faviconKey = fav.key
+  try {
+    const c = document.createElement('canvas')
+    c.width = c.height = 64
+    const g = c.getContext('2d')
+    g.lineWidth = 8
+    g.strokeStyle = FAVICON_COLORS[fav.color]
+    g.beginPath()
+    g.arc(32, 32, 26, 0, Math.PI * 2)
+    g.stroke()
+    if (fav.label) {
+      g.fillStyle = FAVICON_COLORS[fav.color]
+      g.font = `bold ${fav.label.length > 1 ? 26 : 34}px system-ui, sans-serif`
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText(fav.label, 32, 35)
+    }
+    let link = document.querySelector('link[rel="icon"]')
+    if (!link) {
+      link = document.createElement('link')
+      link.rel = 'icon'
+      document.head.appendChild(link)
+    }
+    link.href = c.toDataURL('image/png')
+  } catch { /* no canvas: the title still carries the count */ }
+}
+document.addEventListener('visibilitychange', () => document.body.classList.toggle('tab-hidden', document.hidden))
 
 /** Live pushes redraw the list; keep what the user has typed into the rename box (and the caret) across it. */
 function snapRename() {
@@ -352,6 +406,7 @@ function setQueue(q) {
   fresh = new Set(first ? [] : q.filter((r) => !seen.has(r.sessionId)).map((r) => r.sessionId))
   seen = new Set(q.map((r) => r.sessionId))
   first = false
+  updateAmbient()
   reconcileProject()
   if (renaming && !q.some((r) => r.sessionId === renaming)) renaming = null
   render()
@@ -672,6 +727,7 @@ setInterval(() => {
     el.textContent = fmt(now - since)
     el.closest('.q').classList.toggle('od', !el.closest('.q').classList.contains('wk') && now - since > OVERDUE_MS)
   })
+  updateAmbient(now)
 }, 1000)
 
 const live = (ok) => { document.querySelector('#conn .live').classList.toggle('off', !ok) }
