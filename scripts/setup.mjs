@@ -19,19 +19,21 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { addHooks, hasHooks, removeHooks } from '../lib/hook-config.mjs'
+import { dqEscape } from '../lib/shell.mjs'
 
 const HOOK_PATH = fileURLToPath(new URL('../hooks/zarvis-hook.mjs', import.meta.url))
 // The shipped skills are templates: {{ZARVIS_DIR}} becomes the absolute path of this clone at install.
 const ZARVIS_DIR = fileURLToPath(new URL('..', import.meta.url)).replace(/[\\/]$/, '')
 const PLACEHOLDER = '{{ZARVIS_DIR}}'
-const render = (template, dir = ZARVIS_DIR) => template.split(PLACEHOLDER).join(dir)
+// The placeholder sits inside double quotes in the skill's commands, so the path is escaped for that.
+export const render = (template, dir = ZARVIS_DIR) => template.split(PLACEHOLDER).join(dqEscape(dir))
 
 /** Is `text` the template rendered for some clone path? (Then it is ours, even if the clone has moved.) */
 function isRendered(text, template) {
   const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const [head, ...tail] = template.split(PLACEHOLDER).map(esc)
   if (!tail.length) return text === template
-  return new RegExp(`^${head}([^\\n"]+?)${tail.join('\\1')}$`).test(text)
+  return new RegExp(`^${head}([^\\n]+?)${tail.join('\\1')}$`).test(text)
 }
 
 const SKILLS = ['zarvis-interface', 'zarvis-manager'].map((name) => ({

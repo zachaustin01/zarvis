@@ -6,6 +6,7 @@ import path from 'node:path'
 import { addHooks, hasHooks, hookCommand, removeHooks, HOOK_EVENTS } from '../lib/hook-config.mjs'
 import { fileURLToPath } from 'node:url'
 import { run } from '../scripts/setup.mjs'
+import { execFile } from 'node:child_process'
 
 const HOOK = '/opt/zarvis/hooks/zarvis-hook.mjs'
 const OTHER = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mine' }] }
@@ -228,4 +229,27 @@ test('a skill rendered for a moved clone is replaced and removed without a backu
   await fsp.writeFile(dest, `${mine}\nmy edit`)
   await s.run([])
   assert.equal((await fsp.readdir(dir)).filter((f) => f.includes('zarvis-backup')).length, 1)
+})
+
+test('the installed park command survives clone paths with $, backticks, quotes and spaces', async () => {
+  const { render } = await import('../scripts/setup.mjs')
+  const template = await fsp.readFile(MANAGER_SRC, 'utf8')
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-q-'))
+  const odd = ['$HOME dir', 'back`tick`', 'dq"uote', "sq'uote", 'sp ace', '$(touch pwned)']  // (a backslash in a directory name is refused by Node's ESM loader itself, whatever the quoting)
+  for (const name of odd) {
+    const clone = path.join(base, name)
+    await fsp.mkdir(path.join(clone, 'scripts'), { recursive: true })
+    await fsp.cp(path.join(ZARVIS_DIR, 'lib'), path.join(clone, 'lib'), { recursive: true })
+    await fsp.copyFile(path.join(ZARVIS_DIR, 'scripts', 'park.mjs'), path.join(clone, 'scripts', 'park.mjs'))
+    await fsp.copyFile(path.join(ZARVIS_DIR, 'package.json'), path.join(clone, 'package.json'))
+    const text = render(template, clone)
+    const line = text.split('\n').find((l) => l.includes('park.mjs" list'))
+    const cmd = line.replace('<your session id>', 'aaaaaaaa-0000-4000-8000-000000000000')
+    const env = { ...process.env, ZARVIS_HOME: path.join(base, 'home'), ZARVIS_DESKTOP_SESSIONS: path.join(base, 'none'), HOME: '/nonexistent-home' }
+    const out = await new Promise((resolve) => execFile('sh', ['-c', cmd], { env, cwd: base }, (err, stdout, stderr) => resolve({ err, stdout, stderr })))
+    assert.equal(out.err, null, `${name}: ${out.stderr}`)
+    assert.match(out.stdout, /nothing parked/, name)
+  }
+  await assert.rejects(fsp.access(path.join(base, 'pwned')), 'no command substitution ran')
+  assert.ok(!(await fsp.readdir(base)).includes('pwned'))
 })
