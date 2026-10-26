@@ -64,3 +64,60 @@ test('hookStatus: live, stale, absent, and never a guess', () => {
   assert.deepEqual(old, { status: 'stale', lastAt: now - 20 * min })
   assert.equal(hookStatus([{ at: now - 11 * min }], now, 12 * min).status, 'live') // custom threshold
 })
+
+// ---- role tag: first prompt, at its start only ----
+import { spawnSync } from 'node:child_process'
+import { buildRoleTag } from '../hooks/zarvis-hook.mjs'
+import { rolePrompt } from '../lib/roles.mjs'
+
+const PARENT = 'a1b2c3d4-0000-4000-8000-123456789abc'
+const HOOK = new URL('../hooks/zarvis-hook.mjs', import.meta.url).pathname
+
+test('buildRoleTag only matches a tag at the start of the prompt', () => {
+  const tag = (prompt) => buildRoleTag({ session_id: ID, prompt }, 7)
+  assert.deepEqual(tag('[zarvis: role=manager] hi'), { sessionId: ID, role: 'manager', parent: '', at: 7 })
+  assert.equal(tag('  \n\t[zarvis: role=interface] hi').role, 'interface')
+  assert.equal(tag('Build the skill that handles [zarvis: role=interface] tags'), null)
+  assert.equal(tag('hello\n[zarvis: role=worker]'), null)
+  assert.equal(tag(`[zarvis: role=worker parent=${PARENT}]`).parent, PARENT)
+  for (const [role, parent] of [['interface', ''], ['manager', ''], ['worker', PARENT]]) {
+    const t = tag(rolePrompt(role, parent))
+    assert.equal(t.role, role)
+    assert.equal(t.parent, parent)
+  }
+})
+
+test('the hook registers a role only from the first prompt, and never overwrites', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-hook-'))
+  const run = (mode, id, prompt) =>
+    spawnSync('node', [HOOK, mode], { input: JSON.stringify({ session_id: id, prompt }), env: { ...process.env, ZARVIS_HOME: home } })
+  const role = async (id) => {
+    try {
+      return JSON.parse(await fsp.readFile(path.join(home, 'roles', `${id}.json`), 'utf8'))
+    } catch {
+      return null
+    }
+  }
+  const A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'
+  run('idle', A, '') // SessionStart first
+  run('start', A, rolePrompt('manager'))
+  assert.equal((await role(A)).role, 'manager')
+  run('start', A, '[zarvis: role=interface]') // later prompt: no overwrite
+  assert.equal((await role(A)).role, 'manager')
+
+  const B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'
+  run('start', B, 'Please build the thing for [zarvis: role=interface]')
+  run('start', B, '[zarvis: role=interface] now')
+  assert.equal(await role(B), null)
+
+  const C = 'cccccccc-3333-4333-8333-cccccccccccc'
+  run('start', C, 'plain first prompt')
+  run('start', C, rolePrompt('worker', PARENT))
+  assert.equal(await role(C), null)
+
+  const D = 'dddddddd-4444-4444-8444-dddddddddddd'
+  await fsp.mkdir(path.join(home, 'roles'), { recursive: true })
+  await fsp.writeFile(path.join(home, 'roles', `${D}.json`), JSON.stringify({ sessionId: D, role: 'worker', parent: '', at: 1 }))
+  run('start', D, '[zarvis: role=manager]')
+  assert.equal((await role(D)).role, 'worker')
+})

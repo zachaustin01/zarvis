@@ -10,8 +10,8 @@
  *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle
  *   SessionEnd                               -> `done`   both markers off
  *
- * `start` also registers a role when the prompt carries `[zarvis: role=manager]` (or interface /
- * worker, optionally `parent=<session id>`); the first marker a session shows wins.
+ * `start` also registers a role when the session's FIRST prompt begins with `[zarvis: role=manager]`
+ * (or interface / worker, optionally `parent=<session id>`); the same text elsewhere is ignored.
  *
  * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/ and roles/.
  * The transcript is read (never written) to find which tool is waiting, because the
@@ -134,9 +134,14 @@ async function writeAtomic(file, marker) {
   await fsp.rename(tmp, file)
 }
 
-/** The role tag for a UserPromptSubmit payload, or null. Exported for tests. */
+/**
+ * The role tag for a UserPromptSubmit payload, or null. Exported for tests. Only a tag at the very
+ * start of the prompt counts (leading whitespace allowed), as `rolePrompt` generates it; a brief or
+ * conversation that merely mentions the tag mid-text must not register a role. The caller also
+ * checks that this is the session's first prompt.
+ */
 export function buildRoleTag(payload, now = Date.now()) {
-  const m = /\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(typeof payload.prompt === 'string' ? payload.prompt : '')
+  const m = /^\s*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(typeof payload.prompt === 'string' ? payload.prompt : '')
   return m ? { sessionId: payload.session_id, role: m[1].toLowerCase(), parent: m[2] || '', at: now } : null
 }
 
@@ -173,9 +178,19 @@ async function main() {
       }
     }
     if (mode === 'start') {
-      const tag = buildRoleTag(payload)
+      // "First prompt" = we are the first `start` to claim the `<id>.first` sentinel (wx write).
+      // The working marker can't tell us: SessionStart's idle writes one before any prompt, and
+      // idle/work/resume rewrite it. The sentinel is not .json, so the server's role reader skips it.
+      await fsp.mkdir(ROLES_DIR, { recursive: true })
+      let first = false
+      try {
+        await fsp.writeFile(path.join(ROLES_DIR, `${id}.first`), '', { flag: 'wx' })
+        first = true
+      } catch {
+        /* a later prompt */
+      }
+      const tag = first ? buildRoleTag(payload) : null
       if (tag) {
-        await fsp.mkdir(ROLES_DIR, { recursive: true })
         try {
           await fsp.writeFile(path.join(ROLES_DIR, `${id}.json`), JSON.stringify(tag), { flag: 'wx' })
         } catch {

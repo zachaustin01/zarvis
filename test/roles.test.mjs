@@ -57,8 +57,8 @@ test('registry: setRole stores a worker parent, clears on empty, rejects bad rol
   await assert.rejects(setRole(id(3), 'boss', '', file), /bad role/)
 })
 
-test('hook reads a role marker from the starting prompt', () => {
-  assert.deepEqual(buildRoleTag({ session_id: id(2), prompt: 'Hi [zarvis: role=Manager]' }, 5), { sessionId: id(2), role: 'manager', parent: '', at: 5 })
+test('hook reads a role marker from the start of the prompt', () => {
+  assert.deepEqual(buildRoleTag({ session_id: id(2), prompt: '[zarvis: role=Manager] Hi' }, 5), { sessionId: id(2), role: 'manager', parent: '', at: 5 })
   assert.equal(buildRoleTag({ session_id: id(3), prompt: `[zarvis: role=worker parent=${id(2)}]` }).parent, id(2))
   assert.equal(buildRoleTag({ session_id: id(3), prompt: 'no marker' }), null)
 })

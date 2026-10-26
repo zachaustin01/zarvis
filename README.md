@@ -93,7 +93,7 @@ Press `t` for the role tree, `h` for the queue.
 - Tag by hand: `c`, then `i` / `m` / `w` / `x` (clear). In the tree, `Shift+C` makes every
   unclassified session a worker.
 - Tag at session start: put `[zarvis: role=manager]` (or `interface`; `worker parent=<session id>`) in the
-  first prompt. The hook records it under `~/.zarvis/roles/`; a hand-set role overrides it.
+  very first prompt, at its start (a mention later or mid-prompt is ignored). The hook records it under `~/.zarvis/roles/`; a hand-set role overrides it.
 - A session spawned by a manager becomes its worker; one that has spawned children is only
   *suggested* as a manager. Spawn links from the interface are ignored.
 - A manager with a blocked worker is **waiting on worker** and Enter jumps to the worker, so a blocked
