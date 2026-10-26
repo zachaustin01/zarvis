@@ -121,3 +121,68 @@ test('the hook registers a role only from the first prompt, and never overwrites
   run('start', D, '[zarvis: role=manager]')
   assert.equal((await role(D)).role, 'worker')
 })
+
+// ---- subagent permission prompts: payloads carry the PARENT session_id plus agent_id ----
+test('a subagent prompt blocks the parent, survives other agents and Stop, and clears correctly', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-hook-'))
+  const S = 'cccccccc-3333-4333-8333-cccccccccccc'
+  const sub = { agent_id: 'a1f2e3d4c5b6a7980', agent_type: 'general-purpose' }
+  const base = { session_id: S, cwd: '/repo', transcript_path: path.join(home, `${S}.jsonl`) }
+  const run = (mode, ev, extra = {}) =>
+    spawnSync('node', [HOOK, mode], { input: JSON.stringify({ ...base, hook_event_name: ev, ...extra }), env: { ...process.env, ZARVIS_HOME: home } })
+  const read = async (dir) => {
+    try {
+      return JSON.parse(await fsp.readFile(path.join(home, dir, `${S}.json`), 'utf8'))
+    } catch {
+      return null
+    }
+  }
+  // The parent's transcript ends on its pending Agent call (what a bare Notification would show).
+  await fsp.writeFile(base.transcript_path, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Agent', input: { description: 'run it' } }] } }) + '\n')
+
+  run('start', 'UserPromptSubmit', { prompt: 'go' })
+  run('resume', 'PreToolUse', { tool_name: 'Agent' })
+  run('resume', 'PreToolUse', { tool_name: 'Bash', ...sub })
+  // Immediate PermissionRequest, then the ~6 s Notification for the same prompt.
+  run('set', 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'touch zz' }, ...sub })
+  let b = await read('blocked')
+  assert.deepEqual([b.tool, b.command, b.agentId], ['Bash', 'touch zz', sub.agent_id])
+  run('set', 'Notification', { message: 'Claude needs your permission to use Bash', notification_type: 'permission_prompt' })
+  b = await read('blocked')
+  assert.deepEqual([b.tool, b.command, b.agentId], ['Bash', 'touch zz', sub.agent_id], 'the notification must not downgrade it to the parent\'s Agent call')
+
+  // A parallel agent's tool call, the parent's own tool call, and the parent's Stop leave it standing.
+  run('resume', 'PreToolUse', { tool_name: 'Read', agent_id: 'other-agent-1', agent_type: 'Explore' })
+  run('resume', 'PreToolUse', { tool_name: 'Read' })
+  run('idle', 'Stop')
+  run('idle', 'SubagentStop', { ...sub })
+  assert.equal((await read('blocked')).agentId, sub.agent_id)
+  assert.equal((await read('working')).state, 'idle') // parent's own turn did end
+
+  // Answered: that agent's next tool call clears it.
+  run('resume', 'PreToolUse', { tool_name: 'Bash', ...sub })
+  assert.equal(await read('blocked'), null)
+
+  // Subagent stopping while its prompt is pending also clears it; another agent's stop does not.
+  run('set', 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'x' }, ...sub })
+  run('agentstop', 'SubagentStop', { agent_id: 'other-agent-1' })
+  assert.ok(await read('blocked'))
+  run('agentstop', 'SubagentStop', { ...sub })
+  assert.equal(await read('blocked'), null)
+
+  // A main-thread prompt is not cleared by a subagent's tool call, but is by the parent's.
+  run('set', 'PermissionRequest', { tool_name: 'Write', tool_input: { file_path: '/a' } })
+  run('resume', 'PreToolUse', { tool_name: 'Read', ...sub })
+  assert.equal((await read('blocked')).tool, 'Write')
+  run('resume', 'PreToolUse', { tool_name: 'Read' })
+  assert.equal(await read('blocked'), null)
+})
+
+test('a bare Notification from a subagent reads the subagent\'s own transcript for the command', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-hook-'))
+  const tp = path.join(dir, `${ID}.jsonl`)
+  await fsp.mkdir(path.join(dir, ID, 'subagents'), { recursive: true })
+  await fsp.writeFile(path.join(dir, ID, 'subagents', 'agent-abc123def.jsonl'), JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 's1', name: 'Bash', input: { command: 'rm -rf build' } }] } }) + '\n')
+  const m = await buildMarker({ session_id: ID, transcript_path: tp, agent_id: 'abc123def', agent_type: 'Explore', message: 'Claude needs your permission' }, 5)
+  assert.deepEqual([m.tool, m.command, m.agentId, m.agentType], ['Bash', 'rm -rf build', 'abc123def', 'Explore'])
+})

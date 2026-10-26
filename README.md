@@ -36,7 +36,8 @@ it the queue is always empty. `npm run setup` adds it to `~/.claude/settings.jso
   at the current `hooks/zarvis-hook.mjs`.
 - `--dry-run` prints the result without writing; `--settings <file>` (or `CLAUDE_SETTINGS`) targets
   another settings file.
-- Sessions already open need a restart to pick it up.
+- Sessions already open need a restart to pick it up. After updating Zarvis, re-run `npm run setup` to
+  install new hook events (`PermissionRequest`, `SubagentStop` were added for subagent prompts).
 
 `npm run uninstall-hook` takes the entries out again. Setup is the one time Zarvis writes to
 Claude files (the settings and the skills below), and only when you run it. Doing it by hand
@@ -46,13 +47,15 @@ instead, the entries are:
 {
   "hooks": {
     "Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" set" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" set" }] }],
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" start" }] }],
     "PreToolUse": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] }],
     "PostToolUse": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" work" }] }],
     "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" idle" }] }],
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" idle" }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" done" }] }]
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" done" }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" agentstop" }] }]
   }
 }
 ```
@@ -155,6 +158,10 @@ this file and one pointing at the `zarvis-manager` skill. It refreshes on every 
   `ZARVIS_MAX_AGE_HOURS`, newest first. A working session quiet for 30 min (`ZARVIS_WORKING_MAX_AGE_MIN`) drops out,
   since an interrupted turn fires no Stop. A blocked session is never also listed as working.
 
+- A subagent's permission prompt arrives under the parent's session id (tagged with `agent_id`), so it
+  blocks the parent, showing the subagent's tool and command. Other agents' tool calls don't clear it,
+  the parent's Stop doesn't either (a background subagent may still wait), and it clears when that
+  agent's next tool call starts, the agent stops, a new prompt is submitted, or the session ends.
 - Only sessions with their own marker appear (leaf-only); a parent waiting on a child never does.
 - Markers are dropped if the session record is archived/deleted, the session has no record or
   transcript, or the marker is older than 12 h (`ZARVIS_MAX_AGE_HOURS`).

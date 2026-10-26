@@ -3,12 +3,19 @@
  * Claude Code hook for Zarvis. Not run by the server: point your settings.json at it
  * (see README). `set` marks the session blocked; the other modes track whether it is working.
  *
- *   Notification (matcher permission_prompt) -> `set`    blocked marker
+ *   PermissionRequest                        -> `set`    blocked marker, at once, with tool and input
+ *   Notification (matcher permission_prompt) -> `set`    blocked marker (the same prompt, ~6 s later)
  *   UserPromptSubmit                         -> `start`  working marker, clock restarts
  *   PreToolUse / PermissionDenied            -> `resume` blocked marker off, working on
  *   PostToolUse                              -> `work`   working marker refreshed (clock kept)
  *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle
  *   SessionEnd                               -> `done`   both markers off
+ *   SubagentStop                             -> `agentstop` blocked marker off if that subagent owned it
+ *
+ * Subagents: their tool events and permission prompts carry the PARENT's session_id plus `agent_id`.
+ * The parent is the visible session, so a subagent's prompt blocks the parent. But an event from a
+ * subagent never clears a marker it did not write (parallel agents, or a main-thread prompt), never
+ * writes idle, and a Stop/idle from the parent leaves a subagent's prompt standing (it is still pending).
  *
  * `start` also registers a role when the session's FIRST prompt begins with `[zarvis: role=manager]`
  * (or interface / worker, optionally `parent=<session id>`); the same text elsewhere is ignored.
@@ -89,9 +96,12 @@ export async function buildMarker(payload, now = Date.now()) {
   let tool = typeof payload.tool_name === 'string' ? payload.tool_name : ''
   let command = ''
   if (payload.tool_input) command = summarizeInput(tool, payload.tool_input)
+  const agentId = typeof payload.agent_id === 'string' ? payload.agent_id.slice(0, 100) : ''
   if (!command && typeof payload.transcript_path === 'string') {
     try {
-      const p = pendingTool(await readTail(payload.transcript_path))
+      // transcript_path is always the session's; a subagent's own tool calls live beside it.
+      const file = agentId && SAFE_ID.test(agentId.replace(/^agent-/, '')) ? agentTranscript(payload.transcript_path, agentId) : payload.transcript_path
+      const p = pendingTool(await readTail(file))
       tool = tool || p.tool
       command = p.command
     } catch {
@@ -109,7 +119,23 @@ export async function buildMarker(payload, now = Date.now()) {
     tool,
     command,
     transcriptPath: typeof payload.transcript_path === 'string' ? payload.transcript_path : '',
+    ...(agentId ? { agentId, agentType: typeof payload.agent_type === 'string' ? payload.agent_type.slice(0, 100) : '' } : {}),
   }
+}
+
+/** Where a subagent's transcript lives: `<session>/subagents/agent-<id>.jsonl` beside the session's. */
+export function agentTranscript(transcriptPath, agentId) {
+  return path.join(transcriptPath.replace(/\.jsonl$/, ''), 'subagents', `agent-${agentId.replace(/^agent-/, '')}.jsonl`)
+}
+
+/**
+ * Merge a Notification into the marker a PermissionRequest already wrote for the same prompt: the
+ * request carried the tool, input and agent; the notification only has a sentence and the session's
+ * transcript (whose pending tool is the parent's Agent call, not the subagent's command).
+ */
+export function mergeNotification(prev, next) {
+  if (!prev || !prev.tool || !prev.command || next.agentId) return next
+  return { ...next, tool: prev.tool, command: prev.command, ...(prev.agentId ? { agentId: prev.agentId, agentType: prev.agentType || '' } : {}) }
 }
 
 /** The working marker for a payload. `prev` keeps the turn's start time across refreshes. */
@@ -145,6 +171,14 @@ export function buildRoleTag(payload, now = Date.now()) {
   return m ? { sessionId: payload.session_id, role: m[1].toLowerCase(), parent: m[2] || '', at: now } : null
 }
 
+async function readJson(file) {
+  try {
+    return JSON.parse(await fsp.readFile(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
 async function main() {
   const mode = process.argv[2]
   const chunks = []
@@ -159,14 +193,22 @@ async function main() {
   if (typeof id !== 'string' || !SAFE_ID.test(id)) return
   const file = path.join(DIR, `${id}.json`)
   const workFile = path.join(WORKING_DIR, `${id}.json`)
+  const agentId = typeof payload.agent_id === 'string' ? payload.agent_id : ''
   if (mode === 'set') {
-    await writeAtomic(file, await buildMarker(payload))
+    const next = await buildMarker(payload)
+    const prev = await readJson(file)
+    await writeAtomic(file, payload.hook_event_name === 'Notification' ? mergeNotification(prev, next) : next)
+  } else if (mode === 'agentstop') {
+    // A subagent finished: if its own prompt is the pending one, that prompt is gone.
+    if (agentId && (await readJson(file))?.agentId === agentId) await fsp.rm(file, { force: true })
   } else if (mode === 'clear') {
     await fsp.rm(file, { force: true })
   } else if (mode === 'done') {
     await Promise.all([fsp.rm(file, { force: true }), fsp.rm(workFile, { force: true })])
   } else if (mode === 'idle') {
-    await fsp.rm(file, { force: true })
+    if (agentId) return // a subagent's lifecycle event says nothing about the visible session
+    // A turn can end while a background subagent still waits on a prompt: that prompt stands.
+    if (!(await readJson(file))?.agentId) await fsp.rm(file, { force: true })
     await writeAtomic(workFile, buildWorking(payload, null, Date.now(), 'idle'))
   } else if (mode === 'start' || mode === 'resume' || mode === 'work') {
     let prev = null
@@ -198,7 +240,12 @@ async function main() {
         }
       }
     }
-    if (mode !== 'work') await fsp.rm(file, { force: true })
+    if (mode !== 'work') {
+      // Another agent's tool call must not clear a prompt it did not raise; the raising agent's own
+      // next event (it got its answer) does, and so does a new prompt.
+      const blocked = await readJson(file)
+      if (mode === 'start' || !blocked || (blocked.agentId || '') === agentId) await fsp.rm(file, { force: true })
+    }
     await writeAtomic(workFile, buildWorking(payload, prev))
   }
 }
