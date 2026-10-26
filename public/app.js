@@ -312,7 +312,7 @@ async function classifySel(role) {
   const r = items().find((x) => x.sessionId === sel)
   if (!r) return
   const { ok, data } = await post('/api/classify', { sessionId: r.sessionId, role })
-  toast(ok ? (role ? `“${r.name}” is now a ${role}` : `“${r.name}” unclassified`) : data.error || 'Classify failed')
+  toast(ok ? (role ? `“${r.name}” is now ${/^[aeiou]/.test(role) ? 'an' : 'a'} ${role}` : `“${r.name}” unclassified`) : data.error || 'Classify failed')
   loadTree()
 }
 
