@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { readMarkers, hookStatus, WORKING_DIR, ZARVIS_HOME } from './lib/markers.mjs'
 import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE } from './lib/roles.mjs'
+import { readAllTasks } from './lib/tasks.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
 import { buildQueue, applyRoles, pinnedRows, newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
@@ -60,7 +61,7 @@ const cwdsOf = (rows) => Object.fromEntries(rows.filter((r) => r.cwd).map((r) =>
 async function allRows() {
   const [markers, working] = await Promise.all([readMarkers(), readMarkers(WORKING_DIR)])
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
-  const rows = await buildQueue({ markers, working, records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
+  const rows = await buildQueue({ markers, working, tasks: await readAllTasks(ZARVIS_HOME), records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
   const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(rows) })
   // An interface session stays in the queue even with no live process (no markers): "not running", never a guessed state.
   const withRoles = [...applyRoles(rows, nodes), ...pinnedRows(nodes, records, rows, { overlays: state.overlays })]
@@ -108,6 +109,7 @@ async function currentTree() {
       warnings: n.warnings,
       state: row?.state ?? 'unknown', // no hook signal: never guess
       kind: row?.kind ?? '',
+      tasks: row?.tasks ?? { count: 0, items: [] },
       blockedChildren: row?.blockedChildren ?? [],
       project: row?.project || path.basename(projectPathOf(n.cwd, recOf.get(n.sessionId)?.originCwd)) || '',
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),

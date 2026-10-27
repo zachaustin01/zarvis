@@ -255,6 +255,15 @@ When a task is finished, run the same with --kind done and a one-line summary.
   `ZARVIS_MAX_AGE_HOURS`, newest first. A working session quiet for 30 min (`ZARVIS_WORKING_MAX_AGE_MIN`) drops out,
   since an interrupted turn fires no Stop. A blocked session is never also listed as working.
 
+- **Background tasks** (background Bash commands, Monitors, background subagents, workflows) show on a session's
+  card as a pulsing `N bg` chip, and an idle session reads "Idle · N background tasks running" instead of
+  plain idle. The source is the `background_tasks` list Claude Code puts in the Stop payload (it replaces
+  `~/.zarvis/tasks/<session>.json`, so a missed completion heals at the next Stop; a finished task wakes the
+  session, which ends in another Stop); a launch seen on PostToolUse adds one in between and `TaskStop` removes
+  one. A task that vanished becomes one ticker event ("finished a background command: ..."; off with the other
+  auto events). Tasks expire on their own (a Monitor at its timeout, anything else after 12 h) and SessionStart /
+  SessionEnd clear them. No new hook events: nothing to re-run in `npm run setup`.
+
 - A subagent's permission prompt arrives under the parent's session id (tagged with `agent_id`), so it
   blocks the parent, showing the subagent's tool and command. Other agents' tool calls don't clear it,
   the parent's Stop doesn't either (a background subagent may still wait), and it clears when that

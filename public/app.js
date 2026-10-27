@@ -127,10 +127,19 @@ function lifeTag(r) {
   return `<span class="pd" title="parked">○</span><span class="ap">${esc(r.parked.reason)}</span>${by}${wake}`
 }
 
+/** Running background tasks: a pulsing dot and a count; the title lists the first few. Empty when none. */
+function bgTag(r) {
+  const n = r.tasks?.count || 0
+  if (!n) return ''
+  const items = (r.tasks.items || []).map((t) => `${t.kind}: ${t.label || '(no description)'}`).join('\n')
+  return `<span class="bg" title="${esc(items + (n > r.tasks.items.length ? `\n+${n - r.tasks.items.length} more` : ''))}"><i></i>${n} bg</span>`
+}
+
 /** Tree status text: the real state first, so a parked-but-blocked session still says it needs you. */
 function treeStatus(r) {
   if (r.done) return 'done · d to undo'
-  const real = r.state === 'blocked' && r.kind === 'question' ? 'needs your answer' : STATE_LABEL[r.state] || r.state
+  const base = r.state === 'blocked' && r.kind === 'question' ? 'needs your answer' : STATE_LABEL[r.state] || r.state
+  const real = r.tasks?.count ? `${base} · ${r.tasks.count} background` : base
   if (!r.parked) return real
   return r.state === 'unknown' ? 'parked · u to unpark' : `${real} · parked · u to unpark`
 }
@@ -144,7 +153,7 @@ function treeRow(r, depth) {
   const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}` +
+    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}` +
     `<span class="wt">${esc(treeStatus(r))}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
@@ -245,8 +254,8 @@ function rowHtml(r, now) {
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
     `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
-    `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? 'Idle — waiting for your next prompt' : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
+    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
+    `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
     fuseHtml(r, now) +
     (fresh.has(r.sessionId) ? '<i class="sweep"></i>' : '') +

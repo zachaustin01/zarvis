@@ -6,6 +6,10 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 .num{font-variant-numeric:tabular-nums}
 .top{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--edge);position:relative;flex-wrap:wrap}
 .top::after{content:"";position:absolute;left:0;bottom:-1px;height:1px;width:100%;background:linear-gradient(90deg,transparent,var(--cy),transparent);opacity:.5;animation:br 6s ease-in-out infinite}
+/* running background tasks: a count chip with a dot that breathes (opacity only) */
+.bg{font-size:10px;letter-spacing:.06em;color:var(--cy);border:1px solid var(--cyd);padding:0 5px;margin:0 8px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.bg i{width:5px;height:5px;border-radius:50%;background:var(--cy);animation:bgp 2.4s ease-in-out infinite}
+@keyframes bgp{50%{opacity:.25}}
 @keyframes br{50%{opacity:.15}}
 .brand{font-weight:600;letter-spacing:.2em;color:var(--cy);margin-right:8px}
 .pill{border:1px solid var(--edge);border-radius:99px;padding:2px 10px;color:var(--t2);font-size:12px;background:none;cursor:default}
@@ -106,7 +110,7 @@ body.has-od{--glow:#ff4d5e}
 body.has-od::after{opacity:.22}
 @keyframes amb{50%{opacity:.07}}
 body.tab-hidden *,body.tab-hidden::after{animation-play-state:paused!important}
-@media (prefers-reduced-motion:reduce){.fuse,.sweep::before,body::after,.q.arrive{animation:none!important}.sweep{display:none}}
+@media (prefers-reduced-motion:reduce){.bg i,.fuse,.sweep::before,body::after,.q.arrive{animation:none!important}.sweep{display:none}}
 @keyframes ar{0%{box-shadow:0 0 0 0 #ffb347cc;transform:translateX(-14px);opacity:0}15%{opacity:1;transform:none}100%{box-shadow:0 0 0 18px #ffb34700}}
 .go{display:none;text-align:right;margin-top:4px;letter-spacing:.14em;color:var(--cy);font-size:11px}
 .r1{display:flex;gap:8px;align-items:center;flex-wrap:wrap}

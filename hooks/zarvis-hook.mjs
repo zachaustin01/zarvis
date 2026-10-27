@@ -12,11 +12,14 @@
  *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle; but if the turn
  *                                                       ended on a question for the user (see askedQuestion), a blocked
  *                                                       marker with kind "question" is written instead
- *   SessionEnd                               -> `done`   both markers off
+ *   SessionEnd                               -> `done`   both markers off (and the background-task file)
  *   SubagentStop                             -> `agentstop` blocked marker off if that subagent owned it
  *   PreToolUse (second entry, timeout 5)     -> `guard`  claim the checkout a write / git command touches, or ASK when another live session holds it
  *   PostToolUse (second entry, timeout 5)    -> `guardpost` an allowed ask joins the claim's sharers
  *   (SessionEnd `done` also releases the session's checkout claims; see lib/claims.mjs)
+ *
+ * Background tasks (lib/tasks.mjs): Stop's `background_tasks` list is written to ~/.zarvis/tasks/<session>.json (a launch
+ * seen on PostToolUse is added in between, TaskStop removes); tasks that vanished become a ticker event. No new hook events.
  *
  * Subagents: their tool events and permission prompts carry the PARENT's session_id plus `agent_id`.
  * The parent is the visible session, so a subagent's prompt blocks the parent. But an event from a
@@ -26,7 +29,7 @@
  * `start` also registers a role when the session's FIRST prompt begins with `[zarvis: role=manager]`
  * (or interface / worker, optionally `parent=<session id>`); the same text elsewhere is ignored.
  *
- * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/ and claims/ (plus one line in events.jsonl after a push).
+ * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/, tasks/ and claims/ (plus one line in events.jsonl after a push).
  * The transcript is read (never written) to find which tool is waiting, because the
  * Notification payload only carries a sentence like "Claude needs your permission to use Bash".
  * Never throws and never prints: a hook must not disturb the session.
@@ -294,7 +297,7 @@ async function main() {
   } else if (mode === 'clear') {
     await fsp.rm(file, { force: true })
   } else if (mode === 'done') {
-    await Promise.all([fsp.rm(file, { force: true }), fsp.rm(workFile, { force: true })])
+    await Promise.all([fsp.rm(file, { force: true }), fsp.rm(workFile, { force: true }), fsp.rm(path.join(HOME, 'tasks', `${id}.json`), { force: true })])
     try {
       ;(await import('../lib/claims.mjs')).releaseSession(HOME, id)
     } catch {
@@ -316,6 +319,7 @@ async function main() {
       else await fsp.rm(file, { force: true })
     }
     await writeAtomic(workFile, buildWorking(payload, null, Date.now(), 'idle'))
+    await backgroundTasks('idle', payload)
   } else if (mode === 'start' || mode === 'resume' || mode === 'work') {
     let prev = null
     if (mode !== 'start') {
@@ -353,7 +357,28 @@ async function main() {
       if (mode === 'start' || !blocked || (blocked.agentId || '') === agentId) await fsp.rm(file, { force: true })
     }
     await writeAtomic(workFile, buildWorking(payload, prev))
-    if (mode === 'work') await autoEvents(payload)
+    if (mode === 'work') {
+      await autoEvents(payload)
+      if (!agentId && /^(Bash|Monitor|Agent|Task|TaskStop|KillShell)$/.test(payload.tool_name || '')) await backgroundTasks('work', payload)
+    }
+  }
+}
+
+/**
+ * Background tasks (lib/tasks.mjs): launches and TaskStop on PostToolUse, the authoritative `background_tasks` list on Stop.
+ * Whatever just ended becomes one ticker event. Fail-silent: tasks are decoration, never worth disturbing the session.
+ */
+async function backgroundTasks(mode, payload) {
+  try {
+    const tasks = await import('../lib/tasks.mjs')
+    const finished = await tasks.trackTasks(mode, payload, HOME)
+    const text = tasks.finishedText(finished)
+    if (text) {
+      const events = await import('../lib/events.mjs')
+      if (events.autoEventsEnabled(HOME)) await events.appendEvent(HOME, events.buildEvent({ kind: 'done', text, sessionId: payload.session_id }))
+    }
+  } catch {
+    /* ignore */
   }
 }
 
