@@ -1,5 +1,5 @@
 'use strict'
-import { scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
+import { reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -245,6 +245,7 @@ async function loadTree() {
   try {
     rawTree = await (await fetch('/api/tree')).json()
     reconcileProject()
+    updateAmbient() // the reactor's parked count comes from the tree
     if (view === 'queue') renderBar()
     else applyTree()
   } catch {
@@ -397,7 +398,32 @@ function updateAmbient(now = Date.now()) {
   const g = glowState(queue, now, OVERDUE_MS)
   document.body.classList.toggle('has-blocked', g !== '')
   document.body.classList.toggle('has-od', g === 'overdue')
-  updateTab(attention(queue, now, OVERDUE_MS))
+  const att = attention(queue, now, OVERDUE_MS)
+  updateTab(att)
+  updateReactor(att)
+}
+
+/** The header arc reactor: only touches the DOM when what it shows changes. */
+let reactorKey = ''
+function updateReactor(att) {
+  const counts = reactorCounts(queue, rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])].filter((n) => n.parked && !n.done).length : null)
+  const st = reactorState(counts, att)
+  const text = reactorText(counts)
+  const key = `${JSON.stringify(counts)}|${st.core}|${st.spin}`
+  if (key === reactorKey) return
+  reactorKey = key
+  const el = $('#reactor')
+  el.classList.toggle('amber', st.core === 'amber')
+  el.classList.toggle('red', st.core === 'red')
+  el.classList.toggle('spin', st.spin)
+  el.setAttribute('aria-label', `${counts.blocked} need you, ${counts.working} working, ${counts.idle} idle, ${counts.parked} parked`)
+  $('#reactorTxt').textContent = text
+  const arcs = reactorArcs(counts)
+  for (const a of arcs) {
+    const c = el.querySelector(`.rx-arc.${a.key}`)
+    c.style.strokeDasharray = a.dash
+    c.style.strokeDashoffset = a.offset
+  }
 }
 
 const FAVICON_COLORS = { idle: '#4d6678', amber: '#ffb347', red: '#ff4d5e' }

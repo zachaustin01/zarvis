@@ -68,7 +68,7 @@ test('HUD effects: fuse, glow, brackets and arrival sweep are wired and honour r
 
 test('tab title and favicon are driven from updateAmbient and redrawn only when the state flips', async () => {
   const app = await read('public/app.js')
-  assert.match(app, /updateTab\(attention\(queue, now, OVERDUE_MS\)\)/)
+  assert.match(app, /const att = attention\(queue, now, OVERDUE_MS\)\n\s+updateTab\(att\)/)
   assert.match(app, /if \(fav\.key === faviconKey\) return/)
 })
 
@@ -106,4 +106,13 @@ test('the interface keeps a queue row when not running: wired in the server, dim
   assert.match(server, /pinnedRows\(nodes, records, rows/)
   assert.doesNotMatch(server, /if \(!markers\.length && !working\.length\) return \[\]/) // no early return that drops it
   assert.match(app, /r\.state === 'unknown' \? ' ns' : ''/)
+})
+
+test('arc reactor: markup in the header, driven from updateAmbient, motion off for reduced-motion, text hidden when narrow', async () => {
+  const [app, html, css] = await Promise.all([read('public/app.js'), read('public/index.html'), read('public/app.css')])
+  assert.match(html, /id="reactor"/)
+  assert.equal((html.match(/class="rx-arc /g) || []).length, 4)
+  assert.match(app, /updateReactor\(att\)/)
+  assert.match(css, /prefers-reduced-motion:reduce\)\{\.reactor \.rx-ring,\.reactor \.rx-core\{animation:none/)
+  assert.match(css, /max-width:900px\)\{\.rx-txt\{display:none/)
 })

@@ -118,3 +118,57 @@ export function scrollPlan({ count, contentW, viewW, reduced = false, minCount =
   if (reduced || count <= minCount || viewW <= 0 || distance <= 0) return { scroll: false, distance: 0, duration: 0 }
   return { scroll: true, distance, duration: Math.min(maxMs, Math.round((distance / speed) * 1000)) }
 }
+
+/** The reactor ring's circle radius and circumference (SVG user units; the viewBox is 40x40). */
+export const REACTOR_R = 15
+export const REACTOR_C = 2 * Math.PI * REACTOR_R
+
+/**
+ * Counts for the arc reactor: blocked (= needsYou: unparked, blocked), working (working or waiting on a
+ * worker), idle, and parked (any parked row that is not already needs-you, or `parkedTotal` when given).
+ * Rows with no signal count nowhere.
+ */
+export function reactorCounts(rows, parkedTotal = null) {
+  const c = { blocked: 0, working: 0, idle: 0, parked: 0 }
+  for (const r of rows) {
+    if (needsYou(r)) c.blocked++
+    else if (r.parked) c.parked++
+    else if (r.state === 'working' || r.state === 'waiting_on_child') c.working++
+    else if (r.state === 'idle') c.idle++
+  }
+  // Parked sessions mostly leave the queue, so the caller may pass the real total (from the tree).
+  if (parkedTotal !== null) c.parked = parkedTotal
+  return c
+}
+
+/**
+ * The four arc segments: for each of blocked / working / idle / parked, its share of the ring as a
+ * stroke-dasharray ("len gap") and stroke-dashoffset, laid end to end from the top. A tiny gap keeps
+ * neighbouring arcs apart. No sessions at all gives four zero-length arcs.
+ */
+export function reactorArcs(counts, circumference = REACTOR_C, gap = 1.2) {
+  const keys = ['blocked', 'working', 'idle', 'parked']
+  const total = keys.reduce((s, k) => s + (counts[k] || 0), 0)
+  const live = keys.filter((k) => counts[k] > 0).length
+  let used = 0
+  return keys.map((k) => {
+    const share = total ? counts[k] / total : 0
+    const len = Math.max(0, share * circumference - (live > 1 && share ? gap : 0))
+    const arc = { key: k, frac: Number(share.toFixed(4)), dash: `${len.toFixed(2)} ${(circumference - len).toFixed(2)}`, offset: (-used).toFixed(2) }
+    used += share * circumference
+    return arc
+  })
+}
+
+/** Core and ring state: pulse colour ('' calm, 'amber' needs you, 'red' overdue) and whether the outer ring turns. */
+export function reactorState(counts, att) {
+  return { core: !att.count ? '' : att.overdue ? 'red' : 'amber', spin: counts.working > 0 }
+}
+
+/** The readout beside the core: "2 need · 3 run", or "idle" when nothing is live. */
+export function reactorText(counts) {
+  const parts = []
+  if (counts.blocked) parts.push(`${counts.blocked} need`)
+  if (counts.working) parts.push(`${counts.working} run`)
+  return parts.join(' · ') || 'calm'
+}

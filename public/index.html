@@ -9,6 +9,19 @@
 <body>
 <div class="top">
   <span class="brand">STATION</span>
+  <span class="reactor" id="reactor" role="img" aria-label="No sessions">
+    <svg viewBox="0 0 40 40" width="38" height="38" aria-hidden="true">
+      <circle class="rx-ring" cx="20" cy="20" r="18.5" />
+      <g class="rx-arcs" transform="rotate(-90 20 20)">
+        <circle class="rx-arc blocked" cx="20" cy="20" r="15" />
+        <circle class="rx-arc working" cx="20" cy="20" r="15" />
+        <circle class="rx-arc idle" cx="20" cy="20" r="15" />
+        <circle class="rx-arc parked" cx="20" cy="20" r="15" />
+      </g>
+      <circle class="rx-core" cx="20" cy="20" r="6" />
+    </svg>
+    <span class="rx-txt mono" id="reactorTxt">calm</span>
+  </span>
   <span class="pill on" data-view="queue" title="Tab / Shift+Tab cycle the views · h" style="cursor:pointer">Queue <span class="badge num" id="qb"></span></span>
   <span class="pill" data-view="tree" title="Tab / Shift+Tab cycle the views · t" style="cursor:pointer">Roles</span>
   <span class="pill" data-view="parked" title="Tab / Shift+Tab cycle the views · p" style="cursor:pointer">Parked</span>

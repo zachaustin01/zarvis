@@ -149,3 +149,46 @@ test('diffEvents: an interface row flipping between not running and live is not 
   assert.deepEqual(diffEvents(snapshot([row('i', 'idle')]), [row('i', 'unknown')]), [])
   assert.deepEqual(diffEvents(prev, [row('i', 'blocked', { tool: 'Bash' })]).map((e) => e.kind), ['blocked'])
 })
+
+import { reactorCounts, reactorArcs, reactorState, reactorText, REACTOR_C } from '../public/fx.js'
+
+test('reactorCounts: blocked matches needsYou, parked rows are not blocked, no-signal rows count nowhere', () => {
+  const rs = [
+    { state: 'blocked' }, { state: 'blocked', kind: 'question' }, // needs you
+    { state: 'blocked', parked: {} }, { state: 'idle', parked: {} }, // parked, even though one is blocked
+    { state: 'working' }, { state: 'waiting_on_child' },
+    { state: 'idle' }, { state: 'unknown' },
+  ]
+  assert.deepEqual(reactorCounts(rs), { blocked: 2, working: 2, idle: 1, parked: 2 })
+  assert.equal(reactorCounts(rs).blocked, rs.filter(needsYou).length)
+  assert.deepEqual(reactorCounts([]), { blocked: 0, working: 0, idle: 0, parked: 0 })
+  assert.equal(reactorCounts(rs, 7).parked, 7) // the tree's real parked total wins
+  assert.equal(reactorCounts(rs, 0).parked, 0)
+})
+
+test('reactorArcs: shares of the ring end to end from the top, a gap only between several arcs, empty when nothing', () => {
+  const C = REACTOR_C
+  const none = reactorArcs({ blocked: 0, working: 0, idle: 0, parked: 0 })
+  assert.deepEqual(none.map((a) => a.frac), [0, 0, 0, 0])
+  assert.ok(none.every((a) => a.dash.startsWith('0.00 ')))
+  const one = reactorArcs({ blocked: 0, working: 3, idle: 0, parked: 0 })
+  assert.equal(one[1].frac, 1)
+  assert.equal(Number(one[1].dash.split(' ')[0]), Number(C.toFixed(2))) // a lone arc fills the ring, no gap
+  const mix = reactorArcs({ blocked: 1, working: 1, idle: 2, parked: 0 })
+  assert.deepEqual(mix.map((a) => a.frac), [0.25, 0.25, 0.5, 0])
+  assert.equal(mix[0].offset, '0.00')
+  assert.equal(Number(mix[1].offset), -Number((C * 0.25).toFixed(2)))
+  assert.equal(Number(mix[2].offset), -Number((C * 0.5).toFixed(2)))
+  const len = (a) => Number(a.dash.split(' ')[0])
+  assert.ok(Math.abs(mix.reduce((s, a) => s + len(a), 0) - (C - 3 * 1.2)) < 0.05) // three arcs, three gaps
+})
+
+test('reactorState and reactorText: calm, amber, red, and the spin only while working', () => {
+  const zero = { blocked: 0, working: 0, idle: 0, parked: 0 }
+  assert.deepEqual(reactorState(zero, { count: 0, overdue: false }), { core: '', spin: false })
+  assert.deepEqual(reactorState({ ...zero, blocked: 1 }, { count: 1, overdue: false }), { core: 'amber', spin: false })
+  assert.deepEqual(reactorState({ ...zero, blocked: 1, working: 2 }, { count: 1, overdue: true }), { core: 'red', spin: true })
+  assert.equal(reactorText(zero), 'calm')
+  assert.equal(reactorText({ ...zero, blocked: 2, working: 3 }), '2 need · 3 run')
+  assert.equal(reactorText({ ...zero, working: 1 }), '1 run')
+})

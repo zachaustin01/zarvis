@@ -152,3 +152,21 @@ input:focus,textarea:focus{border-color:var(--cy)}
 .clm.sh{color:var(--am);border-color:var(--am)}.clm.off{color:var(--t3);border-color:var(--edge)}
 .ck{border:1px solid var(--edge);margin-bottom:8px;padding:6px 12px 6px 14px;background:#08101a}
 .ck.off{opacity:.6}
+
+/* Arc reactor: header status core. Arcs are the session mix (stroke-dasharray, 0.4s); the core pulses and the ring turns with opacity/transform only */
+.reactor{display:inline-flex;align-items:center;gap:8px;margin-right:6px}
+.reactor svg{display:block;overflow:visible}
+.rx-ring{fill:none;stroke:var(--cyd);stroke-width:1;stroke-dasharray:3 4;opacity:.55;transform-origin:20px 20px}
+.reactor.spin .rx-ring{animation:rxspin 24s linear infinite}
+.rx-arc{fill:none;stroke-width:4;stroke-dasharray:0 100;transition:stroke-dasharray .4s ease,stroke-dashoffset .4s ease}
+.rx-arc.blocked{stroke:var(--am)}.rx-arc.working{stroke:var(--gr)}.rx-arc.idle{stroke:var(--t3)}.rx-arc.parked{stroke:#c792ea}
+.rx-core{fill:var(--cyd);opacity:.6;transform-origin:20px 20px}
+.reactor.amber .rx-core{fill:var(--am);animation:rxpulse 2.4s ease-in-out infinite}
+.reactor.red .rx-core{fill:var(--rd);animation:rxpulse 1s ease-in-out infinite}
+.rx-txt{font-size:11px;letter-spacing:.06em;color:var(--t2)}
+.reactor.amber .rx-txt{color:var(--am)}.reactor.red .rx-txt{color:var(--rd)}
+@keyframes rxspin{to{transform:rotate(360deg)}}
+@keyframes rxpulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.15)}}
+body.tab-hidden .reactor *{animation-play-state:paused!important}
+@media (max-width:900px){.rx-txt{display:none}}
+@media (prefers-reduced-motion:reduce){.reactor .rx-ring,.reactor .rx-core{animation:none!important}.rx-arc{transition:none}}
