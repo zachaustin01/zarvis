@@ -9,9 +9,10 @@ import { readMarkers, hookStatus, WORKING_DIR, ZARVIS_HOME } from './lib/markers
 import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE } from './lib/roles.mjs'
 import { readAllTasks } from './lib/tasks.mjs'
 import { renderRoster } from './lib/roster.mjs'
-import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
+import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { collectRows, cwdsOf, nameFn } from './lib/lookup.mjs'
+import { contextOf, contextWindow } from './lib/context.mjs'
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
@@ -57,7 +58,27 @@ async function allRows() {
   const [markers, working] = await Promise.all([readMarkers(), readMarkers(WORKING_DIR)])
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
   const { rows } = await collectRows({ markers, working, tasks: await readAllTasks(ZARVIS_HOME), records, deleted, state, roles: await roleRegistry(state), maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
-  return rows
+  // Approximate context use per row, from the transcript tail (cached by mtime and size). Server-side only:
+  // the file path never reaches the browser, and a session with no usage yet gets no `ctx` at all.
+  const win = contextWindow()
+  return Promise.all(
+    rows.map(async ({ transcript, ...r }) => {
+      const file = transcript || (await transcriptFor(r.sessionId))
+      const ctx = await contextOf(file, win)
+      return ctx ? { ...r, ctx } : r
+    }),
+  )
+}
+
+const transcriptFiles = new Map() // CLI session id -> transcript path, for rows with no hook-reported path
+async function transcriptFor(sessionId) {
+  if (transcriptFiles.has(sessionId)) return transcriptFiles.get(sessionId)
+  const file = (await findTranscript(sessionId))?.file || ''
+  if (file) {
+    if (transcriptFiles.size > 1000) transcriptFiles.clear()
+    transcriptFiles.set(sessionId, file) // a miss is not cached: the file may appear later
+  }
+  return file
 }
 
 /** The "Needs you" queue: done and parked sessions filtered out (see lifecycle.visibleRows). */
@@ -101,6 +122,7 @@ async function currentTree() {
       warnings: n.warnings,
       state: row?.state ?? 'unknown', // no hook signal: never guess
       kind: row?.kind ?? '',
+      ctx: row?.ctx ?? null,
       tasks: row?.tasks ?? { count: 0, items: [] },
       blockedChildren: row?.blockedChildren ?? [],
       project: row?.project || path.basename(projectPathOf(n.cwd, recOf.get(n.sessionId)?.originCwd)) || '',

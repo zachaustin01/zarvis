@@ -307,3 +307,13 @@ npm test     # node --test, no test dependencies
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Context use per session
+
+Each row shows a thin bar, the session's token count ("235k") and an approximate share ("~24%"), and the interface
+ring has an inner arc for the same figure. Amber from 70%, red from 90%. The tokens are exact: Zarvis reads the tail
+of the session's transcript (read-only, cached by file time and size) and takes the last assistant message's
+input, cache-read and cache-creation tokens. The percentage is against a **reference window**, because a session's
+real window is not recorded anywhere Zarvis can read (model ids carry no 1M marker, and sessions already run past
+200k). The reference is 1,000,000 by default; set `ZARVIS_CONTEXT_WINDOW` to a positive integer (for example
+`200000`) to change it. A session with no usage yet shows nothing, never 0%. After a compaction the figure simply drops.

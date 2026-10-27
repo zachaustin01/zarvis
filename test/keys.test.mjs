@@ -187,3 +187,16 @@ test('text colours stay WCAG AA (4.5:1) against the panel background', async () 
   const ratio = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05)
   for (const name of ['t1', 't2', 't3', 'cy', 'am', 'rd', 'gr']) assert.ok(ratio(v(name), '#08101a') >= 4.5, `--${name} on the panel`)
 })
+
+test('context gauge: attached server-side (path never sent), shown on rows, tree rows and the interface ring, documented', async () => {
+  const [app, server, queue, readme, css] = await Promise.all([read('public/app.js'), read('server.mjs'), read('lib/queue.mjs'), read('README.md'), read('public/app.css')])
+  assert.match(server, /contextOf\(file, win\)/)
+  assert.match(server, /rows\.map\(async \(\{ transcript, \.\.\.r \}\)/) // the transcript path is dropped from the row
+  assert.match(server, /ctx: row\?\.ctx \?\? null/)
+  assert.match(queue, /transcript: m\.transcriptPath/)
+  assert.equal((app.match(/\$\{ctxHtml\(r\)\}/g) || []).length, 2) // queue row and tree row
+  assert.match(app, /ifr-ctxarc/)
+  assert.match(app, /Math\.min\(100, c\.pct\)/) // the bar is clamped; the number is not
+  assert.match(readme, /ZARVIS_CONTEXT_WINDOW/)
+  assert.match(css, /\.cx-amber \.cx-tx\{color:var\(--am\)\}\.cx-red \.cx-tx\{color:var\(--rd\)\}/)
+})

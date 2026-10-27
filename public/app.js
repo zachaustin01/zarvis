@@ -163,7 +163,7 @@ function treeRow(r, depth) {
   const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}` +
+    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}${ctxHtml(r)}` +
     `<span class="wt">${esc(treeStatus(r))}</span></div>${bgList(r)}<span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
@@ -254,7 +254,17 @@ async function loadTree() {
 }
 setInterval(loadTree, 2000)
 
-/** The interface session inside a big ring: the ring carries its state, the centre its name. Same data-id and .q class, so selection, clicks and Enter work as for any row. */
+/** The context gauge: a thin bar, the exact token count and a clearly approximate share of the reference window. Server-side numbers only. */
+function ctxHtml(r) {
+  const c = r.ctx
+  if (!c) return ''
+  return (
+    `<span class="cx${c.level ? ` cx-${c.level}` : ''}" title="${esc(c.label)} tokens in context · about ${c.pct}% of a ${esc(c.winLabel)} window (the tokens are exact; the window is a reference, set ZARVIS_CONTEXT_WINDOW to change it)">` +
+    `<i class="cx-bar"><i style="width:${Math.min(100, c.pct)}%"></i></i><span class="cx-tx">${esc(c.label)} · ~${c.pct}%</span></span>`
+  )
+}
+
+/** The interface session inside a big ring: the ring carries its state, the centre its name, the inner arc its context use. Same data-id and .q class, so selection, clicks and Enter work as for any row. */
 function ringHtml(r, now) {
   const g = ifaceRing(r, now, OVERDUE_MS)
   const name =
@@ -262,14 +272,24 @@ function ringHtml(r, now) {
       ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
       : `<span class="nm">${esc(r.name)}</span>`
   const arc = g.state === 'blocked' ? `<circle class="ifr-arc" cx="100" cy="100" r="88" transform="rotate(-90 100 100)" style="stroke-dasharray:${(g.p * IFACE_C).toFixed(1)} ${IFACE_C.toFixed(1)}"/>` : ''
+  const c = r.ctx
+  const ctxArc = c ? `<circle class="ifr-ctxarc${c.level ? ` ifr-ctx-${c.level}` : ''}" cx="100" cy="100" r="72" transform="rotate(-90 100 100)" style="stroke-dasharray:${((Math.min(100, c.pct) / 100) * 2 * Math.PI * 72).toFixed(1)} ${(2 * Math.PI * 72).toFixed(1)}"/>` : ''
   const cmd = g.state === 'blocked' && (r.command || r.tool) ? `<div class="ifr-cmd mono">${esc(r.kind === 'question' ? 'asks' : r.tool)} ${esc(r.command)}</div>` : ''
   return (
     `<div class="q ifr ifr-${g.state}${g.od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}" data-id="${esc(r.sessionId)}" title="${esc(r.project)} · ${esc(g.label)} · Enter opens it">` +
     `<div class="ifr-disc"><svg viewBox="0 0 200 200" aria-hidden="true">` +
-    `<circle class="ifr-ticks" cx="100" cy="100" r="96" style="animation-delay:${loopDelay(now, g.state === 'working' ? 12000 : 30000)}"/>` +
-    `<circle class="ifr-base" cx="100" cy="100" r="88"/>${arc}</svg>` +
+    `<defs><radialGradient id="ifrGlow"><stop offset="0" stop-color="currentColor" stop-opacity=".30"/><stop offset=".7" stop-color="currentColor" stop-opacity=".08"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></radialGradient></defs>` +
+    `<circle class="ifr-glow" cx="100" cy="100" r="86"/>` +
+    `<circle class="ifr-major" cx="100" cy="100" r="98"/>` +
+    `<circle class="ifr-ticks" cx="100" cy="100" r="95" style="animation-delay:${loopDelay(now, g.state === 'working' ? 12000 : 30000)}"/>` +
+    `<circle class="ifr-hair" cx="100" cy="100" r="91"/>` +
+    `<circle class="ifr-base" cx="100" cy="100" r="88"/>${arc}` +
+    `<circle class="ifr-inner" cx="100" cy="100" r="79"/>` +
+    `<circle class="ifr-ctxtrack" cx="100" cy="100" r="72" transform="rotate(-90 100 100)"/>${ctxArc}</svg>` +
     `<div class="ifr-mid"><span class="ifr-role">${esc(r.project)}</span>${name}<span class="ifr-st">${esc(g.label)}</span>` +
-    `<span class="ifr-wt num${g.state === 'off' ? '' : ' wt'}"${g.state === 'off' ? '' : ` data-since="${r.since}"`}>${g.state === 'off' ? '' : fmt(now - r.since)}</span></div></div>` +
+    `<span class="ifr-wt num${g.state === 'off' ? '' : ' wt'}"${g.state === 'off' ? '' : ` data-since="${r.since}"`}>${g.state === 'off' ? '' : fmt(now - r.since)}</span>` +
+    (c ? `<span class="ifr-cx mono${c.level ? ` ifr-cx-${c.level}` : ''}" title="about ${c.pct}% of a ${esc(c.winLabel)} window">${esc(c.label)} · ~${c.pct}%</span>` : '') +
+    `</div></div>` +
     cmd +
     `<span class="go">ENTER ↵ OPEN</span></div>`
   )
@@ -286,7 +306,7 @@ function rowHtml(r, now) {
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
     `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
+    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
     bgList(r, now) +

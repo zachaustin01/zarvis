@@ -331,3 +331,45 @@ body.tab-hidden #hudbg::after,body.tab-hidden .top::after,body.tab-hidden .rx-ti
 }
 
 /* Contrast: text on the panels is t1/t2/t3 (all above 4.5:1 on #08101a: 15.4, 6.6, 4.9); cyd is a border colour, not text */
+
+/* ---- Interface ring v2: layered like a reactor. --ifc is the state colour; the ticks are the only moving part ---- */
+.ifr{--ifc:#c792ea}
+.ifr-working,.ifr-child{--ifc:var(--cy)}
+.ifr-idle{--ifc:#c792ea}
+.ifr-off{--ifc:var(--t3)}
+.ifr-blocked{--ifc:var(--am)}.ifr-blocked.od{--ifc:var(--rd)}
+.ifr-disc svg{color:var(--ifc)}
+.ifr-glow{fill:url(#ifrGlow);stroke:none;opacity:1}
+.ifr-major{fill:none;stroke:var(--ifc);stroke-width:5;stroke-dasharray:1.6 49.1;opacity:.75;transform-origin:100px 100px;transform:rotate(-.9deg)}
+.ifr-ticks{fill:none;stroke:var(--ifc);stroke-width:3;stroke-dasharray:.9 9.0;opacity:.5}
+.ifr-hair{fill:none;stroke:var(--ifc);stroke-width:1;opacity:.35}
+.ifr-base{fill:#070d16d9;stroke:var(--ifc);stroke-width:3;opacity:.95}
+.ifr-working .ifr-base,.ifr-idle .ifr-base,.ifr-child .ifr-base,.ifr-blocked .ifr-base,.ifr-blocked.od .ifr-base{stroke:var(--ifc);opacity:.95}
+.ifr-blocked .ifr-base{stroke:var(--edge);opacity:1}
+.ifr-off .ifr-base{stroke:var(--t3);stroke-dasharray:10 7;opacity:.6}
+.ifr-arc{stroke:var(--ifc);stroke-width:5}
+.ifr-inner{fill:none;stroke:var(--ifc);stroke-width:1;stroke-dasharray:2 5;opacity:.3}
+.ifr-ctxtrack{fill:none;stroke:var(--edge);stroke-width:3}
+.ifr-ctxarc{fill:none;stroke:var(--cy);stroke-width:3;stroke-linecap:round;opacity:.9;transition:stroke-dasharray .4s ease}
+.ifr-ctxarc.ifr-ctx-amber{stroke:var(--am)}.ifr-ctxarc.ifr-ctx-red{stroke:var(--rd)}
+.ifr-ticks,.ifr-glow{transform-origin:100px 100px}
+.ifr-mid{inset:46px;gap:1px}
+.ifr-mid .nm{font-size:13px}
+.ifr-role{color:var(--ifc);filter:brightness(1.15)}
+.ifr-working .ifr-st,.ifr-child .ifr-st{color:var(--cy)}
+.ifr-cx{font-size:10px;letter-spacing:.06em;color:var(--t2);margin-top:1px}
+.ifr-cx-amber{color:var(--am)}.ifr-cx-red{color:var(--rd)}
+.ifr-off .ifr-ticks{animation:none}
+#side .q.ifr.sel .ifr-base{stroke:var(--ifc)}
+#side .q.ifr.sel .ifr-disc svg{filter:drop-shadow(0 0 9px var(--ifc))}
+@media (max-width:760px){.ifr-mid{inset:36px}}
+
+/* ---- Context gauge on rows: a thin bar plus the exact tokens and an approximate share ---- */
+.cx{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t2);letter-spacing:.04em;margin-left:auto;margin-right:10px}
+.cx+.wt{margin-left:0}
+.cx-bar{display:inline-block;position:relative;width:46px;height:3px;background:var(--edge);overflow:hidden}
+.cx-bar>i{position:absolute;left:0;top:0;bottom:0;background:var(--cy);display:block}
+.cx-amber .cx-bar>i{background:var(--am)}.cx-red .cx-bar>i{background:var(--rd)}
+.cx-amber .cx-tx{color:var(--am)}.cx-red .cx-tx{color:var(--rd)}
+.cx-tx{font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+@media (max-width:760px){.cx-bar{width:30px}}
