@@ -35,6 +35,7 @@ Do this once at the start, and again when the user asks. Do not re-read it every
 - To relay what a worker made, read its links: `node "{{ZARVIS_DIR}}/scripts/roster.mjs" get <id>` prints
   them (`--json` gives a `links` array of `{ url, label }`). They are posted by the worker itself, so say so
   when you pass one on.
+- Jobs that run on a schedule are registered with `npm run schedule` (or `node "{{ZARVIS_DIR}}/scripts/schedule.mjs" list`); the Schedule view (`s`) shows their upcoming runs.
 - Find your own entry under "Interface" in the roster.
 - Parked workers are listed under "Parked" beneath each manager (state `parked`, the reason, the
   date, the session id and the first line of the handoff note). Look there before assuming a

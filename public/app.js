@@ -1,11 +1,12 @@
 'use strict'
 import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
+import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
-let view = 'queue' // 'queue' | 'tree' | 'parked'
+let view = 'queue' // 'queue' | 'tree' | 'parked' | 'schedule'
 let tree = { interface: [], managers: [], orphans: [], unclassified: [] }
 let rawTree = null // the server's tree, done sessions included
 let nodes = [] // the tree flattened in display order, for j/k
@@ -259,7 +260,11 @@ function setView(v) {
   anchorId = ''
   lastSelSeen = null
   document.querySelectorAll('.pill[data-view]').forEach((p) => p.classList.toggle('on', p.dataset.view === v))
-  $('#flt').hidden = v === 'queue'
+  $('#flt').hidden = v === 'queue' || v === 'schedule'
+  document.body.classList.toggle('v-schedule', v === 'schedule')
+  $('#sched').hidden = v !== 'schedule'
+  if (v === 'schedule') { renderBar(); return loadSchedule(true) }
+  $('#pager').dataset.key = '' // the other view's pager state is stale
   if (v !== 'queue') loadTree()
   else render()
 }
@@ -279,7 +284,7 @@ async function loadTree() {
     rawTree = await (await fetch('/api/tree')).json()
     reconcileProject()
     updateAmbient() // the reactor's parked count comes from the tree
-    if (view === 'queue') renderBar()
+    if (view === 'queue' || view === 'schedule') renderBar()
     else applyTree()
     renderPalette()
   } catch {
@@ -678,7 +683,7 @@ function renderBar() {
   const bar = $('#projbar')
   const list = projectList()
   const cur = activeProject()
-  if (list.length < 2 && !(view === 'queue' && queue.length) && view !== 'tree') { bar.hidden = true; bar.innerHTML = ''; return }
+  if (view === 'schedule' || (list.length < 2 && !(view === 'queue' && queue.length) && view !== 'tree')) { bar.hidden = true; bar.innerHTML = ''; return }
   bar.hidden = false
   const counts = (e) => `${e.blocked ? `<b class="nd">${e.blocked}</b>` : ''}${e.working ? `<b class="rn">${e.working}</b>` : ''}`
   const all = list.reduce((a, e) => ({ blocked: a.blocked + e.blocked, working: a.working + e.working }), { blocked: 0, working: 0 })
@@ -707,6 +712,7 @@ function render() {
 }
 function renderInner() {
   renderBar()
+  if (view === 'schedule') return // the timeline has its own container and clock; a push never touches it
   if (view === 'tree') return renderTreeInner()
   if (view === 'parked') return renderParkedInner()
   const vq = visibleQueue()
@@ -748,6 +754,7 @@ let lastFlipAt = 0
 let anchorId = '' // the first row on the current page: a re-measure (resize, rows appearing) keeps showing it
 
 function paginateList() {
+  if (view === 'schedule') return
   const list = $('#list')
   const kids = [...list.children]
   for (const k of kids) k.hidden = false // measure everything
@@ -780,6 +787,7 @@ function pageUrgency() {
 }
 
 function renderPager() {
+  if (view === 'schedule') return renderSchedPager()
   const el = $('#pager')
   const n = pageInfo.pages.length
   const urgent = n > 1 ? flagElsewhere(pageUrgency(), page) : ''
@@ -796,6 +804,7 @@ function renderPager() {
 
 /** Move to the next (1) or previous (-1) page and select its first row, so the selection stays on screen. */
 function flipPage(dir) {
+  if (view === 'schedule') return flipSched(dir)
   const n = pageInfo.pages.length
   const to = clampPage(page + dir, n)
   if (to === page) return
@@ -832,7 +841,7 @@ addEventListener('resize', () => {
   clearTimeout(resizeTick)
   resizeTick = setTimeout(() => {
     const room = `${innerWidth}x${innerHeight}`
-    if (room !== lastAvail) { lastAvail = room; render(); fitHelp(); renderRail(true); if (palette) renderPalette(true) }
+    if (room !== lastAvail) { lastAvail = room; render(); renderSchedule(true); fitHelp(); renderRail(true); if (palette) renderPalette(true) }
   }, 120)
 })
 
@@ -1099,6 +1108,9 @@ const RUN = {
   'view-queue': () => setView('queue'),
   'view-tree': () => setView('tree'),
   'view-parked': () => setView('parked'),
+  'view-schedule': () => setView('schedule'),
+  'schedule-wider': () => zoomSched(1),
+  'schedule-narrower': () => zoomSched(-1),
   'view-next': () => nextViewCmd(1),
   'view-prev': () => nextViewCmd(-1),
   search: () => (view !== 'queue' ? $('#flt').focus() : toast('Search applies to the Roles and Parked views (t, p)')),
@@ -1305,6 +1317,9 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'u') { e.preventDefault(); unparkSel() }
   else if (e.key === 'z') { e.preventDefault(); undoLast() }
   else if (e.key === 'p') setView('parked')
+  else if (e.key === 's') setView('schedule')
+  else if (e.key === '-') zoomSched(1)
+  else if (e.key === '=' || e.key === '+') zoomSched(-1)
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
   else if (e.key === 'b') { e.preventDefault(); setRail(!railOpen) }
   else if (e.key === 'e') { e.preventDefault(); setTicker(!tickerOpen) }
@@ -1449,6 +1464,7 @@ setInterval(() => {
   updateAmbient(now)
   updateTelemetry(now)
   renderPager() // an overdue row on another page turns the pager red
+  tickSchedule(now)
 }, 1000)
 
 // Idle telemetry in the header: a clock and a five-minute needs-you sparkline. Change-only DOM writes.
@@ -1508,3 +1524,157 @@ es.onmessage = (m) => {
 es.onerror = () => live(false)
 render()
 loadTree()
+
+// ---- Schedule: upcoming runs of scheduled jobs (npm run schedule). The server computes the run times; the track is
+// built once from a base time and slid with one CSS variable set from the clock, so only a transform ever animates. ----
+let zoom = DEFAULT_ZOOM
+try { zoom = zoomOf(localStorage.getItem('zarvis.schedZoom')).id } catch { /* storage blocked */ }
+let sch = null // { jobs, now0, skew, span }: the last fetch
+let schBuilt = null // { sig, now0, span, trackMs, lanes: [{ job, el, cd, far, tks: [{ t, el }], nx }] }
+let schPage = 0
+let schPaged = { pages: 1, page: 0 }
+let schSx = ''
+const schNow = () => Date.now() + (sch?.skew || 0)
+
+async function loadSchedule(force) {
+  if (view !== 'schedule' || (document.hidden && !force)) return
+  const want = zoom
+  try {
+    const d = await (await fetch(`/api/schedule?span=${zoomOf(want).ms}`)).json()
+    if (view !== 'schedule' || want !== zoom || !Array.isArray(d?.jobs)) return
+    sch = { jobs: d.jobs, now0: Number(d.now) || Date.now(), skew: (Number(d.now) || Date.now()) - Date.now(), span: Number(d.span) || zoomOf(want).ms }
+    renderSchedule(false)
+  } catch { /* the next poll tries again */ }
+}
+setInterval(() => loadSchedule(false), 30000)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSchedule(false) })
+
+function zoomSched(dir) {
+  if (view !== 'schedule') return toast('The window applies to the Schedule view (s)')
+  const to = stepZoom(zoom, dir)
+  if (to === zoom) return toast(dir > 0 ? 'Widest window: 7d' : 'Narrowest window: 3h')
+  zoom = to
+  try { localStorage.setItem('zarvis.schedZoom', to) } catch { /* storage blocked */ }
+  schPage = 0
+  loadSchedule(true)
+}
+$('#scZoom').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-z]')
+  if (!b || b.dataset.z === zoom) return
+  zoom = zoomOf(b.dataset.z).id
+  try { localStorage.setItem('zarvis.schedZoom', zoom) } catch { /* storage blocked */ }
+  schPage = 0
+  loadSchedule(true)
+})
+
+const laneVar = () => parseFloat(getComputedStyle($('#sched')).getPropertyValue('--lane-h')) || 72
+
+function laneHtml(j, i) {
+  const link = safeUrl(j.link) ? `<a class="lk" href="${esc(safeUrl(j.link))}" target="_blank" rel="noopener noreferrer" title="${esc(j.link)}"><span>${esc(new URL(j.link).host)}</span><b aria-hidden="true">↗</b></a>`
+    : safeFile(j.link) ? `<button type="button" class="lk lkf" data-u="${esc(safeFile(j.link))}" title="Open ${esc(decodeURI(j.link.slice(7)))} (Shift-click: show in Finder)"><span>${esc(decodeURI(j.link).split('/').pop() || 'file')}</span><b aria-hidden="true">▤</b></button>` : ''
+  return `<div class="sc-lane" data-i="${i}" data-n="${esc(j.name)}" role="group" aria-label="${esc(`${j.name}, ${j.desc}`)}">` +
+    `<div class="sc-lab"><div class="sc-nm"><span class="sc-n" title="${esc(j.name)}">${esc(j.name)}</span><span class="sc-src">${esc(j.source)}</span><span class="sc-cd mono"></span></div>` +
+    `<div class="sc-ds" title="${esc(j.cron)}">${esc(j.desc)}${j.desc === j.cron ? '' : ` <i class="mono">${esc(j.cron)}</i>`}</div>` +
+    `<div class="sc-ex">${j.note ? `<span class="sc-note" title="${esc(j.note)}">${esc(j.note)}</span>` : ''}${link}</div></div>` +
+    `<div class="sc-view"><div class="sc-trk"></div><div class="sc-far mono" hidden></div></div></div>`
+}
+
+/** Draw the page of lanes. A fetch that changes nothing visible leaves the DOM alone (only the 1s tick moves things). */
+function renderSchedule(force) {
+  if (view !== 'schedule' || !sch) return
+  const root = $('#sched')
+  const jobs = sch.jobs
+  $('#scZoom').innerHTML = ZOOMS.map((z) => `<button type="button" data-z="${z.id}" class="${z.id === zoom ? 'on' : ''}" aria-pressed="${z.id === zoom}">${z.id}</button>`).join('')
+  $('#scEmpty').hidden = jobs.length > 0
+  $('#scLanes').hidden = !jobs.length
+  const lanesEl = $('#scLanes')
+  const laneH = laneVar() + 6
+  const avail = innerHeight - lanesEl.getBoundingClientRect().top - PAGER_RESERVE
+  const pg = lanePage(jobs.length, lanesPerPage(avail, laneH), schPage)
+  schPage = pg.page
+  schPaged = pg
+  const slice = jobs.slice(pg.start, pg.end)
+  const span = sch.span
+  const stale = schBuilt && sch.now0 - schBuilt.now0 > span * 0.1
+  const sig = JSON.stringify([zoom, innerWidth, pg.start, slice.map((j) => [j.name, j.cron, j.desc, j.note, j.link, j.source, j.dense, j.next, j.runs.length, j.runs[j.runs.length - 1]])])
+  if (!force && schBuilt && schBuilt.sig === sig && !stale) { renderSchedPager(); return }
+  const { base, trackMs } = trackGeom(sch.now0, span)
+  lanesEl.innerHTML = slice.map((j, i) => laneHtml(j, pg.start + i)).join('')
+  const view0 = lanesEl.querySelector('.sc-view')
+  const gap = minGap(span, view0 ? view0.clientWidth : 800)
+  const lanes = [...lanesEl.children].map((el, i) => {
+    const job = slice[i]
+    const keep = job.dense ? [] : cullTicks(job.runs, gap)
+    const trk = el.querySelector('.sc-trk')
+    trk.style.width = `${(trackMs / span) * 100}%`
+    trk.innerHTML = job.dense ? '<i class="sc-dn"></i>' : keep.map((t) => `<i class="sc-tick" style="left:${posPct(t, base, trackMs).toFixed(3)}%"></i>`).join('')
+    const tks = job.dense ? [] : [...trk.children].map((tk, k) => ({ t: keep[k], el: tk, cls: 'sc-tick' }))
+    return { job, el, cd: el.querySelector('.sc-cd'), far: el.querySelector('.sc-far'), tks, nx: null, cdText: '', farText: '', soon: false }
+  })
+  const ax = $('#scAxis')
+  ax.style.width = `${(trackMs / span) * 100}%`
+  ax.innerHTML = axisMarks(base, trackMs, zoom).map((m) => `<span class="sc-mk${m.major ? ' maj' : ''}" style="left:${posPct(m.t, base, trackMs).toFixed(3)}%">${esc(m.text)}</span>`).join('')
+  root.style.setProperty('--now', `${NOW_PCT}%`)
+  schBuilt = { sig, now0: sch.now0, span, trackMs, lanes }
+  schSx = ''
+  tickSchedule(Date.now(), true)
+  renderSchedPager()
+}
+
+/** Once a second: slide the track, update countdowns and the next/gone/soon marks. Every write is change-only. */
+function tickSchedule(realNow, force) {
+  if (view !== 'schedule' || !schBuilt || (document.body.classList.contains('tab-hidden') && !force)) return
+  const now = schNow() + (realNow - Date.now())
+  const { now0, trackMs, span, lanes } = schBuilt
+  const clock = slideClock(now, reduceMotion.matches)
+  const sx = `${slidePct(clock, now0, trackMs).toFixed(4)}%`
+  if (sx !== schSx) { schSx = sx; $('#sched').style.setProperty('--sx', sx) }
+  const edge = now + span * (1 - NOW_PCT / 100)
+  for (const L of lanes) {
+    const nx = nextAfter(now, L.job.runs, L.job.next)
+    const text = nx == null ? 'no run due' : countdown(nx - now)
+    const soon = nx != null && isSoon(nx - now)
+    if (text !== L.cdText) { L.cdText = text; L.cd.textContent = text }
+    if (soon !== L.soon) { L.soon = soon; L.el.classList.toggle('soon', soon) }
+    const far = nx != null && nx > edge ? `NEXT ${new Date(nx).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase()} ▸` : ''
+    if (far !== L.farText) { L.farText = far; L.far.textContent = far; L.far.hidden = !far }
+    if (nx !== L.nx || force) {
+      L.nx = nx
+      let marked = false // the first tick still ahead is the next run
+      for (const k of L.tks) {
+        const ahead = k.t > now
+        const cls = !ahead ? 'sc-tick gone' : !marked ? 'sc-tick nx' : 'sc-tick'
+        if (ahead) marked = true
+        if (cls !== k.cls) { k.cls = cls; k.el.className = cls }
+      }
+    }
+  }
+}
+
+function renderSchedPager() {
+  const el = $('#pager')
+  const { page, pages } = schPaged
+  const key = `s${page}/${pages}`
+  if (el.dataset.key === key) return
+  el.dataset.key = key
+  el.hidden = pages <= 1
+  el.className = 'pager'
+  $('#pgTxt').textContent = pageLabel(page, pages)
+  $('#pgAlert').textContent = ''
+  $('#pgPrev').classList.toggle('dim', page === 0)
+  $('#pgNext').classList.toggle('dim', page === pages - 1)
+}
+
+function flipSched(dir) {
+  const to = clampPage(schPaged.page + dir, schPaged.pages)
+  if (to === schPaged.page) return
+  schPage = to
+  renderSchedule(true)
+}
+
+$('#scLanes').addEventListener('click', (e) => {
+  const f = e.target.closest('.lkf')
+  const lane = e.target.closest('.sc-lane')
+  if (!f || !lane) return
+  post('/api/open-link', { schedule: lane.dataset.n, url: f.dataset.u, reveal: e.shiftKey }).then(({ ok, data }) => toast(ok ? (data.mode === 'reveal' ? 'Showing the file…' : 'Opening the file…') + (data.dryRun ? ' (dry run)' : '') : data.error || 'Could not open the file'))
+})

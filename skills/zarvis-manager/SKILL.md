@@ -68,6 +68,8 @@ to look at (a merged PR, a combined report, a dashboard), run
 paths are accepted; a file path opens the file when clicked (documents and images open, anything else is
 shown in Finder).
 
+If you or a session you started runs on a schedule (a cron job, an hourly check), register it so it shows on Zarvis's Schedule view: `node "{{ZARVIS_DIR}}/scripts/schedule.mjs" add <name> --cron "0 * * * *" --note "..."` (`--every 30m`, `--at "09:00"`, `list`, `remove <name>`). Zarvis only displays it; it never runs or edits the job.
+
 A worker can post links (a dashboard, a PR, a served page) that show as chips on its card:
 `node "{{ZARVIS_DIR}}/scripts/link.mjs" add <url> --label "..." --by <its session id>`. Ask workers to post
 the link when the deliverable is something to look at. Read them with

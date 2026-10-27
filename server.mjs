@@ -9,6 +9,8 @@ import { readMarkers, hookStatus, WORKING_DIR, ZARVIS_HOME } from './lib/markers
 import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE } from './lib/roles.mjs'
 import { readAllTasks } from './lib/tasks.mjs'
 import { readAllLinks, readLinks, openPlan, modeFor } from './lib/links.mjs'
+import { readJobs } from './lib/schedule.mjs'
+import { scheduleView } from './lib/schedule-view.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
@@ -332,10 +334,12 @@ const server = http.createServer(async (req, res) => {
       await openUrl(row.link)
       return send(res, 200, { ok: true, url: row.link, dryRun: DRY_OPEN })
     }
+    if (req.method === 'GET' && url.pathname === '/api/schedule') return send(res, 200, await scheduleView(ZARVIS_HOME, { span: Number(url.searchParams.get('span')) }))
     if (req.method === 'POST' && url.pathname === '/api/open-link') {
-      // Only a file: link this session really posted, and only an existing path; nothing the client names is opened as given.
-      const { sessionId, url: link, reveal } = await readJson(req)
-      const plan = (await readLinks(ZARVIS_HOME, sessionId)).some((l) => l.url === link) ? openPlan(link) : null
+      // Only a file: link this session (or this schedule) really posted, and only an existing path; nothing the client names is opened as given.
+      const { sessionId, schedule, url: link, reveal } = await readJson(req)
+      const known = schedule ? (await readJobs(ZARVIS_HOME)).some((j) => j.name === schedule && j.link === link) : (await readLinks(ZARVIS_HOME, sessionId)).some((l) => l.url === link)
+      const plan = known ? openPlan(link) : null
       if (!plan) return send(res, 404, { error: 'not a file link of that session' })
       const real = await fsp.realpath(plan.path).catch(() => '')
       if (!real) return send(res, 404, { error: 'file not found' })

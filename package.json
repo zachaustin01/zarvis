@@ -15,6 +15,7 @@
     "roster": "node scripts/roster.mjs",
     "event": "node scripts/event.mjs",
     "link": "node scripts/link.mjs",
+    "schedule": "node scripts/schedule.mjs",
     "uninstall-hook": "node scripts/setup.mjs uninstall",
     "test": "node --test"
   }

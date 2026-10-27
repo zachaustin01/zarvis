@@ -38,6 +38,7 @@
   <span class="pill on" data-view="queue" title="Tab / Shift+Tab cycle the views · h" style="cursor:pointer">Queue <span class="badge num" id="qb"></span></span>
   <span class="pill" data-view="tree" title="Tab / Shift+Tab cycle the views · t" style="cursor:pointer">Roles</span>
   <span class="pill" data-view="parked" title="Tab / Shift+Tab cycle the views · p" style="cursor:pointer">Parked</span>
+  <span class="pill" data-view="schedule" title="Tab / Shift+Tab cycle the views · s" style="cursor:pointer">Schedule</span>
   <span class="sp"></span>
   <span class="telem mono" id="telem" title="Needs-you count over the last five minutes">
     <svg viewBox="0 0 64 18" width="64" height="18" aria-hidden="true"><polyline id="sparkLine" points="1,17 63,17"/></svg>
@@ -53,6 +54,13 @@
 <main class="wrap">
   <input id="flt" placeholder="Search roles (/) — also finds done sessions" hidden>
   <div class="cols"><aside id="side"></aside><div id="list"></div></div>
+  <section id="sched" class="sched" aria-label="Schedule: upcoming runs" hidden>
+    <div class="sc-bar mono"><span class="sc-h">SCHEDULE <i>upcoming runs</i></span><span class="sp"></span>
+      <span id="scZoom" class="sc-zoom" role="group" aria-label="Window"></span><kbd>-</kbd><kbd>=</kbd></div>
+    <div class="sc-row sc-axisrow" aria-hidden="true"><div class="sc-lab"></div><div class="sc-view"><div class="sc-nowlbl mono">NOW</div><div class="sc-trk" id="scAxis"></div></div></div>
+    <div id="scLanes"></div>
+    <div id="scEmpty" class="sc-empty" hidden><div class="sc-e1">NO SCHEDULES</div><div class="sc-e2 mono">Register one: <code>npm run schedule -- add "name" --cron "0 * * * *"</code></div></div>
+  </section>
 </main>
 
 <div class="ov" id="ovHelp"><div class="box wide">
@@ -67,10 +75,12 @@
     </section>
     <section><h3>Views</h3>
       <div class="kr"><span class="kk"><kbd>]</kbd> <kbd>[</kbd></span><span class="kd">Next or previous page when the list does not fit the window (also PageDown and PageUp, the mouse wheel or a swipe, or click the pager). Nothing scrolls</span></div>
-      <div class="kr"><span class="kk"><kbd>Tab</kbd></span><span class="kd">Cycle Queue, Roles, Parked (Shift+Tab goes back)</span></div>
+      <div class="kr"><span class="kk"><kbd>Tab</kbd></span><span class="kd">Cycle Queue, Roles, Parked, Schedule (Shift+Tab goes back)</span></div>
       <div class="kr"><span class="kk"><kbd>h</kbd> <kbd>q</kbd></span><span class="kd">Attention queue</span></div>
       <div class="kr"><span class="kk"><kbd>t</kbd></span><span class="kd">Role tree</span></div>
       <div class="kr"><span class="kk"><kbd>p</kbd></span><span class="kd">Parked view: reason, who parked it, handoff note</span></div>
+      <div class="kr"><span class="kk"><kbd>s</kbd></span><span class="kd">Schedule: upcoming runs of scheduled jobs on a timeline that slides with the clock</span></div>
+      <div class="kr"><span class="kk"><kbd>-</kbd> <kbd>=</kbd></span><span class="kd">Schedule: widen or narrow the window (3h, 12h, 24h, 7d)</span></div>
       <div class="kr"><span class="kk"><kbd>/</kbd></span><span class="kd">Search the Roles or Parked view; done sessions are included</span></div>
     </section>
     <section><h3>Filters</h3>

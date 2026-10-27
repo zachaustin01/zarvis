@@ -119,7 +119,7 @@ export function hideParked(t) {
 }
 
 /** The views Tab cycles, in order. */
-export const VIEWS = ['queue', 'tree', 'parked']
+export const VIEWS = ['queue', 'tree', 'parked', 'schedule']
 
 /** The next (dir 1) or previous (dir -1) view, looping. An unknown `current` starts from the first. */
 export const nextView = (current, dir = 1) => VIEWS[(Math.max(0, VIEWS.indexOf(current)) + dir + VIEWS.length) % VIEWS.length]

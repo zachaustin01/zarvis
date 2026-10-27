@@ -5,7 +5,8 @@ blocked on a permission prompt (longest wait first), then which are working, the
 desktop app via its `claude://` deep link. There is no approve/deny here. While running, Zarvis
 never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers),
 `~/.zarvis/claims/*.json` (checkout claims, written by the hook and the claims CLI),
-`~/.zarvis/links/*.json` (session links, written by the link CLI) and
+`~/.zarvis/links/*.json` (session links, written by the link CLI),
+`~/.zarvis/schedules.json` (scheduled jobs, written by the schedule CLI) and
 `~/.zarvis/state.json` (overlay names). The one exception is `npm run setup`, which adds its hook
 to your Claude settings and installs the `zarvis-interface`, `zarvis-manager` and `zarvis-worker` skills into `~/.claude/skills/` when you run it.
 
@@ -76,9 +77,9 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 
 ## Keys
 
-`j`/`k` or arrows move · `]`/`[` (or `PageDown`/`PageUp`, the wheel, a swipe, or the pager) turn the page when the list does not fit the window (nothing scrolls) · `Cmd/Ctrl+K` command palette (fuzzy-find a session or run any key action; `>` commands only, `@` sessions only) · `b` show/hide the project rail (wide windows) · `e` collapse/expand the event ticker · `Tab`/`Shift+Tab` cycle Queue → Roles → Parked (`h`/`t`/`p` jump straight there; not while typing in a box) · `i` jump to the interface session · `v` show/hide parked sessions on the Roles page (hidden by default; remembered) · `m`/`w` queue role filter (managers / workers only; again to clear; remembered) · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude · `n` new Claude Code session · `r` rename
+`j`/`k` or arrows move · `]`/`[` (or `PageDown`/`PageUp`, the wheel, a swipe, or the pager) turn the page when the list does not fit the window (nothing scrolls) · `Cmd/Ctrl+K` command palette (fuzzy-find a session or run any key action; `>` commands only, `@` sessions only) · `b` show/hide the project rail (wide windows) · `e` collapse/expand the event ticker · `Tab`/`Shift+Tab` cycle Queue → Roles → Parked → Schedule (`h`/`t`/`p`/`s` jump straight there; not while typing in a box) · `i` jump to the interface session · `v` show/hide parked sessions on the Roles page (hidden by default; remembered) · `m`/`w` queue role filter (managers / workers only; again to clear; remembered) · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude · `n` new Claude Code session · `r` rename
 (overlay; Esc cancels; empty restores the app title) · `P` park (Shift+P) · `d` done · `u` unpark · `z` undo ·
-`p` parked view · `/` search the role tree · `?` key sheet.
+`p` parked view · `s` schedule (`-`/`=` widen/narrow its window) · `/` search the role tree · `?` key sheet.
 
 `n` opens a new session in the Claude desktop app via `claude://code/new`, in the selected
 session's repo (its root, not its worktree), or a plain new session when nothing is selected.
@@ -197,6 +198,34 @@ last. A label is one line, 60 characters; a URL is at most 300 characters. URLs 
 the page both re-check before rendering. A file chip (▤) is a button, never a `file:` href: clicking asks the server to open it, and the server only acts on a file link that session posted and that exists. Documents and images open (html, pdf, png, jpg, svg, md, txt, csv, json, log, audio/video); anything else (a `.command`, `.app`, script) is only revealed in the file manager, and Shift-click always reveals. Links survive park and are removed with the session at SessionEnd.
 `npm run roster -- get|list` shows them (`links` in `--json`). Sessions only learn about `npm run link` after
 `npm run setup` copies the updated skills.
+
+## Schedule
+
+The Schedule view (`s`, or Tab) is a timeline of the upcoming runs of your scheduled jobs: one lane per job, a fixed
+NOW marker, and a track that slides left with the clock so the future approaches the marker. Ticks are runs, the next
+one is emphasised and counted down in the lane label ("in 12m"; amber within 5 minutes). `-` / `=` (or the buttons)
+step the window through 3h, 12h, 24h and 7d; many jobs paginate with `]` / `[`. Future runs only: no history, no
+results. Zarvis never runs, edits or reads anyone's jobs; it only shows what is registered.
+
+```bash
+npm run schedule -- add "Hourly check" --cron "0 * * * *" --note "sources" --link https://example.com/dash
+npm run schedule -- add "Standup prep" --at "09:00" --note "weekday mornings"   # --every 30m|1h|1d, --at "09:00,13:00"
+npm run schedule -- list [--json]
+npm run schedule -- next "Hourly check" [--count 5]
+npm run schedule -- remove "Hourly check"
+```
+
+Jobs live in `~/.zarvis/schedules.json` (under `ZARVIS_HOME`), at most 40; a name is one line of up to 60 characters
+(re-adding a name replaces it), a note up to 200. `--cron` is standard 5-field cron in your local timezone: lists, ranges,
+steps, month and weekday names, and day-of-month OR day-of-week when both are set. A time that does not exist on a
+spring-forward day is skipped; one that happens twice on a fall-back day runs once; an impossible date (Feb 31) never
+runs. `--every` and `--at` are sugar that become cron, so only intervals that divide the hour or day evenly are allowed.
+`--link` takes an http(s) URL (a new tab) or a file path (a button that asks the server to open it, like session links).
+The file is validated on write and on read. Sessions that run on a schedule learn about the CLI after `npm run setup` copies the updated skills.
+
+Importers: `lib/schedule-import.mjs` has one hook for read-only sources (shown tagged `claude`). None is wired in yet:
+on the Mac this was written on, Claude's `~/.claude/jobs` holds background-session state, not schedules, and no
+other readable file with a name and a cron exists, so nothing is guessed.
 
 ## Checkout claims
 
