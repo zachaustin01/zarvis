@@ -231,12 +231,14 @@ async function writeAtomic(file, marker) {
 
 /**
  * The role tag for a UserPromptSubmit payload, or null. Exported for tests. Only a tag at the very
- * start of the prompt counts (leading whitespace allowed), as `rolePrompt` generates it; a brief or
- * conversation that merely mentions the tag mid-text must not register a role. The caller also
- * checks that this is the session's first prompt.
+ * start of the user's own text counts (leading whitespace allowed), as `rolePrompt` generates it; a
+ * brief or conversation that merely mentions the tag mid-text must not register a role. Leading
+ * `<system-reminder>` blocks are skipped first: the desktop app puts one before the user's text in a
+ * session started without a project folder. The caller also checks that this is the session's first prompt.
  */
 export function buildRoleTag(payload, now = Date.now()) {
-  const m = /^\s*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(typeof payload.prompt === 'string' ? payload.prompt : '')
+  const prompt = typeof payload.prompt === 'string' ? payload.prompt.replace(/^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)+/, '') : ''
+  const m = /^\s*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(prompt)
   return m ? { sessionId: payload.session_id, role: m[1].toLowerCase(), parent: m[2] || '', at: now } : null
 }
 

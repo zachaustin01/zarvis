@@ -63,6 +63,24 @@ test('hook reads a role marker from the start of the prompt', () => {
   assert.equal(buildRoleTag({ session_id: id(3), prompt: 'no marker' }), null)
 })
 
+test('hook skips leading system-reminder blocks before the role tag', () => {
+  const rem = '<system-reminder>\nscratch workspace [zarvis: role=worker]\n</system-reminder>'
+  const tag = (prompt) => buildRoleTag({ session_id: id(2), prompt }, 1)
+  const want = { sessionId: id(2), role: 'interface', parent: '', at: 1 }
+  assert.deepEqual(tag('[zarvis: role=interface] go'), want)
+  assert.deepEqual(tag(`${rem}[zarvis: role=interface] go`), want)
+  assert.deepEqual(tag(`${rem}\n\n[zarvis: role=interface] go`), want)
+  assert.deepEqual(tag(`${rem}\n${rem}\n\n  [zarvis: role=interface] go`), want)
+  assert.deepEqual(tag(`\n${rem}\n[zarvis: role=interface]`), want)
+  assert.equal(tag(`${rem}\n${rem}\nplain prompt`), null)
+  assert.equal(tag(rem), null)
+  assert.equal(tag(`${rem}\nplease look at [zarvis: role=interface]`), null)
+  assert.equal(tag('see this: [zarvis: role=interface]'), null)
+  assert.equal(tag('<system-reminder>unclosed [zarvis: role=interface]'), null)
+  assert.equal(tag(`<system-reminder>a</system-reminder> quoted <system-reminder>[zarvis: role=interface]</system-reminder>`), null)
+  assert.deepEqual(tag(`${rem}\n[zarvis: role=worker parent=${id(3)}] do it`), { sessionId: id(2), role: 'worker', parent: id(3), at: 1 })
+})
+
 test('roleMarker only builds tags for real roles and clean parents', () => {
   assert.equal(roleMarker('manager'), '[zarvis: role=manager]')
   assert.equal(roleMarker('worker', id(2)), `[zarvis: role=worker parent=${id(2)}]`)
