@@ -127,12 +127,14 @@ function lifeTag(r) {
   return `<span class="pd" title="parked">○</span><span class="ap">${esc(r.parked.reason)}</span>${by}${wake}`
 }
 
-/** Running background tasks: a pulsing dot and a count; the title lists the first few. Empty when none. */
+const bgName = (t) => ((t?.label || t?.kind || 'task').length > 28 ? `${(t.label || t.kind).slice(0, 27)}…` : t?.label || t?.kind || 'task')
+
+/** Running background tasks: a pulsing dot, the first task's name and +N more; the title lists the first few. Empty when none. */
 function bgTag(r) {
   const n = r.tasks?.count || 0
   if (!n) return ''
   const items = (r.tasks.items || []).map((t) => `${t.kind}: ${t.label || '(no description)'}`).join('\n')
-  return `<span class="bg" title="${esc(items + (n > r.tasks.items.length ? `\n+${n - r.tasks.items.length} more` : ''))}"><i></i>${n} bg</span>`
+  return `<span class="bg" title="${esc(items + (n > r.tasks.items.length ? `\n+${n - r.tasks.items.length} more` : ''))}"><i></i>${esc(bgName(r.tasks.items[0]))}${n > 1 ? ` +${n - 1}` : ''}</span>`
 }
 
 /** Tree status text: the real state first, so a parked-but-blocked session still says it needs you. */
