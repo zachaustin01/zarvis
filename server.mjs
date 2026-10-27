@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { readMarkers, hookStatus, WORKING_DIR, ZARVIS_HOME } from './lib/markers.mjs'
 import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE } from './lib/roles.mjs'
 import { readAllTasks } from './lib/tasks.mjs'
-import { readAllLinks } from './lib/links.mjs'
+import { readAllLinks, readLinks, openPlan, modeFor } from './lib/links.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
@@ -214,6 +214,13 @@ function openUrl(url) {
   return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 10000 }, (err) => (err ? reject(err) : resolve())))
 }
 
+/** Open a file with its default app, or show it in the file manager (`reveal`). */
+function openPath(file, mode) {
+  const [cmd, args] =
+    process.platform === 'darwin' ? ['open', mode === 'reveal' ? ['-R', file] : [file]] : process.platform === 'win32' ? ['explorer', [mode === 'reveal' ? `/select,${file}` : file]] : ['xdg-open', [mode === 'reveal' ? path.dirname(file) : file]]
+  return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 10000 }, (err) => (err ? reject(err) : resolve())))
+}
+
 /** `folder` if it is an absolute path to a directory still on this machine, else ''. */
 async function usableFolder(folder) {
   if (typeof folder !== 'string' || !path.isAbsolute(folder)) return ''
@@ -324,6 +331,18 @@ const server = http.createServer(async (req, res) => {
       if (!row.link) return send(res, 409, { error: 'terminal session: no desktop app session to open' })
       await openUrl(row.link)
       return send(res, 200, { ok: true, url: row.link, dryRun: DRY_OPEN })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/open-link') {
+      // Only a file: link this session really posted, and only an existing path; nothing the client names is opened as given.
+      const { sessionId, url: link, reveal } = await readJson(req)
+      const plan = (await readLinks(ZARVIS_HOME, sessionId)).some((l) => l.url === link) ? openPlan(link) : null
+      if (!plan) return send(res, 404, { error: 'not a file link of that session' })
+      const real = await fsp.realpath(plan.path).catch(() => '')
+      if (!real) return send(res, 404, { error: 'file not found' })
+      // A symlink named report.html could point at a script: the real target must be a plain document too. Shift-click always shows it in the file manager.
+      const mode = reveal === true || plan.mode !== 'open' || modeFor(real) !== 'open' ? 'reveal' : 'open'
+      if (!DRY_OPEN) await openPath(real, mode)
+      return send(res, 200, { ok: true, mode, dryRun: DRY_OPEN })
     }
     if (req.method === 'POST' && url.pathname === '/api/new') {
       const { sessionId, role, parent } = await readJson(req)

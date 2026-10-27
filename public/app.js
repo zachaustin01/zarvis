@@ -141,6 +141,7 @@ function bgTag(r) {
   return `<span class="bg${open ? ' open' : ''}" title="${open ? 'Hide' : 'Show'} the ${n} background task${n > 1 ? 's' : ''}"><i></i>${esc(bgName(r.tasks.items[0]))}${n > 1 ? ` +${n - 1}` : ''}<b>${open ? '▾' : '▸'}</b></span>`
 }
 
+const safeFile = (u) => (/^file:\/\/\/[^\s?#]+$/.test(String(u ?? '')) && String(u).length <= 300 ? String(u) : '') // a file link is never an href: a click asks the server to open it
 const openLk = new Set() // sessions whose link chips are all shown (click the +N)
 const LINKS_SHOWN = 3
 
@@ -149,10 +150,10 @@ const LINKS_SHOWN = 3
  * reaches an escaped href; clicks on a chip are ignored by the row's own handler, so they never select or open the session.
  */
 function linksHtml(r) {
-  const ls = (Array.isArray(r.links) ? r.links : []).map((l) => ({ url: safeUrl(l?.url), label: String(l?.label ?? '').slice(0, 60) })).filter((l) => l.url)
+  const ls = (Array.isArray(r.links) ? r.links : []).map((l) => ({ url: safeUrl(l?.url) || safeFile(l?.url), label: String(l?.label ?? '').slice(0, 60) })).filter((l) => l.url)
   if (!ls.length) return ''
   const all = openLk.has(r.sessionId)
-  const chips = (all ? ls : ls.slice(0, LINKS_SHOWN)).map((l) => `<a class="lk" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}"><span>${esc(l.label || l.url)}</span><b aria-hidden="true">↗</b></a>`)
+  const chips = (all ? ls : ls.slice(0, LINKS_SHOWN)).map((l) => l.url.startsWith('file:') ? `<button type="button" class="lk lkf" data-u="${esc(l.url)}" title="Open ${esc(decodeURI(l.url.slice(7)))} (Shift-click: show in Finder)"><span>${esc(l.label || l.url)}</span><b aria-hidden="true">▤</b></button>` : `<a class="lk" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}"><span>${esc(l.label || l.url)}</span><b aria-hidden="true">↗</b></a>`)
   const more = ls.length > LINKS_SHOWN ? `<span class="lkm" role="button" title="${all ? 'Show fewer links' : 'Show all links'}">${all ? '−' : `+${ls.length - LINKS_SHOWN}`}</span>` : ''
   return `<div class="lks">${chips.join('')}${more}</div>`
 }
@@ -1324,7 +1325,12 @@ for (const el of [$('#list'), $('#side')]) {
   el.addEventListener('click', (e) => {
     const q = e.target.closest('.q')
     if (!q || e.target.tagName === 'INPUT') return
-    if (e.target.closest('.lk')) return // a link chip opens its own tab: not a click on the row
+    if (e.target.closest('.lk')) {
+      // A web link chip opens its own tab; a file chip asks the server to open the file. Neither is a click on the row.
+      const f = e.target.closest('.lkf')
+      if (f) post('/api/open-link', { sessionId: q.dataset.id, url: f.dataset.u, reveal: e.shiftKey }).then(({ ok, data }) => toast(ok ? (data.mode === 'reveal' ? 'Showing the file…' : 'Opening the file…') + (data.dryRun ? ' (dry run)' : '') : data.error || 'Could not open the file'))
+      return
+    }
     sel = q.dataset.id
     if (e.target.closest('.lkm')) openLk.has(sel) ? openLk.delete(sel) : openLk.add(sel)
     if (e.target.closest('.bg')) openBg.has(sel) ? openBg.delete(sel) : openBg.add(sel)

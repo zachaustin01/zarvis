@@ -274,7 +274,8 @@ test('session links: chips on queue and tree cards re-check the URL, open in a n
   assert.match(app, /<a class="lk" href="\$\{esc\(l\.url\)\}" target="_blank" rel="noopener noreferrer"/)
   assert.match(app, /\$\{cmd\}|cmd \+\n    linksHtml\(r\) \+\n    bgList\(r, now\)/) // inside the measured queue row
   assert.match(app, /<\/div>\$\{linksHtml\(r\)\}\$\{bgList\(r\)\}<span class="go">/) // and the tree row
-  assert.match(app, /if \(e\.target\.closest\('\.lk'\)\) return/) // a chip click is not a row click (no select, no redraw)
+  assert.match(app, /if \(e\.target\.closest\('\.lk'\)\) \{[^]*?\n      return\n    \}\n    sel = q\.dataset\.id/) // a chip click (web or file) returns before the row selects or redraws
+  assert.match(app, /class="lk lkf" data-u=/) // a file link is a button, never an href
   assert.match(app, /closest\('\.q'\) && !e\.target\.closest\('\.lk, \.lkm'\)\) openSel/) // nor a double-click open
   assert.doesNotMatch(css.slice(css.indexOf('.lks{')), /animation/) // chips never animate, so a redraw restarts nothing
   assert.match(server, /links: links\[n\.sessionId\] \|\| \[\]/)

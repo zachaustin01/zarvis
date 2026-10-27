@@ -19,7 +19,7 @@ test('cleanUrl accepts http(s), including localhost, and normalises', () => {
 })
 
 test('cleanUrl rejects javascript:, data:, file:, credentials, whitespace, control characters and huge input', () => {
-  for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,<script>1</script>', 'file:///etc/passwd', 'ftp://x.com/a', 'vbscript:x', '//evil.com', 'example.com', '',
+  for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,<script>1</script>', 'ftp://x.com/a', 'vbscript:x', '//evil.com', 'example.com', '',
     'https://user:pw@example.com/', 'https://user@example.com/', 'https://exa mple.com/', 'https://example.com/a b', ' https://example.com/', 'https://example.com/\n', 'https://example.com/\u0000', 'https://example.com/‮', 'https://',
     `https://example.com/${'a'.repeat(300)}`, null, undefined, 42, {}, ['https://a.com']]) {
     assert.equal(cleanUrl(bad), '', JSON.stringify(bad))
@@ -220,4 +220,67 @@ test('server: queue rows and tree nodes carry validated links; a hostile file co
   } finally {
     p.kill()
   }
+})
+
+// --- file links ---
+import { fileUrlOf, openPlan, isFileUrl } from '../lib/links.mjs'
+
+test('file: URLs are accepted only as file:///absolute/path with no host, credentials, query or encoded slashes', () => {
+  assert.equal(cleanUrl('file:///Users/me/report.html'), 'file:///Users/me/report.html')
+  for (const bad of ['file://host/etc/passwd', 'file://user@/x', 'file:///', 'file:///a?b=1', 'file:///a#x', 'file:///a%2Fb', 'file:///a%00b', 'file:///a b']) assert.equal(cleanUrl(bad), '', bad)
+})
+
+test('fileUrlOf turns typed paths into file URLs and leaves URLs alone', () => {
+  assert.equal(fileUrlOf('/tmp/a b.html'), 'file:///tmp/a%20b.html')
+  assert.equal(fileUrlOf('~/out.pdf', '/x', '/home/u'), 'file:///home/u/out.pdf')
+  assert.equal(fileUrlOf('./r.html', '/work'), 'file:///work/r.html')
+  assert.equal(fileUrlOf('https://a.com/'), null)
+  assert.equal(fileUrlOf('javascript:1'), null)
+})
+
+test('openPlan opens plain documents and only reveals anything that could execute', () => {
+  assert.deepEqual(openPlan('file:///t/r.HTML'), { path: '/t/r.HTML', mode: 'open' })
+  for (const f of ['x.command', 'x.app', 'x.sh', 'x.pkg', 'noext']) assert.equal(openPlan(`file:///t/${f}`).mode, 'reveal', f)
+  assert.equal(openPlan('https://a.com/'), null)
+  assert.equal(isFileUrl('file:///x'), true)
+})
+
+test('CLI add takes a file path; the label defaults to the file name', async () => {
+  const home = await tmp()
+  const r = await cli(home, ['add', './out/report.html', '--by', A], { cwd: '/work/proj' })
+  assert.equal(r.code, 0)
+  assert.deepEqual(await readLinks(home, A), [{ url: 'file:///work/proj/out/report.html', label: 'report.html' }])
+  assert.equal((await cli(home, ['remove', '/work/proj/out/report.html', '--by', A], { cwd: '/' })).code, 0)
+})
+
+test('server: /api/open-link only acts on a file link that session posted', async () => {
+  const home = await tmp()
+  const file = path.join(home, 'r.html')
+  await fsp.writeFile(file, '<p>x</p>')
+  const url = fileUrlOf(file)
+  await addLink(home, A, url, 'Report')
+  await addLink(home, A, 'https://a.example.com/')
+  const port = 20000 + Math.floor(Math.random() * 20000)
+  const p = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], { env: { ...process.env, ZARVIS_HOME: home, ZARVIS_PORT: String(port), ZARVIS_DESKTOP_SESSIONS: await tmp(), ZARVIS_DRY_OPEN: '1' }, stdio: ['ignore', 'pipe', 'inherit'] })
+  try {
+    await new Promise((res, rej) => { p.stdout.on('data', (d) => /Zarvis →/.test(String(d)) && res()); p.on('exit', () => rej(new Error('server exited'))) })
+    const base = `http://127.0.0.1:${port}`
+    const post = (body) => fetch(`${base}/api/open-link`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }))
+    assert.deepEqual(await post({ sessionId: A, url }), { status: 200, body: { ok: true, mode: 'open', dryRun: true } })
+    assert.equal((await post({ sessionId: A, url, reveal: true })).body.mode, 'reveal')
+    assert.equal((await post({ sessionId: A, url: 'file:///etc/passwd' })).status, 404) // never posted
+    assert.equal((await post({ sessionId: id(2), url })).status, 404) // another session's
+    assert.equal((await post({ sessionId: A, url: 'https://a.example.com/' })).status, 404) // not a file link
+    await fsp.rm(file)
+    assert.equal((await post({ sessionId: A, url })).status, 404) // gone
+  } finally {
+    p.kill()
+  }
+})
+
+import { modeFor } from '../lib/links.mjs'
+test('modeFor judges the real target: a document name that points at a script is only revealed', () => {
+  assert.equal(modeFor('/t/report.html'), 'open')
+  assert.equal(modeFor('/t/evil.command'), 'reveal')
+  assert.equal(modeFor('/t/dir'), 'reveal')
 })

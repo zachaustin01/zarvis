@@ -193,8 +193,8 @@ npm run link -- remove <url|number> [--by <session id>]
 when the session's environment has it, otherwise it needs `--by`. Links live in `~/.zarvis/links/<session id>.json`
 (under `ZARVIS_HOME`), up to 8 per session (the oldest drops); posting a URL again updates its label and moves it
 last. A label is one line, 60 characters; a URL is at most 300 characters. URLs are untrusted: only `http:` and
-`https:` are accepted (`localhost` too), with no spaces, control characters or `user:password@`, and the server and
-the page both re-check before rendering. Links survive park and are removed with the session at SessionEnd.
+`https:` are accepted (`localhost` too), as are file paths (`add /abs/path`, `~/x`, or relative to the cwd; stored as `file:///…`), with no spaces, control characters or `user:password@`, and the server and
+the page both re-check before rendering. A file chip (▤) is a button, never a `file:` href: clicking asks the server to open it, and the server only acts on a file link that session posted and that exists. Documents and images open (html, pdf, png, jpg, svg, md, txt, csv, json, log, audio/video); anything else (a `.command`, `.app`, script) is only revealed in the file manager, and Shift-click always reveals. Links survive park and are removed with the session at SessionEnd.
 `npm run roster -- get|list` shows them (`links` in `--json`). Sessions only learn about `npm run link` after
 `npm run setup` copies the updated skills.
 

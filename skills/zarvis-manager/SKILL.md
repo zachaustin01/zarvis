@@ -59,7 +59,14 @@ above your workers (one layer down).
 - Batch review feedback: read the whole diff, then send one follow-up with every change you want.
   Each follow-up starts a worker turn and another report, so several small ones cost several.
 
-## Worker links
+## Links on cards (yours and your workers')
+
+You can post links to your own card too, with the same command a worker uses: when you assemble something
+to look at (a merged PR, a combined report, a dashboard), run
+`node "{{ZARVIS_DIR}}/scripts/link.mjs" add <url or absolute file path> --label "..." --by <your session id>`
+(`list` shows yours, `remove <url|number>` drops one; up to 8 stay on the card). Only `http(s)` URLs and file
+paths are accepted; a file path opens the file when clicked (documents and images open, anything else is
+shown in Finder).
 
 A worker can post links (a dashboard, a PR, a served page) that show as chips on its card:
 `node "{{ZARVIS_DIR}}/scripts/link.mjs" add <url> --label "..." --by <its session id>`. Ask workers to post

@@ -457,3 +457,4 @@ body.tab-hidden .ov.pal,body.tab-hidden .pal-box{transition:none}
 .lk:hover,.lkm:hover{background:#0b1a28}
 .lkm{cursor:pointer;color:var(--t2)}
 @media (max-width:480px){.lk span{max-width:200px}}
+button.lk{background:none;font-family:ui-monospace,Menlo,Consolas,monospace;cursor:pointer}

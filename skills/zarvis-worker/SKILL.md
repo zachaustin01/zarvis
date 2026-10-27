@@ -75,7 +75,9 @@ When you create something the user will want to look at (a dashboard, a served p
 report), post it to your card:
 `node "{{ZARVIS_DIR}}/scripts/link.mjs" add <url> --label "Dagster run" --by <your session id>`
 (`list` shows yours, `remove <url|number>` drops one). Only a single `http(s)` URL without a password is
-accepted; the label is short, one line. Up to 8 stay on the card; the same URL again updates its label. Also put
+accepted, or an absolute file path (`/Users/me/report.html`, `~/out.pdf`, or relative to your cwd) for
+something on disk: clicking it opens the file (documents and images open; anything else is shown in
+Finder). The label is short, one line. Up to 8 stay on the card; the same URL again updates its label. Also put
 the URL in your report: the link is a convenience for the user, not the report.
 
 ## Must not
