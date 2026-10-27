@@ -265,3 +265,20 @@ test('projectGauges: a project whose only sessions are parked or archived has no
   const live = projectGauges([], [r('scratch', 'idle'), ...parkedOnly])
   assert.deepEqual(live.map((g) => g.project), ['scratch']) // a live tree node with a hook signal also counts
 })
+
+import { clockText, pushSample, sparkPoints, SPARK_MAX } from '../public/fx.js'
+
+test('clockText is HH:MM:SS', () => {
+  assert.match(clockText(Date.now()), /^\d\d:\d\d:\d\d$/)
+  assert.equal(clockText(new Date(2026, 9, 26, 7, 5, 9).getTime()), '07:05:09')
+})
+
+test('pushSample keeps the newest SPARK_MAX; sparkPoints scales to the peak, newest at the right', () => {
+  let s = []
+  for (let i = 0; i < SPARK_MAX + 5; i++) s = pushSample(s, i % 3)
+  assert.equal(s.length, SPARK_MAX)
+  assert.equal(sparkPoints([], 64, 18), '1,17 63,17') // baseline only
+  assert.equal(sparkPoints([0], 64, 18), '1,17 63,17')
+  assert.equal(sparkPoints([0, 0, 0], 64, 18), '1.0,17.0 32.0,17.0 63.0,17.0') // flat zero sits on the baseline
+  assert.equal(sparkPoints([0, 2, 1], 64, 18), '1.0,17.0 32.0,1.0 63.0,9.0') // peak at the top, last sample at the right edge
+})

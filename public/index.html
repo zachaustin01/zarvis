@@ -6,7 +6,9 @@
 <title>Zarvis</title>
 <link rel="stylesheet" href="/app.css">
 </head>
-<body>
+<body class="booting">
+<div id="hudbg" aria-hidden="true"></div>
+<div class="boot-scan" aria-hidden="true"></div>
 <div class="top">
   <span class="brand">STATION</span>
   <span class="reactor" id="reactor" role="img" aria-label="No sessions">
@@ -33,6 +35,10 @@
   <span class="pill" data-view="tree" title="Tab / Shift+Tab cycle the views · t" style="cursor:pointer">Roles</span>
   <span class="pill" data-view="parked" title="Tab / Shift+Tab cycle the views · p" style="cursor:pointer">Parked</span>
   <span class="sp"></span>
+  <span class="telem mono" id="telem" title="Needs-you count over the last five minutes">
+    <svg viewBox="0 0 64 18" width="64" height="18" aria-hidden="true"><polyline id="sparkLine" points="1,17 63,17"/></svg>
+    <span id="clock">--:--:--</span>
+  </span>
   <span class="pill" id="helpBtn">? keys</span>
   <span class="mono" id="hookst" title="Hook status unknown">hook: …</span>
   <span class="mono" id="conn"><span class="live">●</span> live</span>

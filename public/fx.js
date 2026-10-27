@@ -247,3 +247,28 @@ export function ifaceRing(r, now, overdueMs) {
 
 /** A negative CSS animation delay that keeps a looping animation continuous across redraws of its element. */
 export const loopDelay = (now, periodMs) => `-${(now % periodMs) / 1000}s`
+
+// ---- Idle telemetry: clock and a needs-you sparkline ----
+
+export const SPARK_MAX = 60 // samples kept (one per 5s: five minutes)
+
+/** HH:MM:SS for the header clock. */
+export const clockText = (ms) => {
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+/** Append a sample, keeping the newest SPARK_MAX. */
+export const pushSample = (samples, v, max = SPARK_MAX) => [...samples, v].slice(-max)
+
+/**
+ * Polyline points for a w x h sparkline of `samples`, newest at the right, scaled to the largest value
+ * (at least 1, so a flat zero line sits on the baseline). Fewer than two samples: just the baseline.
+ */
+export function sparkPoints(samples, w, h, pad = 1) {
+  if (samples.length < 2) return `${pad},${h - pad} ${w - pad},${h - pad}`
+  const top = Math.max(1, ...samples)
+  const step = (w - pad * 2) / (samples.length - 1)
+  return samples.map((v, i) => `${(pad + i * step).toFixed(1)},${(h - pad - (v / top) * (h - pad * 2)).toFixed(1)}`).join(' ')
+}

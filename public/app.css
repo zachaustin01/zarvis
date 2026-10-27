@@ -1,4 +1,4 @@
-:root{--void:#05080d;--panel:#0a111acc;--edge:#16314a;--cy:#4fd8ff;--cyd:#2a7a99;--am:#ffb347;--rd:#ff4d5e;--gr:#5dffb0;--t1:#d6eaf5;--t2:#7f9bb0;--t3:#4d6678}
+:root{--void:#05080d;--panel:#0a111acc;--edge:#16314a;--cy:#4fd8ff;--cyd:#2a7a99;--am:#ffb347;--rd:#ff4d5e;--gr:#5dffb0;--t1:#d6eaf5;--t2:#7f9bb0;--t3:#6a8498}
 *{box-sizing:border-box}
 body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(--void) 60%);color:var(--t1);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
 .hd{font-family:"Rajdhani","Arial Narrow",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:var(--t2);font-size:12px;margin-bottom:10px}
@@ -23,7 +23,7 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 .hk{margin-right:14px;font-size:12px;letter-spacing:.06em;color:var(--t3)}.hk.live{color:var(--gr)}.hk.stale{color:var(--am)}
 .live{color:var(--gr)}.live.off{color:var(--rd)}
 .tk{position:fixed;left:0;right:0;bottom:0;height:30px;border-top:1px solid var(--edge);background:#070d15ee;display:flex;align-items:center;gap:22px;padding:0 20px;overflow:hidden;white-space:nowrap;z-index:9}
-.tk .lbl{color:var(--cyd);letter-spacing:.14em;font-size:10px;flex:none;cursor:pointer;user-select:none}
+.tk .lbl{color:var(--t2);letter-spacing:.14em;font-size:10px;flex:none;cursor:pointer;user-select:none}
 .tk .lbl kbd{font:inherit;color:var(--cy)}
 #tkList{overflow:hidden;min-width:0;flex:1;height:100%;display:flex;align-items:center}
 #tkTrack{display:flex;gap:22px;flex:none;will-change:transform}
@@ -69,7 +69,7 @@ main.wrap{padding-bottom:50px}
 .hd.sec{margin-top:18px}.hd.sec:first-child{margin-top:0}
 .q.wk::before{background:var(--cyd)}
 .q.wk .wt{color:var(--t2)}
-.q.id:not(.sel){opacity:.7}.q.id::before{background:var(--t3)}
+.q.id:not(.sel){opacity:.8}.q.id::before{background:var(--t3)}
 #pickList{max-height:46vh;overflow:auto;margin-top:8px}
 .pk{padding:4px 8px;border:1px solid transparent;cursor:pointer;display:flex;gap:8px}
 .pk.cur{border-color:var(--cy);background:#0b1a28}
@@ -260,3 +260,74 @@ body.tab-hidden .ifr-ticks{animation-play-state:paused!important}
 .sheet kbd{font:12px ui-monospace,Menlo,Consolas,monospace;color:var(--cy);border:1px solid var(--cyd);border-bottom-width:2px;border-radius:4px;padding:0 6px;background:#0b1a28;min-width:22px;text-align:center}
 .kd{color:var(--t2)}
 .kd kbd{font-size:11px;padding:0 4px;min-width:0}
+
+/* ======================= JARVIS skin: look and motion only =======================
+   Layered cyan-on-black, hairlines and corner ticks; amber and red stay reserved for blocked and overdue.
+   Everything animated lives outside #list and uses transform/opacity; loops are time-driven or one-shot. */
+
+/* Backdrop: a faint blueprint grid and slowly turning dial rings, behind everything */
+#hudbg{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+#hudbg::before{content:"";position:absolute;inset:0;
+ background-image:linear-gradient(#4fd8ff0d 1px,transparent 1px),linear-gradient(90deg,#4fd8ff0d 1px,transparent 1px);background-size:44px 44px;
+ -webkit-mask-image:radial-gradient(ellipse at 50% 35%,#000 0,transparent 75%);mask-image:radial-gradient(ellipse at 50% 35%,#000 0,transparent 75%)}
+#hudbg::after{content:"";position:absolute;left:50%;top:42%;width:1500px;height:1500px;margin:-750px 0 0 -750px;border-radius:50%;opacity:.55;
+ background:repeating-conic-gradient(#4fd8ff26 0 .35deg,transparent .35deg 3deg);
+ -webkit-mask-image:radial-gradient(circle,transparent 0 58%,#000 58.2% 59.4%,transparent 59.6% 71%,#000 71.1% 71.5%,transparent 71.7%);mask-image:radial-gradient(circle,transparent 0 58%,#000 58.2% 59.4%,transparent 59.6% 71%,#000 71.1% 71.5%,transparent 71.7%);
+ animation:hudspin 300s linear infinite;will-change:transform}
+@keyframes hudspin{to{transform:rotate(360deg)}}
+
+/* Panels: translucent glass, hairline borders and corner ticks */
+.q{background:
+ linear-gradient(var(--cyd),var(--cyd)) 0 0/9px 1px no-repeat,linear-gradient(var(--cyd),var(--cyd)) 0 0/1px 9px no-repeat,
+ linear-gradient(var(--cyd),var(--cyd)) 100% 0/9px 1px no-repeat,linear-gradient(var(--cyd),var(--cyd)) 100% 0/1px 9px no-repeat,
+ linear-gradient(var(--cyd),var(--cyd)) 0 100%/9px 1px no-repeat,linear-gradient(var(--cyd),var(--cyd)) 0 100%/1px 9px no-repeat,
+ linear-gradient(var(--cyd),var(--cyd)) 100% 100%/9px 1px no-repeat,linear-gradient(var(--cyd),var(--cyd)) 100% 100%/1px 9px no-repeat,
+ linear-gradient(135deg,#0b1826d9,#07101ad9)}
+#side .q.ifr{background:none}
+.q.sel{background:linear-gradient(135deg,#0f2840e6,#0a1b2de6)}
+.box,.rail,.tk{background-color:#070d15e6}
+
+/* Headings: mono caps with a hairline that runs out to the right */
+.hd.sec{display:flex;align-items:center;gap:10px;letter-spacing:.22em}
+.hd.sec::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--cyd),transparent)}
+
+/* Header: a hairline with a slow glint travelling along it, and the idle telemetry */
+.top{background:linear-gradient(180deg,#0a1626cc,#07101a00)}
+.top::after{content:"";position:absolute;left:0;bottom:-1px;width:160px;height:1px;background:linear-gradient(90deg,transparent,var(--cy),transparent);animation:glint 14s linear infinite;will-change:transform}
+@keyframes glint{from{transform:translateX(-160px)}to{transform:translateX(100vw)}}
+.telem{display:inline-flex;align-items:center;gap:8px;color:var(--t2);font-size:12px;letter-spacing:.08em}
+.telem svg{display:block}
+#sparkLine{fill:none;stroke:var(--cy);stroke-width:1.2;stroke-linejoin:round;opacity:.8}
+#clock{color:var(--t2);font-variant-numeric:tabular-nums}
+@media (max-width:900px){.telem{display:none}}
+
+/* The reactor ring of ticks turns slowly all the time: ambient, not an alert */
+.rx-ticks{transform-origin:20px 20px;animation:rxslow 90s linear infinite}
+@keyframes rxslow{to{transform:rotate(360deg)}}
+
+/* "Working" is cyan-white, as in the film; green stays for "live and fine" (hook, finished) */
+.rx-arc.working,.rl-a.working{stroke:var(--cy)}
+.reactor .rx-txt{color:var(--t2)}
+
+/* Readouts flick in when their value changes */
+.flick{animation:flick .4s steps(2,end) 1}
+@keyframes flick{0%{opacity:.15}25%{opacity:1}45%{opacity:.35}100%{opacity:1}}
+
+/* Boot-up: the header chrome staggers in and a scan line crosses the screen, once */
+.boot-scan{position:fixed;left:0;right:0;top:0;height:2px;z-index:30;pointer-events:none;opacity:0;background:linear-gradient(90deg,transparent,var(--cy),transparent);box-shadow:0 0 14px var(--cy)}
+body.booting .boot-scan{animation:bootscan 1.1s ease-in 1 both}
+@keyframes bootscan{0%{opacity:.9;transform:translateY(0)}100%{opacity:0;transform:translateY(100vh)}}
+body.booting .top>*{animation:bootin .55s ease-out both}
+body.booting .top>*:nth-child(2){animation-delay:.08s}body.booting .top>*:nth-child(3){animation-delay:.16s}body.booting .top>*:nth-child(4){animation-delay:.24s}
+body.booting .top>*:nth-child(5){animation-delay:.32s}body.booting .top>*:nth-child(6){animation-delay:.4s}body.booting .top>*:nth-child(n+7){animation-delay:.48s}
+body.booting .rail,body.booting .tk{animation:bootin .7s ease-out .3s both}
+@keyframes bootin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+
+body.tab-hidden #hudbg::after,body.tab-hidden .top::after,body.tab-hidden .rx-ticks{animation-play-state:paused!important}
+@media (prefers-reduced-motion:reduce){
+  #hudbg::after,.top::after,.rx-ticks{animation:none!important}
+  .flick,body.booting .top>*,body.booting .rail,body.booting .tk{animation:none!important}
+  .boot-scan{display:none}
+}
+
+/* Contrast: text on the panels is t1/t2/t3 (all above 4.5:1 on #08101a: 15.4, 6.6, 4.9); cyd is a border colour, not text */

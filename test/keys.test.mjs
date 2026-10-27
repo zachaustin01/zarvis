@@ -160,3 +160,30 @@ test('wording: no signal is "no signal", never "not running"; the ticker line de
   assert.match(e, /overflow the width/)
   assert.doesNotMatch(e, /more than ten/)
 })
+
+test('JARVIS skin: backdrop, boot-up, telemetry and flicker exist, move only outside the list, and honour reduced motion', async () => {
+  const [html, css, app] = await Promise.all([read('public/index.html'), read('public/app.css'), read('public/app.js')])
+  assert.match(html, /<body class="booting">/)
+  assert.match(html, /id="hudbg"/)
+  assert.match(html, /id="sparkLine"/)
+  assert.match(html, /id="clock"/)
+  assert.match(app, /updateTelemetry\(now\)/)
+  assert.match(app, /classList\.remove\('booting'\)/)
+  assert.match(app, /function flicker\(el\)/)
+  assert.match(css, /#hudbg::after\{[^}]*animation:hudspin 300s/)
+  assert.match(css, /prefers-reduced-motion:reduce\)\{\s*#hudbg::after,\.top::after,\.rx-ticks\{animation:none!important\}/)
+  assert.match(css, /body\.tab-hidden #hudbg::after/)
+  assert.doesNotMatch(css.slice(css.indexOf('JARVIS skin')), /backdrop-filter/) // too costly with a long list
+  assert.match(css, /@media \(max-width:900px\)\{\.telem\{display:none/)
+})
+
+test('text colours stay WCAG AA (4.5:1) against the panel background', async () => {
+  const css = await read('public/app.css')
+  const v = (n) => css.match(new RegExp(`--${n}:(#[0-9a-f]{6})`))[1]
+  const lum = (h) => {
+    const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4))
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+  }
+  const ratio = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05)
+  for (const name of ['t1', 't2', 't3', 'cy', 'am', 'rd', 'gr']) assert.ok(ratio(v(name), '#08101a') >= 4.5, `--${name} on the panel`)
+})

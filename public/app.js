@@ -1,5 +1,5 @@
 'use strict'
-import { ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
+import { clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -438,7 +438,7 @@ function updateDials(now) {
   const wd = $('#dialWait')
   wd.className = `dial ${w.state}`
   wd.querySelector('.dl-fg').style.strokeDasharray = dialDash(w.p)
-  wd.querySelector('.dl-tx').textContent = w.text
+  if (wd.querySelector('.dl-tx').textContent !== w.text) { wd.querySelector('.dl-tx').textContent = w.text; flicker(wd.querySelector('.dl-tx')) }
   wd.title = w.count ? `Longest wait ${w.text} · ${w.count} need${w.count === 1 ? 's' : ''} you · the ring fills toward the 5 minute overdue mark` : 'Longest wait: nothing needs you'
   const hd = $('#dialHook')
   hd.className = `dial ${h.state}`
@@ -533,7 +533,7 @@ function updateReactor(att) {
   el.classList.toggle('red', st.core === 'red')
   el.classList.toggle('spin', st.spin)
   el.setAttribute('aria-label', `${counts.blocked} need you, ${counts.working} working, ${counts.idle} idle, ${counts.parked} parked`)
-  $('#reactorTxt').textContent = text
+  if ($('#reactorTxt').textContent !== text) { $('#reactorTxt').textContent = text; flicker($('#reactorTxt')) }
   const arcs = reactorArcs(counts)
   for (const a of arcs) {
     const c = el.querySelector(`.rx-arc.${a.key}`)
@@ -648,7 +648,8 @@ function render() {
   if (view === 'tree') return renderTree()
   if (view === 'parked') return renderParked()
   const vq = visibleQueue()
-  $('#qb').textContent = vq.filter((r) => r.state === 'blocked' && !r.parked).length || '' // what the "Needs you" section holds
+  const badge = String(vq.filter((r) => r.state === 'blocked' && !r.parked).length || '') // what the "Needs you" section holds
+  if ($('#qb').textContent !== badge) { $('#qb').textContent = badge; flicker($('#qb')) }
   const list = $('#list')
   const side = $('#side')
   const renameSnap = snapRename()
@@ -1008,7 +1009,37 @@ setInterval(() => {
     el.closest('.q').classList.toggle('od', !el.closest('.q').classList.contains('wk') && now - since > OVERDUE_MS)
   })
   updateAmbient(now)
+  updateTelemetry(now)
 }, 1000)
+
+// Idle telemetry in the header: a clock and a five-minute needs-you sparkline. Change-only DOM writes.
+let sparkSamples = []
+let lastSampleAt = 0
+let sparkKey = ''
+function updateTelemetry(now) {
+  const clock = clockText(now)
+  const el = $('#clock')
+  if (el.textContent !== clock) el.textContent = clock
+  if (now - lastSampleAt >= 5000) {
+    lastSampleAt = now
+    sparkSamples = pushSample(sparkSamples, attention(queue, now, OVERDUE_MS).count)
+    const pts = sparkPoints(sparkSamples, 64, 18)
+    if (pts !== sparkKey) {
+      sparkKey = pts
+      $('#sparkLine').setAttribute('points', pts)
+    }
+  }
+}
+
+// Boot-up: the header stagger and the scan line run once; then the class comes off so nothing replays.
+setTimeout(() => document.body.classList.remove('booting'), 1600)
+
+/** Re-trigger a one-shot flicker on a readout whose value just changed. */
+function flicker(el) {
+  el.classList.remove('flick')
+  void el.getBoundingClientRect() // restart the animation
+  el.classList.add('flick')
+}
 
 const live = (ok) => { document.querySelector('#conn .live').classList.toggle('off', !ok) }
 const es = new EventSource('/api/events')
