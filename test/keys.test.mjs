@@ -200,3 +200,33 @@ test('context gauge: attached server-side (path never sent), shown on rows, tree
   assert.match(readme, /ZARVIS_CONTEXT_WINDOW/)
   assert.match(css, /\.cx-amber \.cx-tx\{color:var\(--am\)\}\.cx-red \.cx-tx\{color:var\(--rd\)\}/)
 })
+
+test('command palette: Cmd/Ctrl-K wiring, every command id has a handler that reuses the key actions, keys cannot fire under it', async () => {
+  const [app, html, css, readme, pal] = await Promise.all([read('public/app.js'), read('public/index.html'), read('public/app.css'), read('README.md'), read('public/palette.js')])
+  // The key handler and the palette call the same functions.
+  for (const fn of ['toggleParkedShown', 'toggleRoleKey', 'stepProject', 'startRename', 'toggleHelp']) {
+    assert.ok((app.match(new RegExp(`\\b${fn}\\b`, 'g')) || []).length >= 3, `${fn} is defined and used by both the key and the palette`)
+  }
+  assert.match(app, /e\.key === 'P' && items\(\)\.length\) \{ e\.preventDefault\(\); parkSel\(\)/) // unchanged
+  const ids = [...pal.matchAll(/\{ id: '([a-z-]+)', group/g)].map((m) => m[1])
+  assert.ok(ids.length > 25)
+  for (const fn of ['startClassify', 'startNew']) assert.match(app, new RegExp(`\\b${fn}\\(\\) \\}`)) // the c / n keys go through them
+  for (const id of ids) assert.match(app, new RegExp(`(^|\\n)\\s*(${id}|'${id}'): `), `RUN handler for ${id}`)
+  // Global single keys are off while it is open; it never opens from the rename box or over a dialog.
+  assert.match(app, /document\.addEventListener\('keydown', \(e\) => \{\n  if \(pick \|\| parking \|\| palette\) return/)
+  assert.match(app, /if \(renaming \|\| pick \|\| parking\) return \/\/ never from inside the rename box/)
+  assert.match(app, /\(e\.metaKey \|\| e\.ctrlKey\)/)
+  assert.match(app, /e\.ctrlKey && \(e\.key === 'n'/)
+  assert.match(app, /back\.focus\(\)/) // focus restored
+  assert.match(app, /if \(!force && sig === palette\.sig\) return/) // live pushes leave an unchanged list alone
+  assert.match(app, /closePalette\(\)\n\s+if \(e\.type === 'session'\) return jumpToSession/)
+  assert.match(html, /id="ovPal"/)
+  assert.match(sheet(html), /<kbd>⌘K<\/kbd>/)
+  assert.match(readme, /`Cmd\/Ctrl\+K` command palette/)
+  const skin = css.slice(css.indexOf('Command palette (Cmd/Ctrl-K)'))
+  assert.doesNotMatch(skin, /animation:/) // transitions only, on opacity and transform
+  assert.match(skin, /transition:opacity/)
+  assert.match(skin, /prefers-reduced-motion:reduce\)\{\.ov\.pal/)
+  assert.match(skin, /body\.tab-hidden \.ov\.pal/)
+  assert.doesNotMatch(app.slice(app.indexOf('function renderPalette')), /#list'\)\.innerHTML/)
+})

@@ -39,6 +39,7 @@
     <svg viewBox="0 0 64 18" width="64" height="18" aria-hidden="true"><polyline id="sparkLine" points="1,17 63,17"/></svg>
     <span id="clock">--:--:--</span>
   </span>
+  <span class="pill" id="palHint" style="cursor:pointer" title="Command palette">⌘K</span>
   <span class="pill" id="helpBtn">? keys</span>
   <span class="mono" id="hookst" title="Hook status unknown">hook: …</span>
   <span class="mono" id="conn"><span class="live">●</span> live</span>
@@ -83,9 +84,16 @@
     <section><h3>Screen</h3>
       <div class="kr"><span class="kk"><kbd>b</kbd></span><span class="kd">Project rail on the left (wide windows): a gauge per project, click to filter</span></div>
       <div class="kr"><span class="kk"><kbd>e</kbd></span><span class="kd">Event ticker along the bottom: collapse or expand. Once the events overflow the width it scrolls from the oldest to the newest, rests five seconds there, then restarts; hovering pauses it</span></div>
+      <div class="kr"><span class="kk"><kbd>⌘K</kbd> <kbd>Ctrl+K</kbd></span><span class="kd">Command palette: fuzzy-find a session or any key action. <kbd>&gt;</kbd> commands only, <kbd>@</kbd> sessions only; ↑↓ or Ctrl+N/P move, Enter runs, Esc closes</span></div>
       <div class="kr"><span class="kk"><kbd>?</kbd></span><span class="kd">This sheet</span></div>
     </section>
   </div>
+</div></div>
+<div class="ov pal" id="ovPal"><div class="box pal-box" role="dialog" aria-modal="true" aria-label="Command palette">
+  <i class="tk-c a"></i><i class="tk-c b"></i><i class="tk-c c"></i><i class="tk-c d"></i>
+  <div class="hd pal-hd">Command <span class="ap">&gt; commands · @ sessions · Esc closes</span></div>
+  <input id="palIn" class="pal-in" placeholder="Jump to a session or run a command…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="palList" aria-autocomplete="list">
+  <div id="palList" class="pal-list" role="listbox"></div>
 </div></div>
 <div class="ov" id="ovPick"><div class="box">
   <div class="hd" id="pickHd" style="margin-bottom:8px">Attach sessions</div>

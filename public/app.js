@@ -1,5 +1,6 @@
 'use strict'
 import { clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
+import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -9,6 +10,7 @@ let tree = { interface: [], managers: [], orphans: [], unclassified: [] }
 let rawTree = null // the server's tree, done sessions included
 let nodes = [] // the tree flattened in display order, for j/k
 let parkedList = [] // parked sessions, newest first: the Parked view
+let palette = null // the command palette while open: { q, key, idx, sig, back }
 let pick = null // the attach picker: { mgr, rows, checked, idx }
 let awaitingNew = false // after `n`: the next key picks the new session's role
 let awaitingRole = false // after `c`: the next key picks the role
@@ -248,6 +250,7 @@ async function loadTree() {
     updateAmbient() // the reactor's parked count comes from the tree
     if (view === 'queue') renderBar()
     else applyTree()
+    renderPalette()
   } catch {
     /* next poll */
   }
@@ -708,6 +711,7 @@ function setQueue(q) {
   reconcileProject()
   if (renaming && !q.some((r) => r.sessionId === renaming)) renaming = null
   render()
+  renderPalette()
 }
 
 function toast(msg, ms = 2600) {
@@ -916,6 +920,25 @@ $('#pickList').addEventListener('click', (e) => {
 })
 $('#pickGo').addEventListener('click', () => pick && commitPick())
 
+function toggleParkedShown() {
+  if (view !== 'tree') return toast('v shows or hides parked sessions on the Roles page (t)')
+  setShowParked(!showParked)
+  toast(showParked ? 'Roles: parked sessions shown' : 'Roles: parked sessions hidden · p lists them')
+}
+
+/** `m` / `w` (or their palette entries): the queue role filter; the same key clears it. */
+function toggleRoleKey(k) {
+  if (view !== 'queue') return toast('The role filter applies to the queue (h)')
+  const next = toggleRole(roleFilter, k === 'm' ? 'manager' : 'worker')
+  setRoleFilter(next)
+  toast(next ? `Showing ${next}s only · ${k} again clears` : 'Role filter off')
+}
+
+const stepProject = (d) => setProject(cycleProject(projectList().map((p) => p.project), activeProject(), d))
+const startRename = () => { renaming = sel; render() }
+const startClassify = () => { awaitingRole = true; toast('Classify: i interface · m manager · w worker · x clear') }
+const startNew = () => { awaitingNew = true; toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000) }
+
 /** `i`: select the interface session; with several, each press goes to the next one. */
 function jumpToInterface() {
   const all = items().filter((r) => r.role === 'interface')
@@ -935,6 +958,172 @@ function move(d) {
   document.querySelector('.q.sel')?.scrollIntoView({ block: 'nearest' })
 }
 
+// ---- Command palette (Cmd/Ctrl-K): sessions and every key action, fuzzy-searched ----
+const nextViewCmd = (d) => setView(nextView(view, d))
+/** One handler per command id: each calls the same function its key does. */
+const RUN = {
+  'view-queue': () => setView('queue'),
+  'view-tree': () => setView('tree'),
+  'view-parked': () => setView('parked'),
+  'view-next': () => nextViewCmd(1),
+  'view-prev': () => nextViewCmd(-1),
+  search: () => (view !== 'queue' ? $('#flt').focus() : toast('Search applies to the Roles and Parked views (t, p)')),
+  'project-next': () => stepProject(1),
+  'project-prev': () => stepProject(-1),
+  'project-all': () => setProject(''),
+  'role-manager': () => toggleRoleKey('m'),
+  'role-worker': () => toggleRoleKey('w'),
+  'toggle-parked': toggleParkedShown,
+  open: openSel,
+  interface: jumpToInterface,
+  rename: () => (items().length ? startRename() : toast('Nothing to rename')),
+  park: () => (items().length ? parkSel() : toast('Nothing to park')),
+  unpark: unparkSel,
+  done: () => (items().length ? doneSel() : toast('Nothing to mark done')),
+  undo: undoLast,
+  attach: openPick,
+  'new-interface': () => newSession('interface'),
+  'new-manager': () => newSession('manager'),
+  'new-worker': () => newSession('worker'),
+  'new-plain': () => newSession(''),
+  'classify-interface': () => classifySel('interface'),
+  'classify-manager': () => classifySel('manager'),
+  'classify-worker': () => classifySel('worker'),
+  'classify-clear': () => classifySel(''),
+  'classify-group': () => (view === 'tree' ? classifyGroup() : toast('Classify all applies on the Roles page (t)')),
+  rail: () => setRail(!railOpen),
+  ticker: () => setTicker(!tickerOpen),
+  help: toggleHelp,
+}
+
+/** Every live session once: queue rows first, then tree-only ones (done sessions stay out; / finds those). */
+function paletteSessions() {
+  const seenIds = new Set()
+  const out = []
+  for (const r of [...queue, ...(rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : [])]) {
+    if (r.done || seenIds.has(r.sessionId)) continue
+    seenIds.add(r.sessionId)
+    out.push(r)
+  }
+  return out
+}
+
+const paletteEntries = () => paletteSearch(palette.q, paletteSessions(), buildCommands(projectList().map((p) => p.project)), { stateLabel: (r) => STATE_LABEL[r.state] || r.state })
+
+function markName(label, idx) {
+  if (!idx.length) return esc(label)
+  const on = new Set(idx)
+  return [...label].map((ch, i) => (on.has(i) ? `<mark>${esc(ch)}</mark>` : esc(ch))).join('')
+}
+
+function renderPalette(force) {
+  if (!palette) return
+  const entries = paletteEntries()
+  const h = keepHighlight(entries, palette.key, palette.idx)
+  palette.key = h.key
+  palette.idx = h.idx
+  palette.entries = entries
+  const sig = JSON.stringify([entries.map((e) => [e.key, e.label, e.type === 'session' ? [e.ref.state, e.ref.project, e.ref.branch || e.ref.worktree, e.ref.role, !!e.ref.parked] : e.ref.key]), h.idx])
+  if (!force && sig === palette.sig) return // a live push that changes nothing visible leaves the list alone
+  palette.sig = sig
+  const list = $('#palList')
+  const keep = list.scrollTop
+  list.innerHTML =
+    entries
+      .map((e, i) => {
+        const cur = i === h.idx ? ' cur' : ''
+        if (e.type === 'command') return `<div class="pl cmd${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${esc(e.ref.group)}</span><span class="pn">${markName(e.label, e.idx)}</span>${e.ref.key ? `<span class="pk2">${e.ref.key.split(' ').map((k) => `<kbd>${esc(k)}</kbd>`).join(' ')}</span>` : ''}</div>`
+        const r = e.ref
+        const where = showsWhere(r) ? r.branch || r.worktree || '' : ''
+        return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
+      })
+      .join('') || '<div class="pe">No matches.</div>'
+  list.scrollTop = keep
+  $('#palIn').setAttribute('aria-activedescendant', `pl${h.idx}`)
+  list.querySelector('.pl.cur')?.scrollIntoView({ block: 'nearest' })
+}
+
+function openPalette() {
+  if (palette || renaming || pick || parking) return
+  $('#ovHelp').classList.remove('on')
+  palette = { q: '', key: '', idx: 0, sig: '', entries: [], back: document.activeElement }
+  $('#palIn').value = ''
+  $('#ovPal').classList.add('on')
+  renderPalette(true)
+  $('#palIn').focus()
+}
+
+function closePalette(restore = true) {
+  if (!palette) return
+  const back = palette.back
+  palette = null
+  $('#ovPal').classList.remove('on')
+  $('#palIn').blur()
+  if (restore && back && back !== document.body && document.contains(back)) back.focus()
+}
+
+/** Select a session the way clicking its row does; widen the view first when a filter or the view itself hides it. */
+function jumpToSession(id) {
+  const visible = () => items().some((x) => x.sessionId === id)
+  if (!visible()) {
+    const row = paletteSessions().find((x) => x.sessionId === id)
+    if (view === 'queue') {
+      if (roleFilter) setRoleFilter('')
+      if (!visible() && project) setProject('')
+      if (!visible() && !queue.some((x) => x.sessionId === id)) setView(row?.parked ? 'parked' : 'tree')
+    } else {
+      if (filter) { filter = ''; $('#flt').value = ''; if (rawTree) applyTree() }
+      if (project) setProject('')
+      if (!visible()) setView(row?.parked ? 'parked' : queue.some((x) => x.sessionId === id) ? 'queue' : 'tree')
+    }
+  }
+  sel = id
+  render()
+  document.querySelector('.q.sel')?.scrollIntoView({ block: 'nearest' })
+}
+
+function runPalette(i) {
+  const e = palette?.entries[i]
+  if (!e) return
+  closePalette()
+  if (e.type === 'session') return jumpToSession(e.ref.sessionId)
+  const id = e.ref.id
+  if (id.startsWith('project:')) return setProject(id.slice(8))
+  RUN[id]?.()
+}
+
+window.addEventListener('keydown', (e) => {
+  if (!(e.key === 'k' || e.key === 'K') || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
+  if (renaming || pick || parking) return // never from inside the rename box, nor over another dialog
+  e.preventDefault()
+  e.stopPropagation()
+  palette ? closePalette() : openPalette()
+}, true)
+
+$('#palIn').addEventListener('input', (e) => { palette.q = e.target.value; palette.key = ''; palette.idx = 0; renderPalette() })
+$('#palIn').addEventListener('keydown', (e) => {
+  e.stopPropagation()
+  if (!palette) return
+  const move = (d) => { e.preventDefault(); palette.idx = stepHighlight(palette.entries, palette.idx, d); palette.key = palette.entries[palette.idx]?.key || ''; renderPalette() }
+  if (e.key === 'Escape') { e.preventDefault(); closePalette() }
+  else if (e.key === 'ArrowDown' || (e.ctrlKey && (e.key === 'n' || e.key === 'N'))) move(1)
+  else if (e.key === 'ArrowUp' || (e.ctrlKey && (e.key === 'p' || e.key === 'P'))) move(-1)
+  else if (e.key === 'Enter') { e.preventDefault(); runPalette(palette.idx) }
+  else if (e.key === 'Tab') e.preventDefault() // focus stays in the input
+})
+$('#palIn').addEventListener('blur', () => { if (palette) setTimeout(() => palette && $('#palIn').focus(), 0) }) // trap focus
+$('#palList').addEventListener('mousedown', (e) => e.preventDefault()) // a click must not blur the input
+$('#palList').addEventListener('click', (e) => { const r = e.target.closest('.pl'); if (r) runPalette(Number(r.dataset.i)) })
+$('#palList').addEventListener('mousemove', (e) => {
+  const r = e.target.closest('.pl')
+  if (!r || !palette || Number(r.dataset.i) === palette.idx) return
+  palette.idx = Number(r.dataset.i)
+  palette.key = palette.entries[palette.idx]?.key || ''
+  renderPalette()
+})
+$('#ovPal').addEventListener('mousedown', (e) => { if (e.target.id === 'ovPal') { e.preventDefault(); closePalette() } })
+$('#palHint').addEventListener('click', () => (palette ? closePalette() : openPalette()))
+
 // Tab is handled on window in the capture phase, like the other keyboard-first pages: nothing below (a pending
 // n/c second key, a dialog's own handlers) can swallow it, so the browser never gets to move focus to its own UI.
 window.addEventListener('keydown', (e) => {
@@ -948,7 +1137,7 @@ window.addEventListener('keydown', (e) => {
 }, true)
 
 document.addEventListener('keydown', (e) => {
-  if (pick || parking) return
+  if (pick || parking || palette) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
   if (renaming) {
     if (e.key === 'Enter') { e.preventDefault(); commitRename() }
@@ -970,7 +1159,7 @@ document.addEventListener('keydown', (e) => {
   }
   const help = $('#ovHelp')
   if (e.key === 'Escape') return help.classList.remove('on')
-  if (e.key === '?') return help.classList.toggle('on')
+  if (e.key === '?') return toggleHelp()
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
@@ -983,27 +1172,16 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
   else if (e.key === 'b') { e.preventDefault(); setRail(!railOpen) }
   else if (e.key === 'e') { e.preventDefault(); setTicker(!tickerOpen) }
-  else if (e.key === 'v') {
-    e.preventDefault()
-    if (view !== 'tree') return toast('v shows or hides parked sessions on the Roles page (t)')
-    setShowParked(!showParked)
-    toast(showParked ? 'Roles: parked sessions shown' : 'Roles: parked sessions hidden · p lists them')
-  }
-  else if (e.key === 'm' || e.key === 'w') {
-    e.preventDefault()
-    if (view !== 'queue') return toast('The role filter applies to the queue (h)')
-    const next = toggleRole(roleFilter, e.key === 'm' ? 'manager' : 'worker')
-    setRoleFilter(next)
-    toast(next ? `Showing ${next}s only · ${e.key} again clears` : 'Role filter off')
-  }
-  else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); setProject(cycleProject(projectList().map((p) => p.project), activeProject(), e.key === 'g' ? 1 : -1)) }
+  else if (e.key === 'v') { e.preventDefault(); toggleParkedShown() }
+  else if (e.key === 'm' || e.key === 'w') { e.preventDefault(); toggleRoleKey(e.key) }
+  else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); stepProject(e.key === 'g' ? 1 : -1) }
   else if (e.key === 'i') { e.preventDefault(); jumpToInterface() }
   else if (e.key === 't') setView('tree')
   else if (e.key === 'h' || e.key === 'q') setView('queue')
-  else if (e.key === 'c') { e.preventDefault(); awaitingRole = true; toast('Classify: i interface · m manager · w worker · x clear') }
+  else if (e.key === 'c') { e.preventDefault(); startClassify() }
   else if (e.key === 'C' && view === 'tree') { e.preventDefault(); classifyGroup() }
-  else if (e.key === 'r' && items().length) { e.preventDefault(); renaming = sel; render() }
-  else if (e.key === 'n') { e.preventDefault(); awaitingNew = true; toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000) }
+  else if (e.key === 'r' && items().length) { e.preventDefault(); startRename() }
+  else if (e.key === 'n') { e.preventDefault(); startNew() }
 })
 
 document.querySelectorAll('.pill[data-view]').forEach((p) => p.addEventListener('click', () => setView(p.dataset.view)))
@@ -1017,7 +1195,8 @@ for (const el of [$('#list'), $('#side')]) {
   })
   el.addEventListener('dblclick', (e) => { if (e.target.closest('.q')) openSel() })
 }
-$('#helpBtn').addEventListener('click', () => $('#ovHelp').classList.toggle('on'))
+function toggleHelp() { $('#ovHelp').classList.toggle('on') }
+$('#helpBtn').addEventListener('click', toggleHelp)
 $('#ovHelp').addEventListener('click', (e) => { if (e.target.id === 'ovHelp') e.currentTarget.classList.remove('on') })
 
 // Wait timers tick locally; the server only pushes when the queue changes.
