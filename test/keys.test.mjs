@@ -116,3 +116,21 @@ test('arc reactor: markup in the header, driven from updateAmbient, motion off f
   assert.match(css, /prefers-reduced-motion:reduce\)\{\.reactor \.rx-ring,\.reactor \.rx-core\{animation:none/)
   assert.match(css, /max-width:900px\)\{\.rx-txt\{display:none/)
 })
+
+test('HUD extras: reactor ticks and glow, two header dials, and the project rail with its b key', async () => {
+  const [app, html, css, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('public/app.css'), read('README.md')])
+  assert.match(html, /class="rx-ticks"/)
+  assert.match(html, /class="rx-glow"/)
+  assert.match(html, /id="dialWait"/)
+  assert.match(html, /id="dialHook"/)
+  assert.match(html, /<aside id="rail"/)
+  assert.match(app, /updateDials\(now\)/)
+  assert.match(app, /e\.key === 'b'/)
+  assert.match(app, /localStorage\.setItem\('zarvis\.rail'/)
+  assert.match(css, /@media \(min-width:1100px\)\{\s*body\.rail-on\{padding-left:176px\}/) // the rail only exists on wide windows
+  assert.match(css, /max-width:900px\)\{\.dials\{display:none/)
+  assert.match(css, /reactor \.rx-glow\{animation:none/)
+  assert.match(html, /<b>b<\/b>/)
+  assert.match(html, /b rail/)
+  assert.match(readme, /`b` show\/hide the project rail/)
+})

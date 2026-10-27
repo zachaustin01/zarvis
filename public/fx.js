@@ -172,3 +172,55 @@ export function reactorText(counts) {
   if (counts.working) parts.push(`${counts.working} run`)
   return parts.join(' · ') || 'calm'
 }
+
+// ---- Stat dials (header) and the project gauge rail ----
+
+export const DIAL_R = 11
+export const DIAL_C = 2 * Math.PI * DIAL_R
+
+/** stroke-dasharray for a ring filled to `p` (0..1). */
+export const dialDash = (p, c = DIAL_C) => `${(Math.min(1, Math.max(0, p)) * c).toFixed(2)} ${c.toFixed(2)}`
+
+/** "42s", "7m", "3h": the shortest honest form of a wait, for a 26px dial. */
+export function compactWait(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`
+}
+
+/**
+ * The longest-wait dial: the oldest needs-you row, as a share of the overdue window (full ring = overdue).
+ * { p, text, state: '' | 'amber' | 'red', count }; nothing blocked reads "—" with an empty ring.
+ */
+export function waitDial(rows, now, overdueMs) {
+  const blocked = rows.filter(needsYou)
+  if (!blocked.length) return { p: 0, text: '—', state: '', count: 0 }
+  const wait = now - Math.min(...blocked.map((r) => r.since))
+  return { p: Math.min(1, Math.max(0, wait / overdueMs)), text: compactWait(wait), state: wait > overdueMs ? 'red' : 'amber', count: blocked.length }
+}
+
+/** The hook-status dial: live is a full green ring, stale a half amber one, absent or unknown an empty grey one. */
+export function hookDial(status) {
+  if (status === 'live') return { p: 1, state: 'live' }
+  if (status === 'stale') return { p: 0.5, state: 'stale' }
+  return { p: 0, state: status === 'absent' ? 'absent' : 'unknown' }
+}
+
+/**
+ * One gauge per project for the rail: its session mix as reactor arcs plus the counts. Projects come from
+ * the queue rows and from parked sessions in `nodes` (the tree), never from the interface; blocked-first order.
+ * `parked` is the tree's total for the project, since parked sessions mostly leave the queue.
+ */
+export function projectGauges(rows, nodes = []) {
+  const names = new Set()
+  for (const r of rows) if (r.project && r.role !== 'interface') names.add(r.project)
+  for (const n of nodes) if (n.project && n.role !== 'interface' && n.parked && !n.done) names.add(n.project)
+  const gauges = [...names].map((project) => {
+    const mine = rows.filter((r) => r.project === project && r.role !== 'interface')
+    const parked = nodes.filter((n) => n.project === project && n.role !== 'interface' && n.parked && !n.done).length
+    const counts = reactorCounts(mine, parked)
+    return { project, counts, arcs: reactorArcs(counts), total: counts.blocked + counts.working + counts.idle + counts.parked }
+  })
+  return gauges.sort((a, b) => b.counts.blocked - a.counts.blocked || b.counts.working - a.counts.working || a.project.localeCompare(b.project))
+}

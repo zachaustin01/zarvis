@@ -192,3 +192,46 @@ test('reactorState and reactorText: calm, amber, red, and the spin only while wo
   assert.equal(reactorText({ ...zero, blocked: 2, working: 3 }), '2 need · 3 run')
   assert.equal(reactorText({ ...zero, working: 1 }), '1 run')
 })
+
+import { dialDash, compactWait, waitDial, hookDial, projectGauges, DIAL_C } from '../public/fx.js'
+
+test('compactWait and dialDash', () => {
+  assert.equal(compactWait(0), '0s')
+  assert.equal(compactWait(42_000), '42s')
+  assert.equal(compactWait(7 * 60_000 + 5_000), '7m')
+  assert.equal(compactWait(3 * 3600_000), '3h')
+  assert.equal(dialDash(0), `0.00 ${DIAL_C.toFixed(2)}`)
+  assert.equal(dialDash(2), dialDash(1)) // clamped
+  assert.equal(dialDash(-1), dialDash(0))
+})
+
+test('waitDial: the oldest unparked blocked wait as a share of the overdue window', () => {
+  const now = 10 * MIN
+  assert.deepEqual(waitDial([{ state: 'working' }, blocked(0, { parked: {} })], now, OD), { p: 0, text: '—', state: '', count: 0 })
+  const w = waitDial([blocked(now - MIN), blocked(now - 2 * MIN)], now, OD)
+  assert.equal(w.text, '2m')
+  assert.equal(w.p, 0.4)
+  assert.equal(w.state, 'amber')
+  assert.equal(w.count, 2)
+  const late = waitDial([blocked(now - 8 * MIN, { kind: 'question' })], now, OD)
+  assert.deepEqual([late.p, late.state, late.text], [1, 'red', '8m'])
+})
+
+test('hookDial maps the server status and never guesses', () => {
+  assert.deepEqual(hookDial('live'), { p: 1, state: 'live' })
+  assert.deepEqual(hookDial('stale'), { p: 0.5, state: 'stale' })
+  assert.deepEqual(hookDial('absent'), { p: 0, state: 'absent' })
+  assert.deepEqual(hookDial(undefined), { p: 0, state: 'unknown' })
+})
+
+test('projectGauges: per-project mix, parked from the tree, no interface, blocked first', () => {
+  const r = (project, state, extra = {}) => ({ project, state, since: 0, role: 'worker', ...extra })
+  const rows = [r('a', 'working'), r('b', 'blocked'), r('b', 'idle'), r('a', 'idle'), r('x', 'working', { role: 'interface' })]
+  const nodes = [r('a', 'unknown', { parked: {} }), r('c', 'unknown', { parked: {} }), r('c', 'unknown', { parked: {}, done: true }), r('x', 'unknown', { role: 'interface', parked: {} })]
+  const g = projectGauges(rows, nodes)
+  assert.deepEqual(g.map((x) => x.project), ['b', 'a', 'c']) // blocked first, then working, then name
+  assert.deepEqual(g[1].counts, { blocked: 0, working: 1, idle: 1, parked: 1 })
+  assert.deepEqual(g[2].counts, { blocked: 0, working: 0, idle: 0, parked: 1 }) // a parked-only project still gets a gauge
+  assert.equal(g[0].total, 2)
+  assert.equal(g[0].arcs.length, 4)
+})

@@ -1,5 +1,5 @@
 'use strict'
-import { reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
+import { dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -401,6 +401,101 @@ function updateAmbient(now = Date.now()) {
   const att = attention(queue, now, OVERDUE_MS)
   updateTab(att)
   updateReactor(att)
+  updateDials(now)
+  renderRail()
+}
+
+/** The two header dials. Change-only, like the reactor. */
+let dialKey = ''
+let hookStatus = ''
+function updateDials(now) {
+  const w = waitDial(queue, now, OVERDUE_MS)
+  const h = hookDial(hookStatus)
+  const key = `${w.p.toFixed(3)}|${w.text}|${w.state}|${w.count}|${h.state}`
+  if (key === dialKey) return
+  dialKey = key
+  const wd = $('#dialWait')
+  wd.className = `dial ${w.state}`
+  wd.querySelector('.dl-fg').style.strokeDasharray = dialDash(w.p)
+  wd.querySelector('.dl-tx').textContent = w.text
+  wd.title = w.count ? `Longest wait ${w.text} · ${w.count} need${w.count === 1 ? 's' : ''} you · the ring fills toward the 5 minute overdue mark` : 'Longest wait: nothing needs you'
+  const hd = $('#dialHook')
+  hd.className = `dial ${h.state}`
+  hd.querySelector('.dl-fg').style.strokeDasharray = dialDash(h.p)
+  hd.title = { live: 'Hook events are arriving', stale: 'Hook events have gone quiet', absent: 'No hook markers on disk', unknown: 'Hook status unknown' }[h.state]
+}
+
+// Project rail: a ring gauge per project (blocked / working / idle / parked), click to filter. Wide windows only (CSS).
+let railOpen = true
+try { railOpen = localStorage.getItem('zarvis.rail') !== '0' } catch { /* storage blocked */ }
+document.body.classList.toggle('rail-on', railOpen)
+let railKey = ''
+function renderRail() {
+  const rail = $('#rail')
+  if (!railOpen) return
+  const nodes = rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : []
+  const gauges = projectGauges(queue, nodes)
+  const cur = activeProject()
+  const key = JSON.stringify([gauges.map((g) => [g.project, g.counts]), cur])
+  if (key === railKey) return
+  railKey = key
+  const R = 15
+  rail.replaceChildren()
+  const hd = document.createElement('div')
+  hd.className = 'rl-hd'
+  hd.textContent = 'Projects'
+  rail.append(hd)
+  if (!gauges.length) rail.append(Object.assign(document.createElement('div'), { className: 'rl-empty', textContent: 'No sessions yet' }))
+  for (const g of gauges) {
+    const el = document.createElement('div')
+    el.className = `rl-g${g.project === cur ? ' on' : ''}`
+    el.dataset.p = g.project
+    el.title = `${g.project}: ${g.counts.blocked} need you, ${g.counts.working} working, ${g.counts.idle} idle, ${g.counts.parked} parked`
+    const NS = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(NS, 'svg')
+    svg.setAttribute('viewBox', '0 0 40 40')
+    svg.setAttribute('width', '34')
+    svg.setAttribute('height', '34')
+    const grp = document.createElementNS(NS, 'g')
+    grp.setAttribute('transform', 'rotate(-90 20 20)')
+    const base = document.createElementNS(NS, 'circle')
+    base.setAttribute('cx', '20'); base.setAttribute('cy', '20'); base.setAttribute('r', String(R))
+    base.setAttribute('fill', 'none'); base.setAttribute('stroke', 'var(--edge)'); base.setAttribute('stroke-width', '5')
+    grp.append(base)
+    for (const a of g.arcs) {
+      const c = document.createElementNS(NS, 'circle')
+      c.setAttribute('class', `rl-a ${a.key}`)
+      c.setAttribute('cx', '20'); c.setAttribute('cy', '20'); c.setAttribute('r', String(R))
+      c.style.strokeDasharray = a.dash
+      c.style.strokeDashoffset = a.offset
+      grp.append(c)
+    }
+    svg.append(grp)
+    const txt = document.createElement('div')
+    txt.className = 'rl-txt'
+    const name = Object.assign(document.createElement('div'), { className: 'rl-n', textContent: g.project })
+    const cnt = document.createElement('div')
+    cnt.className = 'rl-c mono'
+    const parts = []
+    if (g.counts.blocked) parts.push(Object.assign(document.createElement('span'), { className: 'nd', textContent: `${g.counts.blocked} need` }))
+    if (g.counts.working) parts.push(Object.assign(document.createElement('span'), { className: 'rn', textContent: `${g.counts.working} run` }))
+    if (!parts.length) parts.push(document.createTextNode(`${g.total} total`))
+    parts.forEach((p, i) => { if (i) cnt.append(' · '); cnt.append(p) })
+    txt.append(name, cnt)
+    el.append(svg, txt)
+    rail.append(el)
+  }
+}
+$('#rail').addEventListener('click', (e) => {
+  const g = e.target.closest('.rl-g')
+  if (g) setProject(activeProject() === g.dataset.p ? '' : g.dataset.p)
+})
+function setRail(open) {
+  railOpen = open
+  try { localStorage.setItem('zarvis.rail', open ? '1' : '0') } catch { /* storage blocked */ }
+  document.body.classList.toggle('rail-on', open)
+  railKey = ''
+  renderRail()
 }
 
 /** The header arc reactor: only touches the DOM when what it shows changes. */
@@ -494,6 +589,7 @@ function setShowParked(on) {
 function setProject(p) {
   project = p
   try { localStorage.setItem('zarvis.project', p) } catch { /* storage blocked */ }
+  renderRail()
   if (view !== 'queue' && rawTree) applyTree()
   render()
 }
@@ -843,6 +939,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'z') { e.preventDefault(); undoLast() }
   else if (e.key === 'p') setView('parked')
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
+  else if (e.key === 'b') { e.preventDefault(); setRail(!railOpen) }
   else if (e.key === 'e') { e.preventDefault(); setTicker(!tickerOpen) }
   else if (e.key === 'v') {
     e.preventDefault()
@@ -899,6 +996,9 @@ function setHook(h) {
   const el = $('#hookst')
   const st = HOOK_LABEL[h?.status] ? h.status : 'unknown'
   el.className = `mono hk ${st}`
+  hookStatus = h?.status || ''
+  dialKey = ''
+  updateDials(Date.now())
   el.textContent = `hook: ${HOOK_LABEL[st] || 'unknown'}`
   el.title =
     st === 'absent' ? 'No hook markers on disk: the hook never ran, or every session has ended'
