@@ -59,3 +59,11 @@ test('highlight stays on the same entry across live updates; clamps when it vani
   assert.equal(stepHighlight(e('a', 'b'), 1, 1), 1)
   assert.equal(stepHighlight(e('a', 'b'), 0, -1), 0)
 })
+
+test('scoreSession: a parked session is found by its park reason, handoff note and who parked it', () => {
+  const r = { sessionId: 'a', name: 'checkout', project: 'shop', role: 'worker', state: 'idle', parked: { reason: 'waiting on payments review', handoffNote: 'resume at the webhook retry step', parkedByName: 'shop manager' } }
+  assert.ok(scoreSession('payments', r))
+  assert.ok(scoreSession('webhook retry', r))
+  assert.ok(scoreSession('shop manager', r))
+  assert.equal(scoreSession('payments', { ...r, parked: undefined }), null)
+})

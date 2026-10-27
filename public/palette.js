@@ -50,6 +50,10 @@ const SESSION_FIELDS = (r, stateLabel) => [
   [r.branch || r.worktree, 0.7],
   [r.role, 0.6],
   [stateLabel, 0.6],
+  // a parked session is found by why it was parked and by its handoff note, so it can be brought back
+  [r.parked?.reason, 0.7],
+  [r.parked?.handoffNote, 0.5],
+  [r.parked?.parkedByName, 0.4],
 ]
 
 /** Score a session row against the query: every token must hit some field. Returns { score, idx } (idx into the name) or null. */

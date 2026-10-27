@@ -1023,7 +1023,7 @@ function renderPalette(force) {
   palette.key = h.key
   palette.idx = h.idx
   palette.entries = entries
-  const sig = JSON.stringify([entries.map((e) => [e.key, e.label, e.type === 'session' ? [e.ref.state, e.ref.project, e.ref.branch || e.ref.worktree, e.ref.role, !!e.ref.parked] : e.ref.key]), h.idx])
+  const sig = JSON.stringify([entries.map((e) => [e.key, e.label, e.type === 'session' ? [e.ref.state, e.ref.project, e.ref.branch || e.ref.worktree, e.ref.role, !!e.ref.parked, e.ref.parked?.reason] : e.ref.key]), h.idx])
   if (!force && sig === palette.sig) return // a live push that changes nothing visible leaves the list alone
   palette.sig = sig
   const list = $('#palList')
@@ -1035,7 +1035,7 @@ function renderPalette(force) {
         if (e.type === 'command') return `<div class="pl cmd${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${esc(e.ref.group)}</span><span class="pn">${markName(e.label, e.idx)}</span>${e.ref.key ? `<span class="pk2">${e.ref.key.split(' ').map((k) => `<kbd>${esc(k)}</kbd>`).join(' ')}</span>` : ''}</div>`
         const r = e.ref
         const where = showsWhere(r) ? r.branch || r.worktree || '' : ''
-        return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
+        return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where, r.parked?.reason].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
       })
       .join('') || '<div class="pe">No matches.</div>'
   list.scrollTop = keep
