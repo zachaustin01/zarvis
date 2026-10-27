@@ -138,11 +138,11 @@ test('projectPathOf matches the scratch-workspaces path segment, not a substring
   assert.equal(isScratch('/r/scratch-workspaces-x/y'), false)
 })
 
-import { interfaceRows, applyRoles } from '../lib/queue.mjs'
+import { pinnedRows, applyRoles } from '../lib/queue.mjs'
 import { classify } from '../lib/roles.mjs'
 import { annotateRows, visibleRows } from '../lib/lifecycle.mjs'
 
-test('interfaceRows keeps a signal-less interface session in the queue as "not running", and nothing else', () => {
+test('pinnedRows keeps a signal-less interface session in the queue as "not running", and nothing else', () => {
   const rec = (n, extra = {}) => ({ sessionId: `local_${String(n).repeat(8)}-0000-4000-8000-000000000000`, cliSessionId: `${String(n).repeat(8)}-0000-4000-8000-000000000000`, title: `S${n}`, cwd: `/code/proj${n}`, createdAt: 1000, lastActivityAt: 5000, ...extra })
   const id = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`
   const records = [rec(1, { originCwd: '/code/brain' }), rec(2), rec(3, { isArchived: true }), rec(4), rec(5, { branch: 'feat/ABC-9-x' })]
@@ -150,7 +150,7 @@ test('interfaceRows keeps a signal-less interface session in the queue as "not r
   roles[id(4)] = { role: 'worker' }
   const nodes = classify({ records, roles })
   const live = [{ sessionId: id(2), state: 'working', since: 0 }] // 2 has a real row
-  const got = interfaceRows(nodes, records, live, { now: 9000 })
+  const got = pinnedRows(nodes, records, live, { now: 9000 })
   assert.deepEqual(got.map((r) => r.sessionId).sort(), [id(1), id(5)]) // 2 has a row, 3 is archived, 4 is a worker
   const one = got.find((r) => r.sessionId === id(1))
   assert.equal(one.state, 'unknown') // never a guessed idle
@@ -168,9 +168,27 @@ test('a not-running interface follows the lifecycle rules: parked and done leave
   const records = [1, 2, 3].map((n) => ({ sessionId: `local_${id(n)}`, cliSessionId: id(n), title: `S${n}`, cwd: `/c/${n}`, createdAt: 1 }))
   const nodes = classify({ records, roles: { [id(1)]: { role: 'interface' }, [id(2)]: { role: 'interface' }, [id(3)]: { role: 'interface' } } })
   const state = { parked: { [id(2)]: { reason: 'x', parkedAt: 1, wake: null, handoffNote: '' } }, done: { [id(3)]: true }, overlays: {} }
-  const rows = annotateRows(interfaceRows(nodes, records, []), state)
+  const rows = annotateRows(pinnedRows(nodes, records, []), state)
   assert.deepEqual(visibleRows(rows).map((r) => r.sessionId), [id(1)])
   assert.ok(rows.every((r) => r.state !== 'blocked'))
   // once the process is back there is a real row and no synthetic one
-  assert.deepEqual(interfaceRows(nodes, records, [{ sessionId: id(1), state: 'idle' }]).map((r) => r.sessionId), [id(2), id(3)])
+  assert.deepEqual(pinnedRows(nodes, records, [{ sessionId: id(1), state: 'idle' }]).map((r) => r.sessionId), [id(2), id(3)])
+})
+
+import { PINNED_ROLES } from '../lib/roles.mjs'
+
+test('pinned roles are interface and manager: a signal-less manager gets a not-running row, a worker does not, a live manager rolls up as before', () => {
+  const id = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`
+  assert.deepEqual(PINNED_ROLES, ['interface', 'manager'])
+  const records = [1, 2, 3, 4].map((n) => ({ sessionId: `local_${id(n)}`, cliSessionId: id(n), title: `S${n}`, cwd: `/c/proj${n}`, createdAt: 1, lastActivityAt: 2 }))
+  const roles = { [id(1)]: { role: 'manager' }, [id(2)]: { role: 'worker', parent: id(1) }, [id(3)]: { role: 'manager' }, [id(4)]: { role: 'interface' } }
+  const nodes = classify({ records, roles })
+  // 3 is a live manager (has a row); 1 has no signal but its worker 2 is blocked
+  const live = [{ sessionId: id(3), state: 'idle', since: 5 }, { sessionId: id(2), state: 'blocked', since: 1, name: 'W' }]
+  const got = pinnedRows(nodes, records, live)
+  assert.deepEqual(got.map((r) => [r.sessionId, r.role, r.state]).sort(), [[id(1), 'manager', 'unknown'], [id(4), 'interface', 'unknown']])
+  assert.ok(!got.some((r) => r.sessionId === id(2))) // workers are not pinned
+  // a manager that does have a row still becomes waiting_on_child under a blocked worker
+  const rolled = applyRoles([{ sessionId: id(1), state: 'idle', since: 1 }, { sessionId: id(2), state: 'blocked', since: 1, name: 'W' }], nodes)
+  assert.equal(rolled.find((r) => r.sessionId === id(1)).state, 'waiting_on_child')
 })

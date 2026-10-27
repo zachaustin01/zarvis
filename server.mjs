@@ -9,7 +9,7 @@ import { readMarkers, hookStatus, WORKING_DIR, ZARVIS_HOME } from './lib/markers
 import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE } from './lib/roles.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
-import { buildQueue, applyRoles, interfaceRows, newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
+import { buildQueue, applyRoles, pinnedRows, newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
@@ -63,7 +63,7 @@ async function allRows() {
   const rows = await buildQueue({ markers, working, records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
   const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(rows) })
   // An interface session stays in the queue even with no live process (no markers): "not running", never a guessed state.
-  const withRoles = [...applyRoles(rows, nodes), ...interfaceRows(nodes, records, rows, { overlays: state.overlays })]
+  const withRoles = [...applyRoles(rows, nodes), ...pinnedRows(nodes, records, rows, { overlays: state.overlays })]
   return annotateRows(withRoles, state, Date.now(), nameFn(nodes, state))
 }
 
