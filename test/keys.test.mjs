@@ -230,3 +230,26 @@ test('command palette: Cmd/Ctrl-K wiring, every command id has a handler that re
   assert.match(skin, /body\.tab-hidden \.ov\.pal/)
   assert.doesNotMatch(app.slice(app.indexOf('function renderPalette')), /#list'\)\.innerHTML/)
 })
+
+test('pagination: nothing scrolls, lists page by measured height, page keys do not take Tab, the pager flags urgent rows elsewhere', async () => {
+  const [app, html, css, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('public/app.css'), read('README.md')])
+  assert.match(css, /html,body\{height:100%;overflow:hidden\}/)
+  assert.doesNotMatch(css, /overflow(-[xy])?:\s*(auto|scroll)/) // no element may scroll
+  assert.doesNotMatch(css, /scrollbar-width/)
+  assert.doesNotMatch(app, /scrollIntoView/) // nothing to scroll to
+  for (const fn of ['renderTree', 'renderParked', 'render']) assert.match(app, new RegExp(`function ${fn}\\(\\) \\{\\n(  \\w+\\(\\)\\n)+  paginateList\\(\\)`)) // every list view is paged
+  assert.match(app, /paginate\(heights, heads, avail\)/)
+  assert.match(app, /e\.key === 'PageDown' \|\| e\.key === '\]'/)
+  assert.match(app, /e\.key === 'PageUp' \|\| e\.key === '\['/)
+  assert.match(app, /if \(changed && at >= 0\) page = pageOfIndex\(pages, at\)/) // follow a changed selection, never a live push
+  assert.match(app, /flagElsewhere\(pageUrgency\(\), page\)/)
+  assert.match(app, /addEventListener\('wheel'/)
+  assert.match(app, /addEventListener\('touchend'/)
+  assert.match(app, /windowAround\(h\.idx, entries\.length/) // the palette windows its results
+  assert.match(app, /windowAround\(pick\.idx/) // so does the attach picker
+  assert.match(html, /id="pager"/)
+  assert.match(sheet(html), /<kbd>\]<\/kbd> <kbd>\[<\/kbd>/)
+  assert.match(readme, /`\]`\/`\[`/)
+  // Tab keeps switching views: the page keys are separate
+  assert.match(app, /e\.key !== 'Tab'/)
+})

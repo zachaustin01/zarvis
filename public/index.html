@@ -66,6 +66,7 @@
       <div class="kr"><span class="kk"><kbd>r</kbd></span><span class="kd">Rename: Esc cancels, empty restores the app title</span></div>
     </section>
     <section><h3>Views</h3>
+      <div class="kr"><span class="kk"><kbd>]</kbd> <kbd>[</kbd></span><span class="kd">Next or previous page when the list does not fit the window (also PageDown and PageUp, the mouse wheel or a swipe, or click the pager). Nothing scrolls</span></div>
       <div class="kr"><span class="kk"><kbd>Tab</kbd></span><span class="kd">Cycle Queue, Roles, Parked (Shift+Tab goes back)</span></div>
       <div class="kr"><span class="kk"><kbd>h</kbd> <kbd>q</kbd></span><span class="kd">Attention queue</span></div>
       <div class="kr"><span class="kk"><kbd>t</kbd></span><span class="kd">Role tree</span></div>
@@ -92,6 +93,7 @@
       <div class="kr"><span class="kk"><kbd>?</kbd></span><span class="kd">This sheet</span></div>
     </section>
   </div>
+  <div class="sheet-pg mono" id="sheetPg" hidden></div>
 </div></div>
 <div class="ov pal" id="ovPal"><div class="box pal-box" role="dialog" aria-modal="true" aria-label="Command palette">
   <i class="tk-c a"></i><i class="tk-c b"></i><i class="tk-c c"></i><i class="tk-c d"></i>
@@ -115,6 +117,7 @@
   <span class="pill on" id="parkGo" style="cursor:pointer;display:inline-block;margin-top:8px">Park</span>
 </div></div>
 <div class="toast" id="toast"></div>
+<div id="pager" class="pager" hidden><span id="pgPrev" role="button" tabindex="-1" aria-label="Previous page" title="Previous page ( [ or PageUp )">‹</span><span id="pgTxt" class="mono">PAGE 1/1</span><span id="pgNext" role="button" tabindex="-1" aria-label="Next page" title="Next page ( ] or PageDown )">›</span><span id="pgAlert" class="pg-al"></span><span class="pg-hint">] [ · PgUp PgDn · wheel · swipe</span></div>
 <div id="tk" class="tk" aria-label="Recent events"><span class="lbl" id="tkLbl" title="e toggles">EVENTS <kbd>e</kbd></span><span id="tkList"><span id="tkTrack"></span></span></div>
 <script type="module" src="/app.js"></script>
 </body>

@@ -282,3 +282,65 @@ test('pushSample keeps the newest SPARK_MAX; sparkPoints scales to the peak, new
   assert.equal(sparkPoints([0, 0, 0], 64, 18), '1.0,17.0 32.0,17.0 63.0,17.0') // flat zero sits on the baseline
   assert.equal(sparkPoints([0, 2, 1], 64, 18), '1.0,17.0 32.0,1.0 63.0,9.0') // peak at the top, last sample at the right edge
 })
+
+import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround } from '../public/fx.js'
+
+test('paginate: greedy by measured heights, a heading never ends a page, every page has an item', () => {
+  assert.deepEqual(paginate([], [], 500), [[0, 0]])
+  assert.deepEqual(paginate([100, 100, 100], [false, false, false], 1000), [[0, 3]])
+  assert.deepEqual(paginate([100, 100, 100, 100], [false, false, false, false], 250), [[0, 2], [2, 4]])
+  // variable heights: 40 + 300 + 60 + 60 on a 380 window
+  assert.deepEqual(paginate([40, 300, 60, 60], [false, false, false, false], 380), [[0, 2], [2, 4]])
+  // a heading that would end the page moves to the next one
+  assert.deepEqual(paginate([100, 100, 30, 100], [false, false, true, false], 240), [[0, 2], [2, 4]])
+  // a row taller than the window still gets its own page; no avail at all pages one by one
+  assert.deepEqual(paginate([900, 50], [false, false], 300), [[0, 1], [1, 2]])
+  assert.deepEqual(paginate([10, 10, 10], [false, false, false], 0), [[0, 1], [1, 2], [2, 3]])
+  // a lone heading cannot be moved (it would leave an empty page)
+  assert.deepEqual(paginate([30, 100], [true, false], 40), [[0, 1], [1, 2]])
+})
+
+test('clamp, page of an index, first row of a page', () => {
+  const pages = [[0, 3], [3, 5], [5, 8]]
+  const heads = [true, false, false, true, false, false, false, false]
+  assert.equal(clampPage(9, 3), 2)
+  assert.equal(clampPage(-2, 3), 0)
+  assert.equal(clampPage(1, 0), 0)
+  assert.equal(pageOfIndex(pages, 0), 0)
+  assert.equal(pageOfIndex(pages, 4), 1)
+  assert.equal(pageOfIndex(pages, 7), 2)
+  assert.equal(pageOfIndex(pages, 8), -1)
+  assert.equal(firstRowOn(pages, heads, 0), 1) // skips the heading
+  assert.equal(firstRowOn(pages, heads, 1), 4)
+  assert.equal(firstRowOn(pages, [true, true, true, true, true, true, true, true], 1), -1)
+})
+
+test('the pager signals needs-you rows on other pages, red beating amber, never the current page', () => {
+  const pages = [[0, 2], [2, 4], [4, 6]]
+  const per = pageFlags(pages, ['', 'amber', '', '', 'red', ''])
+  assert.deepEqual(per, ['amber', '', 'red'])
+  assert.equal(flagElsewhere(per, 0), 'red')
+  assert.equal(flagElsewhere(per, 2), 'amber')
+  assert.equal(flagElsewhere(per, 1), 'red')
+  assert.equal(flagElsewhere(['red', ''], 0), '') // the blocked row is on the page you are looking at
+  assert.equal(flagElsewhere([''], 0), '')
+})
+
+test('wheelFlip: past the threshold, once per cooldown, vertical or horizontal', () => {
+  assert.equal(wheelFlip({ dy: 10, now: 1000 }), 0)
+  assert.equal(wheelFlip({ dy: 80, now: 1000 }), 1)
+  assert.equal(wheelFlip({ dy: -80, now: 1000 }), -1)
+  assert.equal(wheelFlip({ dx: 90, dy: 5, now: 1000 }), 1)
+  assert.equal(wheelFlip({ dy: 80, now: 1100, lastFlipAt: 1000 }), 0) // momentum tail of the same swipe
+  assert.equal(wheelFlip({ dy: 80, now: 1500, lastFlipAt: 1000 }), 1)
+})
+
+test('pageLabel, fitCount and windowAround', () => {
+  assert.equal(pageLabel(1, 4), 'PAGE 2/4')
+  assert.equal(fitCount(300, 40), 7)
+  assert.equal(fitCount(10, 40), 1)
+  assert.deepEqual(windowAround(0, 20, 5), [0, 5])
+  assert.deepEqual(windowAround(10, 20, 5), [8, 13])
+  assert.deepEqual(windowAround(19, 20, 5), [15, 20])
+  assert.deepEqual(windowAround(2, 3, 5), [0, 3])
+})

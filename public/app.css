@@ -38,7 +38,7 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 @keyframes evin{from{opacity:0;transform:translateX(-16px)}}
 body.tk-off #tkList{display:none}
 body.tk-off .tk .lbl{opacity:.6}
-@media (prefers-reduced-motion:reduce){.tk .ev.new{animation:none}#tkList{overflow-x:auto;scrollbar-width:thin}}
+@media (prefers-reduced-motion:reduce){.tk .ev.new{animation:none}#tkList{overflow:hidden}}
 main.wrap{padding-bottom:50px}
 .projbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:1180px;margin:14px auto -8px;padding:0 20px}
 .projbar[hidden]{display:none}
@@ -70,7 +70,7 @@ main.wrap{padding-bottom:50px}
 .q.wk::before{background:var(--cyd)}
 .q.wk .wt{color:var(--t2)}
 .q.id:not(.sel){opacity:.8}.q.id::before{background:var(--t3)}
-#pickList{max-height:46vh;overflow:auto;margin-top:8px}
+#pickList{max-height:46vh;overflow:hidden;margin-top:8px}
 .pk{padding:4px 8px;border:1px solid transparent;cursor:pointer;display:flex;gap:8px}
 .pk.cur{border-color:var(--cy);background:#0b1a28}
 .pk .bx{color:var(--cy);font-family:ui-monospace,Menlo,monospace}
@@ -123,7 +123,7 @@ body.tab-hidden *,body.tab-hidden::after{animation-play-state:paused!important}
 .wt{margin-left:auto;font-weight:600;letter-spacing:.08em;color:var(--am)}
 .od .wt{color:var(--rd)}
 .prompt{color:var(--t2);font-size:13px;margin-top:4px}
-.cmd{margin:6px 0 4px;color:var(--t1);background:#050a10;border:1px solid var(--edge);padding:5px 8px;overflow-wrap:anywhere;white-space:pre-wrap;max-height:14em;overflow:auto}
+.cmd{margin:6px 0 4px;color:var(--t1);background:#050a10;border:1px solid var(--edge);padding:5px 8px;overflow-wrap:anywhere;white-space:pre-wrap;max-height:14em;overflow:hidden}
 .cmd .tool{color:var(--cy);margin-right:8px}
 .hint{color:var(--t3);font-size:12px;margin-top:14px}
 .empty{color:var(--t3);padding:36px 4px;font-size:16px}
@@ -146,7 +146,7 @@ input:focus,textarea:focus{border-color:var(--cy)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
 
 .q.pkv .prompt{color:var(--t1)}
-.note{white-space:pre-wrap;color:var(--t2);font-size:12px;margin-top:6px;border-left:2px solid var(--edge);padding-left:8px;max-height:9em;overflow:auto}
+.note{white-space:pre-wrap;color:var(--t2);font-size:12px;margin-top:6px;border-left:2px solid var(--edge);padding-left:8px;max-height:9em;overflow:hidden}
 
 .clm{color:var(--gr);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;border:1px solid #2f7a58;padding:0 6px;margin-left:6px;white-space:nowrap}
 .clm.sh{color:var(--am);border-color:var(--am)}.clm.off{color:var(--t3);border-color:var(--edge)}
@@ -195,7 +195,7 @@ body.tab-hidden .reactor *{animation-play-state:paused!important}
 .rail{display:none}
 @media (min-width:1100px){
   body.rail-on{padding-left:176px}
-  body.rail-on .rail{display:block;position:fixed;left:0;top:0;bottom:30px;width:168px;overflow-y:auto;padding:14px 10px;border-right:1px solid var(--edge);background:#070d15cc;z-index:4;scrollbar-width:thin}
+  body.rail-on .rail{display:block;position:fixed;left:0;top:0;bottom:30px;width:168px;overflow:hidden;padding:14px 10px;border-right:1px solid var(--edge);background:#070d15cc;z-index:4}
 }
 .rl-hd{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);margin:0 0 8px 2px}
 .rl-g{display:flex;align-items:center;gap:8px;padding:5px 4px;border:1px solid transparent;cursor:pointer}
@@ -249,7 +249,7 @@ body.tab-hidden .reactor *{animation-play-state:paused!important}
 body.tab-hidden .ifr-ticks{animation-play-state:paused!important}
 
 /* The key sheet: sections in columns, key caps on the left */
-.box.wide{width:min(900px,94vw);max-height:76vh;overflow-y:auto}
+.box.wide{width:min(900px,94vw);max-height:84vh;overflow:hidden;position:relative}
 .sheet-hd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
 .sheet-hd .ap{font-size:11px;letter-spacing:.04em;text-transform:none;font-weight:400}
 .sheet{columns:2 340px;column-gap:28px}
@@ -374,6 +374,43 @@ body.tab-hidden #hudbg::after,body.tab-hidden .top::after,body.tab-hidden .rx-ti
 .cx-tx{font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
 @media (max-width:760px){.cx-bar{width:30px}}
 
+/* ======= No scrolling anywhere: lists are paged (see paginateList), dialogs fit or page their own content ======= */
+html,body{height:100%;overflow:hidden}
+textarea{overflow:hidden;resize:none}
+[hidden]{display:none!important}
+#side{max-height:calc(100vh - 160px);overflow:hidden}
+.sheet.paged{columns:1}
+.sheet-pg{position:absolute;left:18px;right:18px;bottom:8px;font-size:11px;letter-spacing:.1em;color:var(--t2)}
+.box.wide{padding-bottom:30px}
+
+/* The pager: a calm line above the ticker, tinted amber or red when another page holds a session that needs you */
+.pager{position:fixed;left:0;right:0;bottom:30px;height:28px;z-index:8;display:flex;align-items:center;justify-content:center;gap:14px;
+ font-size:11px;letter-spacing:.14em;color:var(--t2);background:linear-gradient(180deg,transparent,#05080dcc 60%)}
+.pager [role=button]{cursor:pointer;font-size:16px;line-height:1;padding:0 8px;color:var(--cy);user-select:none}
+.pager [role=button].dim{color:var(--t3);cursor:default}
+.pager [role=button]:hover:not(.dim){color:var(--t1)}
+.pg-al{display:none}
+.pager.pg-amber,.pager.pg-red{border-top:1px solid currentColor}
+.pager.pg-amber{color:var(--am)}.pager.pg-red{color:var(--rd)}
+.pager.pg-amber .pg-al,.pager.pg-red .pg-al{display:inline;text-transform:uppercase;letter-spacing:.12em}
+.pager.pg-amber #pgTxt,.pager.pg-red #pgTxt{animation:pgpulse 2.4s ease-in-out infinite}
+.pg-hint{color:var(--t3);letter-spacing:.08em}
+@keyframes pgpulse{50%{opacity:.5}}
+@media (max-width:600px){.pg-hint{display:none}.pager{gap:8px;letter-spacing:.08em}}
+.pager>*{white-space:nowrap}
+@media (max-width:480px){.pg-al{font-size:0!important;letter-spacing:0}.pg-al::after{content:'!';font-size:14px;font-weight:700}}
+/* On a phone the interface ring is a compact disc so the list keeps room for a few rows per page */
+@media (max-width:760px){
+  #side .q.ifr .ifr-disc{width:112px;height:112px;margin:0 auto}
+  #side .q.ifr .ifr-mid{inset:22px}
+  #side .q.ifr .ifr-role,#side .q.ifr .ifr-cx,#side .q.ifr .ifr-st,#side .q.ifr .ifr-cmd{display:none}
+  #side .q.ifr .ifr-mid .nm{font-size:10px;-webkit-line-clamp:2}
+  #side .q.ifr{margin-bottom:6px}
+}
+@media (min-width:1100px){body.rail-on .pager{left:176px}}
+@media (prefers-reduced-motion:reduce){.pager #pgTxt{animation:none!important}}
+body.tab-hidden .pager #pgTxt{animation-play-state:paused!important}
+
 /* ---- Command palette (Cmd/Ctrl-K): centred glass panel; open/close fade uses opacity and transform only ---- */
 .ov.pal{display:flex;visibility:hidden;opacity:0;transition:opacity .12s ease-out,visibility 0s .12s;z-index:40}
 .ov.pal.on{visibility:visible;opacity:1;transition:opacity .12s ease-out}
@@ -385,7 +422,7 @@ body.tab-hidden #hudbg::after,body.tab-hidden .top::after,body.tab-hidden .rx-ti
 .pal-hd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:8px}
 .pal-hd .ap{font-size:11px;letter-spacing:.04em;text-transform:none;font-weight:400}
 .pal-in{width:100%;box-sizing:border-box;font:14px ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:7px 10px;border-color:var(--cyd)}
-.pal-list{margin-top:8px;max-height:min(52vh,420px);overflow-y:auto;scrollbar-width:thin}
+.pal-list{margin-top:8px;max-height:min(52vh,420px);overflow:hidden}
 .pl{display:grid;grid-template-columns:96px minmax(0,1fr) auto auto;gap:10px;align-items:baseline;padding:5px 8px;border:1px solid transparent;cursor:pointer}
 .pl.cur{border-color:var(--cy);background:#0b1a28}
 .pl .pt{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -401,3 +438,4 @@ body.tab-hidden #hudbg::after,body.tab-hidden .top::after,body.tab-hidden .rx-ti
 @media (max-width:600px){.pl{grid-template-columns:70px minmax(0,1fr) auto}.pl .pm{display:none}.ov.pal{padding-top:6vh}.pal-hd .ap{display:none}}
 body.tab-hidden .ov.pal,body.tab-hidden .pal-box{transition:none}
 @media (prefers-reduced-motion:reduce){.ov.pal,.ov.pal.on,.pal-box{transition:none}.pal-box{transform:none}}
+

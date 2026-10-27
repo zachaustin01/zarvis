@@ -1,5 +1,5 @@
 'use strict'
-import { clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
+import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
@@ -156,6 +156,9 @@ function treeStatus(r) {
   return r.state === 'unknown' ? 'parked · u to unpark' : `${real} · parked · u to unpark`
 }
 
+/** Marks a row that needs you, so the pager can flag a page that holds one. */
+const nd = (r) => (r.state === 'blocked' && !r.parked ? ' data-nd="1"' : '')
+
 function treeRow(r, depth) {
   const name =
     renaming === r.sessionId
@@ -164,13 +167,17 @@ function treeRow(r, depth) {
   const hint = r.suggested ? ` <span class="ap">suggested ${esc(r.suggested)} · c to confirm</span>` : ''
   const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
   return (
-    `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
+    `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}"${nd(r)} style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
     `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}${ctxHtml(r)}` +
     `<span class="wt">${esc(treeStatus(r))}</span></div>${bgList(r)}<span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
 
 function renderTree() {
+  renderTreeInner()
+  paginateList()
+}
+function renderTreeInner() {
   renderBar()
   $('#side').innerHTML = ''
   document.querySelector('.wrap').classList.remove('has-side')
@@ -189,6 +196,10 @@ const when = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', mo
 
 /** The Parked view: every parked session with its reason, who parked it, when, and its handoff note. */
 function renderParked() {
+  renderParkedInner()
+  paginateList()
+}
+function renderParkedInner() {
   renderBar()
   $('#side').innerHTML = ''
   document.querySelector('.wrap').classList.remove('has-side')
@@ -227,6 +238,9 @@ function applyTree() {
 
 function setView(v) {
   view = v
+  page = 0 // a different list: start at its first page, then follow the selection
+  anchorId = ''
+  lastSelSeen = null
   document.querySelectorAll('.pill[data-view]').forEach((p) => p.classList.toggle('on', p.dataset.view === v))
   $('#flt').hidden = v === 'queue'
   if (v !== 'queue') loadTree()
@@ -308,7 +322,7 @@ function rowHtml(r, now) {
       : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
-    `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}">` +
+    `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}>` +
     `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
@@ -474,14 +488,14 @@ let railOpen = true
 try { railOpen = localStorage.getItem('zarvis.rail') !== '0' } catch { /* storage blocked */ }
 document.body.classList.toggle('rail-on', railOpen)
 let railKey = ''
-function renderRail() {
+function renderRail(force) {
   const rail = $('#rail')
   if (!railOpen) return
   const nodes = rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : []
   const gauges = projectGauges(queue, nodes)
   const cur = activeProject()
   const key = JSON.stringify([gauges.map((g) => [g.project, g.counts]), cur])
-  if (key === railKey) return
+  if (key === railKey && !force) return
   railKey = key
   const R = 15
   rail.replaceChildren()
@@ -490,7 +504,9 @@ function renderRail() {
   hd.textContent = 'Projects'
   rail.append(hd)
   if (!gauges.length) rail.append(Object.assign(document.createElement('div'), { className: 'rl-empty', textContent: 'No sessions yet' }))
-  for (const g of gauges) {
+  const room = fitCount(innerHeight - 30 - 70, 46) // no scrollbar: the gauges that fit, blocked-first, then a count of the rest
+  const shown = gauges.slice(0, gauges.length > room ? Math.max(1, room - 1) : room)
+  for (const g of shown) {
     const el = document.createElement('div')
     el.className = `rl-g${g.project === cur ? ' on' : ''}`
     el.dataset.p = g.project
@@ -529,6 +545,7 @@ function renderRail() {
     el.append(svg, txt)
     rail.append(el)
   }
+  if (shown.length < gauges.length) rail.append(Object.assign(document.createElement('div'), { className: 'rl-empty', textContent: `+${gauges.length - shown.length} more · g cycles projects` }))
 }
 $('#rail').addEventListener('click', (e) => {
   const g = e.target.closest('.rl-g')
@@ -667,9 +684,13 @@ $('#projbar').addEventListener('click', (e) => {
 })
 
 function render() {
+  renderInner()
+  paginateList()
+}
+function renderInner() {
   renderBar()
-  if (view === 'tree') return renderTree()
-  if (view === 'parked') return renderParked()
+  if (view === 'tree') return renderTreeInner()
+  if (view === 'parked') return renderParkedInner()
   const vq = visibleQueue()
   const badge = String(vq.filter((r) => r.state === 'blocked' && !r.parked).length || '') // what the "Needs you" section holds
   if ($('#qb').textContent !== badge) { $('#qb').textContent = badge; flicker($('#qb')) }
@@ -699,6 +720,103 @@ function render() {
       .join('') || (iface.length ? '<div class="empty">Nothing else waiting on you.</div>' : '')
   restoreRename(renameSnap)
 }
+
+// ---- Pagination: nothing scrolls. The list is laid out in full, measured, cut into pages that fit the window, and all but the current page is hidden. ----
+const PAGER_RESERVE = 70 // the ticker (30) plus the pager line (28) plus a gap
+let page = 0
+let pageInfo = { pages: [[0, 0]], heads: [], ids: [], kids: [] }
+let lastSelSeen = null
+let lastFlipAt = 0
+let anchorId = '' // the first row on the current page: a re-measure (resize, rows appearing) keeps showing it
+
+function paginateList() {
+  const list = $('#list')
+  const kids = [...list.children]
+  for (const k of kids) k.hidden = false // measure everything
+  const heads = kids.map((k) => k.classList.contains('hd'))
+  const ids = kids.map((k) => k.dataset?.id || '')
+  const rects = kids.map((k) => k.getBoundingClientRect())
+  const avail = innerHeight - list.getBoundingClientRect().top - PAGER_RESERVE
+  const heights = rects.map((r, i) => (i < kids.length - 1 ? rects[i + 1].top : r.bottom + 8) - r.top)
+  const pages = paginate(heights, heads, avail)
+  pageInfo = { pages, heads, ids, kids }
+  // Follow the selection (or the row being renamed) when it changed since the last draw; a live push alone never moves the page.
+  const follow = renaming || sel
+  const changed = renaming ? true : sel !== lastSelSeen
+  lastSelSeen = sel
+  const at = follow ? ids.indexOf(follow) : -1
+  const anchorAt = anchorId ? ids.indexOf(anchorId) : -1
+  if (changed && at >= 0) page = pageOfIndex(pages, at)
+  else if (anchorAt >= 0) page = pageOfIndex(pages, anchorAt)
+  page = clampPage(page, pages.length)
+  const [s0, e0] = pages[page]
+  anchorId = ids.slice(s0, e0).find(Boolean) || ''
+  kids.forEach((k, i) => { k.hidden = i < s0 || i >= e0 })
+  renderPager()
+}
+
+/** Per-page urgency from the rows' own state (overdue is toggled by the 1s tick, so this is re-read, not stored). */
+function pageUrgency() {
+  const { pages, kids } = pageInfo
+  return pageFlags(pages, kids.map((k) => (k.classList.contains('od') ? 'red' : k.dataset?.nd ? 'amber' : '')))
+}
+
+function renderPager() {
+  const el = $('#pager')
+  const n = pageInfo.pages.length
+  const urgent = n > 1 ? flagElsewhere(pageUrgency(), page) : ''
+  const key = `${page}/${n}/${urgent}`
+  if (el.dataset.key === key) return
+  el.dataset.key = key
+  el.hidden = n <= 1
+  el.className = `pager${urgent ? ` pg-${urgent}` : ''}`
+  $('#pgTxt').textContent = pageLabel(page, n)
+  $('#pgAlert').textContent = urgent ? (urgent === 'red' ? 'overdue elsewhere' : 'needs you elsewhere') : ''
+  $('#pgPrev').classList.toggle('dim', page === 0)
+  $('#pgNext').classList.toggle('dim', page === n - 1)
+}
+
+/** Move to the next (1) or previous (-1) page and select its first row, so the selection stays on screen. */
+function flipPage(dir) {
+  const n = pageInfo.pages.length
+  const to = clampPage(page + dir, n)
+  if (to === page) return
+  page = to
+  const i = firstRowOn(pageInfo.pages, pageInfo.heads, to)
+  if (i >= 0 && pageInfo.ids[i]) { sel = pageInfo.ids[i]; anchorId = sel }
+  lastFlipAt = Date.now()
+  render()
+}
+$('#pgPrev').addEventListener('click', () => flipPage(-1))
+$('#pgNext').addEventListener('click', () => flipPage(1))
+
+// Wheel, trackpad and touch swipes flip pages (debounced by wheelFlip); never while a dialog is open.
+const overlayOpen = () => !!document.querySelector('.ov.on')
+addEventListener('wheel', (e) => {
+  if (overlayOpen() || e.ctrlKey) return
+  const dir = wheelFlip({ dx: e.deltaX, dy: e.deltaY, now: Date.now(), lastFlipAt })
+  if (dir) { lastFlipAt = Date.now(); flipPage(dir) }
+}, { passive: true })
+let touch0 = null
+addEventListener('touchstart', (e) => { touch0 = e.touches.length === 1 && !overlayOpen() ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null }, { passive: true })
+addEventListener('touchend', (e) => {
+  if (!touch0) return
+  const t = e.changedTouches[0]
+  const dir = wheelFlip({ dx: touch0.x - t.clientX, dy: touch0.y - t.clientY, now: Date.now(), lastFlipAt, threshold: 50, cooldown: 150 })
+  touch0 = null
+  if (dir) flipPage(dir)
+}, { passive: true })
+
+// A resize (or a header that wraps differently) changes how many rows fit: re-measure only when the room really changed.
+let lastAvail = ''
+let resizeTick = 0
+addEventListener('resize', () => {
+  clearTimeout(resizeTick)
+  resizeTick = setTimeout(() => {
+    const room = `${innerWidth}x${innerHeight}`
+    if (room !== lastAvail) { lastAvail = room; render(); fitHelp(); renderRail(true); if (palette) renderPalette(true) }
+  }, 120)
+})
 
 function setQueue(q) {
   queue = [...q].sort((a, b) => (SECTION_RANK[sectionOf(a)] ?? 9) - (SECTION_RANK[sectionOf(b)] ?? 9)) // stable: the server's order within a section
@@ -864,10 +982,10 @@ function renderPick() {
   const rows = pickRows()
   pick.idx = Math.min(pick.idx, Math.max(0, rows.length - 1))
   $('#pickHd').textContent = `Attach to “${pick.mgr.name}” (${pick.checked.size} ticked)`
+  const [k0, k1] = windowAround(pick.idx, rows.length, fitCount(Math.min(innerHeight * 0.46, 380), 30)) // no scrollbar: a window that holds the highlight
   $('#pickList').innerHTML =
-    rows.map((r, i) => `<div class="pk${i === pick.idx ? ' cur' : ''}" data-i="${i}"><span class="bx">${pick.checked.has(r.sessionId) ? '[x]' : '[ ]'}</span><span>${esc(r.name)}</span><span class="ap">${esc(r.project)}${r.role === 'worker' ? ' · worker elsewhere' : ''}</span></div>`).join('') ||
+    rows.map((r, i) => i < k0 || i >= k1 ? '' : `<div class="pk${i === pick.idx ? ' cur' : ''}" data-i="${i}"><span class="bx">${pick.checked.has(r.sessionId) ? '[x]' : '[ ]'}</span><span>${esc(r.name)}</span><span class="ap">${esc(r.project)}${r.role === 'worker' ? ' · worker elsewhere' : ''}</span></div>`).join('') + (k1 - k0 < rows.length ? `<div class="empty" style="font-size:12px;padding:6px 4px">${k0 + 1}–${k1} of ${rows.length} · ↑↓ for more</div>` : '') ||
     '<div class="empty" style="font-size:13px;padding:12px 4px">No matches.</div>'
-  document.querySelector('.pk.cur')?.scrollIntoView({ block: 'nearest' })
 }
 
 function openPick() {
@@ -946,7 +1064,6 @@ function jumpToInterface() {
   const i = all.findIndex((r) => r.sessionId === sel)
   sel = all[(i + 1) % all.length].sessionId
   render()
-  document.querySelector('.q.sel')?.scrollIntoView({ block: 'nearest' })
 }
 
 function move(d) {
@@ -955,7 +1072,6 @@ function move(d) {
   const n = Math.min(list.length - 1, Math.max(0, i + d))
   if (list[n]) sel = list[n].sessionId
   render()
-  document.querySelector('.q.sel')?.scrollIntoView({ block: 'nearest' })
 }
 
 // ---- Command palette (Cmd/Ctrl-K): sessions and every key action, fuzzy-searched ----
@@ -1027,20 +1143,20 @@ function renderPalette(force) {
   if (!force && sig === palette.sig) return // a live push that changes nothing visible leaves the list alone
   palette.sig = sig
   const list = $('#palList')
-  const keep = list.scrollTop
+  // No scrollbar: show the rows that fit, a window that always contains the highlight.
+  const [w0, w1] = windowAround(h.idx, entries.length, fitCount(Math.min(innerHeight * 0.52, 420), 36))
   list.innerHTML =
     entries
       .map((e, i) => {
+        if (i < w0 || i >= w1) return ''
         const cur = i === h.idx ? ' cur' : ''
         if (e.type === 'command') return `<div class="pl cmd${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${esc(e.ref.group)}</span><span class="pn">${markName(e.label, e.idx)}</span>${e.ref.key ? `<span class="pk2">${e.ref.key.split(' ').map((k) => `<kbd>${esc(k)}</kbd>`).join(' ')}</span>` : ''}</div>`
         const r = e.ref
         const where = showsWhere(r) ? r.branch || r.worktree || '' : ''
         return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where, r.parked?.reason].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
       })
-      .join('') || '<div class="pe">No matches.</div>'
-  list.scrollTop = keep
+      .join('') + (w1 - w0 < entries.length ? `<div class="pe">${w0 + 1}–${w1} of ${entries.length} · ↑↓ for more</div>` : '') || '<div class="pe">No matches.</div>'
   $('#palIn').setAttribute('aria-activedescendant', `pl${h.idx}`)
-  list.querySelector('.pl.cur')?.scrollIntoView({ block: 'nearest' })
 }
 
 function openPalette() {
@@ -1079,7 +1195,6 @@ function jumpToSession(id) {
   }
   sel = id
   render()
-  document.querySelector('.q.sel')?.scrollIntoView({ block: 'nearest' })
 }
 
 function runPalette(i) {
@@ -1160,6 +1275,8 @@ document.addEventListener('keydown', (e) => {
   const help = $('#ovHelp')
   if (e.key === 'Escape') return help.classList.remove('on')
   if (e.key === '?') return toggleHelp()
+  if (e.key === 'PageDown' || e.key === ']') { e.preventDefault(); return help.classList.contains('on') ? helpFlip(1) : flipPage(1) }
+  if (e.key === 'PageUp' || e.key === '[') { e.preventDefault(); return help.classList.contains('on') ? helpFlip(-1) : flipPage(-1) }
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
@@ -1195,7 +1312,47 @@ for (const el of [$('#list'), $('#side')]) {
   })
   el.addEventListener('dblclick', (e) => { if (e.target.closest('.q')) openSel() })
 }
-function toggleHelp() { $('#ovHelp').classList.toggle('on') }
+function toggleHelp() {
+  $('#ovHelp').classList.toggle('on')
+  fitHelp()
+}
+
+// The key sheet fits the window too: if its sections do not all fit, they become pages of their own.
+let helpPage = 0
+let helpPages = [[0, 1]]
+function fitHelp() {
+  const ov = $('#ovHelp')
+  const box = ov.querySelector('.box')
+  const sheet = box.querySelector('.sheet')
+  const secs = [...sheet.children]
+  sheet.classList.remove('paged')
+  secs.forEach((x) => { x.hidden = false })
+  const pg = $('#sheetPg')
+  pg.hidden = true
+  if (!ov.classList.contains('on')) return
+  if (box.scrollHeight <= box.clientHeight + 1) { helpPages = [[0, secs.length]]; helpPage = 0; return }
+  sheet.classList.add('paged') // one column, one page of sections at a time
+  const hd = box.querySelector('.sheet-hd').offsetHeight
+  const avail = box.clientHeight - hd - 70
+  const heights = secs.map((x) => x.getBoundingClientRect().height + 16)
+  helpPages = paginate(heights, secs.map(() => false), avail)
+  helpPage = clampPage(helpPage, helpPages.length)
+  showHelpPage()
+}
+function showHelpPage() {
+  const secs = [...$('#ovHelp .sheet').children]
+  const [a, b] = helpPages[helpPage]
+  secs.forEach((x, i) => { x.hidden = i < a || i >= b })
+  const pg = $('#sheetPg')
+  pg.hidden = helpPages.length <= 1
+  pg.textContent = `${pageLabel(helpPage, helpPages.length)} · ] [ or PageUp PageDown`
+}
+function helpFlip(dir) {
+  const to = clampPage(helpPage + dir, helpPages.length)
+  if (to === helpPage || helpPages.length <= 1) return
+  helpPage = to
+  showHelpPage()
+}
 $('#helpBtn').addEventListener('click', toggleHelp)
 $('#ovHelp').addEventListener('click', (e) => { if (e.target.id === 'ovHelp') e.currentTarget.classList.remove('on') })
 
@@ -1209,6 +1366,7 @@ setInterval(() => {
   })
   updateAmbient(now)
   updateTelemetry(now)
+  renderPager() // an overdue row on another page turns the pager red
 }, 1000)
 
 // Idle telemetry in the header: a clock and a five-minute needs-you sparkline. Change-only DOM writes.

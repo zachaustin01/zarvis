@@ -272,3 +272,71 @@ export function sparkPoints(samples, w, h, pad = 1) {
   const step = (w - pad * 2) / (samples.length - 1)
   return samples.map((v, i) => `${(pad + i * step).toFixed(1)},${(h - pad - (v / top) * (h - pad * 2)).toFixed(1)}`).join(' ')
 }
+
+// ---- Pagination: the dashboard never scrolls; lists are cut into pages that fit the window ----
+
+/**
+ * Cut a list into pages by measured heights. `heights[i]` is item i's height including its margin, `heads[i]`
+ * marks a section heading (never left stranded at the bottom of a page: it moves to the next page with its
+ * first row). Every page holds at least one item, so a row taller than the window still gets a page.
+ * Returns [[start, end), …]; an empty list is one empty page.
+ */
+export function paginate(heights, heads, avail) {
+  const n = heights.length
+  if (!n) return [[0, 0]]
+  const pages = []
+  let s = 0
+  while (s < n) {
+    let e = s
+    let sum = 0
+    while (e < n && (e === s || sum + heights[e] <= avail)) sum += heights[e++]
+    if (e < n && e - 1 > s && heads[e - 1]) e-- // a heading is never the last thing on a page
+    pages.push([s, e])
+    s = e
+  }
+  return pages
+}
+
+export const clampPage = (page, count) => Math.min(Math.max(0, count - 1), Math.max(0, page | 0))
+
+/** The page that holds item `index`, or -1. */
+export const pageOfIndex = (pages, index) => pages.findIndex(([s, e]) => index >= s && index < e)
+
+/** The first selectable (non-heading) item on a page, or -1. */
+export function firstRowOn(pages, heads, page) {
+  const [s, e] = pages[page] || [0, 0]
+  for (let i = s; i < e; i++) if (!heads[i]) return i
+  return -1
+}
+
+const RANK = { '': 0, amber: 1, red: 2 }
+
+/** Per page: the most urgent flag ('' | 'amber' | 'red') among its items; `flags[i]` is that item's own. */
+export const pageFlags = (pages, flags) => pages.map(([s, e]) => flags.slice(s, e).reduce((w, f) => (RANK[f] > RANK[w] ? f : w), ''))
+
+/** The most urgent flag on any page other than `current`: what the pager has to signal. */
+export const flagElsewhere = (perPage, current) => perPage.reduce((w, f, i) => (i !== current && RANK[f] > RANK[w] ? f : w), '')
+
+/**
+ * Wheel / swipe to page flip, debounced: a flip needs |delta| past the threshold and a quiet cooldown since the
+ * last flip, so a trackpad's momentum tail does not fly through the pages. Returns -1 (previous), 0 or 1 (next).
+ */
+export function wheelFlip({ dx = 0, dy = 0, now, lastFlipAt = 0, threshold = 40, cooldown = 380 }) {
+  if (now - lastFlipAt < cooldown) return 0
+  const d = Math.abs(dy) >= Math.abs(dx) ? dy : dx
+  if (Math.abs(d) < threshold) return 0
+  return d > 0 ? 1 : -1
+}
+
+/** "PAGE 2/4" */
+export const pageLabel = (page, count) => `PAGE ${page + 1}/${count}`
+
+/** How many fixed-height items fit in `avail` px (at least 1): for the palette results, the rail and the pickers. */
+export const fitCount = (avail, itemHeight) => Math.max(1, Math.floor(avail / Math.max(1, itemHeight)))
+
+/** A window of `size` items from `total` that keeps `index` in view, as [start, end). */
+export function windowAround(index, total, size) {
+  if (total <= size) return [0, total]
+  const start = Math.min(Math.max(0, index - Math.floor(size / 2)), total - size)
+  return [start, start + size]
+}
