@@ -152,11 +152,20 @@ const LINKS_SHOWN = 3
  */
 function linksHtml(r) {
   const ls = (Array.isArray(r.links) ? r.links : []).map((l) => ({ url: safeUrl(l?.url) || safeFile(l?.url), label: String(l?.label ?? '').slice(0, 60) })).filter((l) => l.url)
-  if (!ls.length) return ''
+  const clock = clockChip(r.sessionId)
+  if (!ls.length) return clock ? `<div class="lks">${clock}</div>` : ''
   const all = openLk.has(r.sessionId)
   const chips = (all ? ls : ls.slice(0, LINKS_SHOWN)).map((l) => l.url.startsWith('file:') ? `<button type="button" class="lk lkf" data-u="${esc(l.url)}" title="Open ${esc(decodeURI(l.url.slice(7)))} (Shift-click: show in Finder)"><span>${esc(l.label || l.url)}</span><b aria-hidden="true">▤</b></button>` : `<a class="lk" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}"><span>${esc(l.label || l.url)}</span><b aria-hidden="true">↗</b></a>`)
   const more = ls.length > LINKS_SHOWN ? `<span class="lkm" role="button" title="${all ? 'Show fewer links' : 'Show all links'}">${all ? '−' : `+${ls.length - LINKS_SHOWN}`}</span>` : ''
-  return `<div class="lks">${chips.join('')}${more}</div>`
+  return `<div class="lks">${chips.join('')}${more}${clock}</div>`
+}
+
+/** `⏱ next 11:07` on the card of a session that owns schedules (npm run schedule --by): the soonest run, a click opens the Schedule view on it. */
+function clockChip(id) {
+  const mine = ownedJobs(id).filter((j) => j.next)
+  if (!mine.length) return ''
+  const j = mine.reduce((a, b) => (b.next < a.next ? b : a))
+  return `<span class="lk lkc" role="button" tabindex="-1" data-n="${esc(j.name)}" title="${esc(`${mine.length > 1 ? `${mine.length} schedules; soonest: ` : ''}${j.name} (${j.desc}). Click: show on the Schedule view`)}"><span>next ${esc(clockLabel(j.next))}</span><b aria-hidden="true">⏱</b></span>`
 }
 
 /** The expanded list under a card: kind, name and how long each has run. */
@@ -1155,7 +1164,7 @@ function paletteSessions() {
   return out
 }
 
-const paletteEntries = () => paletteSearch(palette.q, paletteSessions(), buildCommands(projectList().map((p) => p.project)), { stateLabel: (r) => STATE_LABEL[r.state] || r.state })
+const paletteEntries = () => paletteSearch(palette.q, paletteSessions(), buildCommands(projectList().map((p) => p.project)), { stateLabel: (r) => STATE_LABEL[r.state] || r.state, schedules: schedList })
 
 function markName(label, idx) {
   if (!idx.length) return esc(label)
@@ -1170,7 +1179,7 @@ function renderPalette(force) {
   palette.key = h.key
   palette.idx = h.idx
   palette.entries = entries
-  const sig = JSON.stringify([entries.map((e) => [e.key, e.label, e.type === 'session' ? [e.ref.state, e.ref.project, e.ref.branch || e.ref.worktree, e.ref.role, !!e.ref.parked, e.ref.parked?.reason, (e.ref.links || []).map((l) => l.url).join(' ')] : e.ref.key]), h.idx])
+  const sig = JSON.stringify([entries.map((e) => [e.key, e.label, e.type === 'session' ? [e.ref.state, e.ref.project, e.ref.branch || e.ref.worktree, e.ref.role, !!e.ref.parked, e.ref.parked?.reason, (e.ref.links || []).map((l) => l.url).join(' ')] : e.type === 'schedule' ? [e.ref.desc, e.ref.next, e.ref.owner?.name, e.ref.owner?.gone] : e.ref.key]), h.idx])
   if (!force && sig === palette.sig) return // a live push that changes nothing visible leaves the list alone
   palette.sig = sig
   const list = $('#palList')
@@ -1182,6 +1191,7 @@ function renderPalette(force) {
         if (i < w0 || i >= w1) return ''
         const cur = i === h.idx ? ' cur' : ''
         if (e.type === 'command') return `<div class="pl cmd${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${esc(e.ref.group)}</span><span class="pn">${markName(e.label, e.idx)}</span>${e.ref.key ? `<span class="pk2">${e.ref.key.split(' ').map((k) => `<kbd>${esc(k)}</kbd>`).join(' ')}</span>` : ''}</div>`
+        if (e.type === 'schedule') return `<div class="pl sch${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">⏱ schedule</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([e.ref.desc, e.ref.owner ? `↳ ${e.ref.owner.name}${e.ref.owner.gone ? ' (session gone)' : ''}` : ''].filter(Boolean).join(' › '))}</span><span class="ps">${e.ref.next ? esc(`next ${clockLabel(e.ref.next)}`) : 'never'}</span></div>`
         const r = e.ref
         const where = showsWhere(r) ? r.branch || r.worktree || '' : ''
         return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where, r.parked?.reason, r.links?.length ? `↗ ${r.links[0].label}${r.links.length > 1 ? ` +${r.links.length - 1}` : ''}` : ''].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
@@ -1233,6 +1243,7 @@ function runPalette(i) {
   if (!e) return
   closePalette()
   if (e.type === 'session') return jumpToSession(e.ref.sessionId)
+  if (e.type === 'schedule') return selectLane(e.ref.name)
   const id = e.ref.id
   if (id.startsWith('project:')) return setProject(id.slice(8))
   RUN[id]?.()
@@ -1308,6 +1319,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '?') return toggleHelp()
   if (e.key === 'PageDown' || e.key === ']') { e.preventDefault(); return help.classList.contains('on') ? helpFlip(1) : flipPage(1) }
   if (e.key === 'PageUp' || e.key === '[') { e.preventDefault(); return help.classList.contains('on') ? helpFlip(-1) : flipPage(-1) }
+  if (view === 'schedule' && ['j', 'k', 'ArrowDown', 'ArrowUp', 'Enter'].includes(e.key)) {
+    e.preventDefault()
+    return e.key === 'Enter' ? openLane() : moveLane(e.key === 'j' || e.key === 'ArrowDown' ? 1 : -1)
+  }
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
@@ -1340,6 +1355,8 @@ for (const el of [$('#list'), $('#side')]) {
   el.addEventListener('click', (e) => {
     const q = e.target.closest('.q')
     if (!q || e.target.tagName === 'INPUT') return
+    const ck = e.target.closest('.lkc')
+    if (ck) { schSel = ck.dataset.n; schFollow = true; setView('schedule'); return }
     if (e.target.closest('.lk')) {
       // A web link chip opens its own tab; a file chip asks the server to open the file. Neither is a click on the row.
       const f = e.target.closest('.lkf')
@@ -1527,6 +1544,16 @@ loadTree()
 
 // ---- Schedule: upcoming runs of scheduled jobs (npm run schedule). The server computes the run times; the track is
 // built once from a base time and slid with one CSS variable set from the clock, so only a transform ever animates. ----
+let schedList = [] // every job (light: no runs), refreshed every 30s in any view: the palette and the cards' clock chips
+let schSel = '' // the selected lane's job name
+let schFollow = false // the next draw moves to the page that holds the selected lane
+const ownedJobs = (id) => (id ? schedList.filter((j) => j.owner && j.owner.session === id && !j.owner.gone) : [])
+/** "11:07" today, "Wed 09:00" otherwise. */
+function clockLabel(t) {
+  const d = new Date(t)
+  const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+  return d.toDateString() === new Date().toDateString() ? hm : `${d.toLocaleDateString([], { weekday: 'short' })} ${hm}`
+}
 let zoom = DEFAULT_ZOOM
 try { zoom = zoomOf(localStorage.getItem('zarvis.schedZoom')).id } catch { /* storage blocked */ }
 let sch = null // { jobs, now0, skew, span }: the last fetch
@@ -1542,11 +1569,30 @@ async function loadSchedule(force) {
   try {
     const d = await (await fetch(`/api/schedule?span=${zoomOf(want).ms}`)).json()
     if (view !== 'schedule' || want !== zoom || !Array.isArray(d?.jobs)) return
+    setSchedList(d.jobs)
     sch = { jobs: d.jobs, now0: Number(d.now) || Date.now(), skew: (Number(d.now) || Date.now()) - Date.now(), span: Number(d.span) || zoomOf(want).ms }
     renderSchedule(false)
   } catch { /* the next poll tries again */ }
 }
-setInterval(() => loadSchedule(false), 30000)
+/** Keep the shared job list; redraw the cards and the palette only when something they show changed. */
+function setSchedList(jobs) {
+  const sig = JSON.stringify(jobs.map((j) => [j.name, j.cron, j.desc, j.next, j.note, j.owner]))
+  if (sig === schedSig) return
+  schedSig = sig
+  schedList = jobs
+  if (view !== 'schedule') render()
+  renderPalette()
+}
+let schedSig = ''
+async function loadScheduleList() {
+  if (view === 'schedule' || document.hidden) return
+  try {
+    const d = await (await fetch('/api/schedule?light=1&span=10800000')).json()
+    if (Array.isArray(d?.jobs)) setSchedList(d.jobs)
+  } catch { /* the next poll tries again */ }
+}
+loadScheduleList()
+setInterval(() => { loadSchedule(false); loadScheduleList() }, 30000)
 document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSchedule(false) })
 
 function zoomSched(dir) {
@@ -1569,12 +1615,21 @@ $('#scZoom').addEventListener('click', (e) => {
 
 const laneVar = () => parseFloat(getComputedStyle($('#sched')).getPropertyValue('--lane-h')) || 72
 
+/** `↳ session name`: a button that jumps to the session; dimmed text with "(session gone)" when it no longer exists. */
+function ownerHtml(o) {
+  if (!o || !(o.session || o.app)) return ''
+  const tip = `session ${o.session || '—'}${o.app ? ` · app ${o.app}` : ''}${o.role ? ` · ${o.role}` : ''}`
+  const name = String(o.name || '').slice(0, 60)
+  return o.gone ? `<span class="lk sc-own gone" title="${esc(`${tip} · no longer exists`)}"><span>↳ ${esc(name)} (session gone)</span></span>`
+    : `<button type="button" class="lk sc-own" data-s="${esc(o.session)}" title="${esc(`${tip}. Click: jump to the session`)}"><span>↳ ${esc(name)}</span></button>`
+}
+
 function laneHtml(j, i) {
   const link = safeUrl(j.link) ? `<a class="lk" href="${esc(safeUrl(j.link))}" target="_blank" rel="noopener noreferrer" title="${esc(j.link)}"><span>${esc(new URL(j.link).host)}</span><b aria-hidden="true">↗</b></a>`
     : safeFile(j.link) ? `<button type="button" class="lk lkf" data-u="${esc(safeFile(j.link))}" title="Open ${esc(decodeURI(j.link.slice(7)))} (Shift-click: show in Finder)"><span>${esc(decodeURI(j.link).split('/').pop() || 'file')}</span><b aria-hidden="true">▤</b></button>` : ''
-  return `<div class="sc-lane" data-i="${i}" data-n="${esc(j.name)}" role="group" aria-label="${esc(`${j.name}, ${j.desc}`)}">` +
+  return `<div class="sc-lane${j.name === schSel ? ' sel' : ''}" data-i="${i}" data-n="${esc(j.name)}" role="group" aria-label="${esc(`${j.name}, ${j.desc}`)}">` +
     `<div class="sc-lab"><div class="sc-nm"><span class="sc-n" title="${esc(j.name)}">${esc(j.name)}</span><span class="sc-src">${esc(j.source)}</span><span class="sc-cd mono"></span></div>` +
-    `<div class="sc-ds" title="${esc(j.cron)}">${esc(j.desc)}${j.desc === j.cron ? '' : ` <i class="mono">${esc(j.cron)}</i>`}</div>` +
+    `<div class="sc-ds"><span class="sc-dt" title="${esc(j.cron)}">${esc(j.desc)}${j.desc === j.cron || j.owner ? '' : ` <i class="mono">${esc(j.cron)}</i>`}</span>${ownerHtml(j.owner)}</div>` +
     `<div class="sc-ex">${j.note ? `<span class="sc-note" title="${esc(j.note)}">${esc(j.note)}</span>` : ''}${link}</div></div>` +
     `<div class="sc-view"><div class="sc-trk"></div><div class="sc-far mono" hidden></div></div></div>`
 }
@@ -1590,13 +1645,15 @@ function renderSchedule(force) {
   const lanesEl = $('#scLanes')
   const laneH = laneVar() + 6
   const avail = innerHeight - lanesEl.getBoundingClientRect().top - PAGER_RESERVE
-  const pg = lanePage(jobs.length, lanesPerPage(avail, laneH), schPage)
+  const per = lanesPerPage(avail, laneH)
+  if (schFollow) { const at = jobs.findIndex((j) => j.name === schSel); if (at >= 0) schPage = Math.floor(at / per); schFollow = false }
+  const pg = lanePage(jobs.length, per, schPage)
   schPage = pg.page
   schPaged = pg
   const slice = jobs.slice(pg.start, pg.end)
   const span = sch.span
   const stale = schBuilt && sch.now0 - schBuilt.now0 > span * 0.1
-  const sig = JSON.stringify([zoom, innerWidth, pg.start, slice.map((j) => [j.name, j.cron, j.desc, j.note, j.link, j.source, j.dense, j.next, j.runs.length, j.runs[j.runs.length - 1]])])
+  const sig = JSON.stringify([zoom, innerWidth, pg.start, slice.map((j) => [j.name, j.name === schSel, j.owner, j.cron, j.desc, j.note, j.link, j.source, j.dense, j.next, j.runs.length, j.runs[j.runs.length - 1]])])
   if (!force && schBuilt && schBuilt.sig === sig && !stale) { renderSchedPager(); return }
   const { base, trackMs } = trackGeom(sch.now0, span)
   lanesEl.innerHTML = slice.map((j, i) => laneHtml(j, pg.start + i)).join('')
@@ -1672,7 +1729,40 @@ function flipSched(dir) {
   renderSchedule(true)
 }
 
+/** Jump to the session that owns a lane, the way the palette does: it switches to the view that shows the session. */
+function openOwner(id) {
+  if (!paletteSessions().some((x) => x.sessionId === id)) return toast('That session is not listed (done, archived or gone)')
+  if (view === 'schedule') setView('queue')
+  jumpToSession(id)
+}
+
+/** Select a lane by job name (palette result, clock chip); the page follows it. */
+function selectLane(name) {
+  schSel = name
+  schFollow = true
+  if (view !== 'schedule') return setView('schedule')
+  renderSchedule(true)
+}
+
+/** j / k: move the selected lane through every job, across pages; Enter jumps to its owner. */
+function moveLane(d) {
+  const jobs = sch?.jobs || []
+  if (!jobs.length) return
+  const at = jobs.findIndex((j) => j.name === schSel)
+  const to = at < 0 ? schPaged.start : Math.min(jobs.length - 1, Math.max(0, at + d)) // nothing selected: the first lane on this page
+  selectLane(jobs[to].name)
+}
+function openLane() {
+  const j = (sch?.jobs || []).find((x) => x.name === schSel)
+  if (!j) return toast('Select a lane first (j / k)')
+  if (!j.owner) return toast('No session is tied to this schedule')
+  if (j.owner.gone) return toast('That session no longer exists')
+  openOwner(j.owner.session)
+}
+
 $('#scLanes').addEventListener('click', (e) => {
+  const o = e.target.closest('.sc-own[data-s]')
+  if (o) return openOwner(o.dataset.s)
   const f = e.target.closest('.lkf')
   const lane = e.target.closest('.sc-lane')
   if (!f || !lane) return

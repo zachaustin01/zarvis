@@ -5,8 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn, execFileSync } from 'node:child_process'
 import { parseCron, cleanCron, nextRuns, describeCron } from '../lib/cron.mjs'
-import { addJob, readJobs, removeJob, parseJob, schedulesFile, MAX_JOBS, MAX_NAME, MAX_NOTE } from '../lib/schedule.mjs'
-import { runSchedule, everyToCron, atToCron, parseArgs } from '../lib/schedule-cli.mjs'
+import { addJob, setJob, readJobs, removeJob, parseOwner, parseJob, schedulesFile, MAX_JOBS, MAX_NAME, MAX_NOTE } from '../lib/schedule.mjs'
+import { runSchedule, everyToCron, atToCron, parseArgs, resolveOwner } from '../lib/schedule-cli.mjs'
 import { importSchedules } from '../lib/schedule-import.mjs'
 import { scheduleView, snapSpan, SPANS, MAX_RUNS } from '../lib/schedule-view.mjs'
 import { ZOOMS, stepZoom, zoomOf, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanePage, lanesPerPage, PAST_FRAC, TRACK_AHEAD } from '../public/schedule.js'
@@ -121,7 +121,7 @@ test('cron DST (Europe/London and a zone without DST)', () => {
 test('store: add, replace by name, list, remove; atomic file under the given home', async () => {
   const home = await tmp()
   const a = await addJob(home, { name: 'Hourly check', cron: '0 * * * *', note: 'sources', link: 'https://example.com/dash' }, { now: 5 })
-  assert.deepEqual(a, { name: 'Hourly check', cron: '0 * * * *', note: 'sources', link: 'https://example.com/dash', source: 'manual', addedAt: 5 })
+  assert.deepEqual(a, { name: 'Hourly check', cron: '0 * * * *', note: 'sources', link: 'https://example.com/dash', source: 'manual', owner: null, addedAt: 5 })
   await addJob(home, { name: 'hourly CHECK', cron: '5 * * * *' }) // same name: replaces
   const jobs = await readJobs(home)
   assert.equal(jobs.length, 1)
@@ -164,7 +164,7 @@ test('store: read tolerates a missing, corrupt or hand-edited file and revalidat
   await fsp.writeFile(schedulesFile(home), JSON.stringify({ jobs: [null, 5, { name: 'ok', cron: '0 * * * *', source: 'weird', link: 'javascript:1', note: 'n\nm' }, { name: 'badcron', cron: '99 * * * *' }, { name: 'a'.repeat(99), cron: '* * * * *' }, { cron: '* * * * *' }, { name: 'ok', cron: '1 * * * *' }, ...Array.from({ length: 60 }, (_, i) => ({ name: `j${i}`, cron: '* * * * *' }))] }))
   const jobs = await readJobs(home)
   assert.equal(jobs.length, MAX_JOBS)
-  assert.deepEqual(jobs[0], { name: 'ok', cron: '1 * * * *', note: '', link: '', source: 'manual', addedAt: 0 }) // the later duplicate wins, junk fields dropped
+  assert.deepEqual(jobs[0], { name: 'ok', cron: '1 * * * *', note: '', link: '', source: 'manual', owner: null, addedAt: 0 }) // the later duplicate wins, junk fields dropped
   assert.equal(parseJob({ name: 'x', cron: '* * * * *', source: 'claude' }).source, 'claude')
 })
 
@@ -392,4 +392,140 @@ test('wiring: s opens the view, - and = zoom, palette commands, help sheet, READ
   assert.match(app, /schedule: lane\.dataset\.n/)
   assert.doesNotMatch(css.slice(css.indexOf('Schedule view')), /--rd|\bred\b|#ff4d5e/)
   for (const skill of ['worker', 'manager', 'interface']) assert.match(await read(`skills/zarvis-${skill}/SKILL.md`), /scripts\/schedule\.mjs/, skill)
+})
+
+// ---- owners: the session a schedule is tied to ----
+import { ownerInfo, schedulesBySession } from '../lib/schedule-owner.mjs'
+import { scoreSchedule, search } from '../public/palette.js'
+import { buildLookup } from '../lib/lookup.mjs'
+import { formatEntry } from '../lib/roster-cli.mjs'
+
+const CLI = 'aaaaaaaa-0000-4000-8000-000000000001'
+const APP = `local_${CLI}`
+const CLI2 = 'bbbbbbbb-0000-4000-8000-000000000002'
+const rec = (cli, extra = {}) => ({ sessionId: `local_${cli}`, cliSessionId: cli, title: `Title ${cli.slice(0, 4)}`, cwd: '/r/x', lastActivityAt: Date.now(), ...extra })
+const world = (records) => ({ records, deleted: new Set(), state: { overlays: {}, parked: {}, done: {} }, roles: {} })
+
+test('owner: parseOwner validates both ids and drops junk', () => {
+  assert.deepEqual(parseOwner({ session: CLI, app: APP }), { session: CLI, app: APP })
+  assert.deepEqual(parseOwner({ session: CLI, app: 'nope' }), { session: CLI, app: '' })
+  assert.deepEqual(parseOwner({ session: '../x', app: '' }), null)
+  assert.equal(parseOwner('x'), null)
+  assert.equal(parseOwner(null), null)
+})
+
+test('owner: resolveOwner takes the CLI id or the local_ id and stores both when known', async () => {
+  const deps = { records: [rec(CLI), rec(CLI2, { isArchived: true })] }
+  assert.deepEqual(await resolveOwner(CLI, deps), { session: CLI, app: APP })
+  assert.deepEqual(await resolveOwner(APP, deps), { session: CLI, app: APP })
+  assert.deepEqual(await resolveOwner('cccccccc-0000-4000-8000-000000000003', deps), { session: 'cccccccc-0000-4000-8000-000000000003', app: '' }) // unknown CLI id: kept, no app id
+  await assert.rejects(resolveOwner('local_dddddddd-0000-4000-8000-000000000004', deps), /not a session Zarvis knows/)
+  await assert.rejects(resolveOwner('x/../y', deps), (e) => e.refusal)
+})
+
+test('owner: cli add --by, set, clear, list --json, and refusals', async () => {
+  const home = await tmp()
+  const deps = { records: [rec(CLI)] }
+  let r = await cli(home, ['add', 'job', '--cron', '0 * * * *', '--by', APP], { deps })
+  assert.equal(r.code, 0)
+  assert.match(r.out[0], new RegExp(`for session ${CLI}`))
+  assert.deepEqual((await readJobs(home))[0].owner, { session: CLI, app: APP })
+  r = await cli(home, ['set', 'JOB', '--note', 'changed'], { deps })
+  assert.equal(r.code, 0)
+  let j = (await readJobs(home))[0]
+  assert.deepEqual([j.note, j.cron, j.owner.session], ['changed', '0 * * * *', CLI]) // untouched fields stay
+  r = await cli(home, ['set', 'job', '--every', '30m', '--link', 'https://example.com/x'], { deps })
+  j = (await readJobs(home))[0]
+  assert.deepEqual([j.cron, j.link, j.owner.session], ['*/30 * * * *', 'https://example.com/x', CLI])
+  r = await cli(home, ['set', 'job', '--by', 'none', '--link', 'none'], { deps })
+  j = (await readJobs(home))[0]
+  assert.deepEqual([j.owner, j.link], [null, ''])
+  r = await cli(home, ['set', 'job', '--by', CLI2], { deps })
+  assert.equal((await readJobs(home))[0].owner.session, CLI2)
+  r = await cli(home, ['add', 'job', '--cron', '5 * * * *'], { deps }) // re-adding replaces the whole job: unowned again
+  assert.equal((await readJobs(home))[0].owner, null)
+  assert.equal(JSON.parse((await cli(home, ['list', '--json'])).out[0]).jobs[0].owner, null)
+  for (const args of [['set', 'nope', '--note', 'x'], ['set', 'job'], ['set', 'job', '--cron', 'bad'], ['set', 'job', '--cron', '* * * * *', '--every', '1h'], ['add', 'z', '--cron', '* * * * *', '--by', 'local_eeeeeeee-0000-4000-8000-000000000005'], ['add', 'z', '--cron', '* * * * *', '--by', 'a b']]) {
+    assert.equal((await cli(home, args, { deps })).code, 1, args.join(' '))
+  }
+  assert.equal((await readJobs(home)).length, 1)
+})
+
+test('owner: ownerInfo names the session (overlay, title, short id) and flags gone ones', () => {
+  const o = { session: CLI, app: APP }
+  const ctx = world([rec(CLI)])
+  assert.deepEqual(ownerInfo(o, ctx), { session: CLI, app: APP, name: 'Title aaaa', role: 'unclassified', gone: false })
+  ctx.state.overlays[CLI] = { name: 'ETL worker' }
+  assert.equal(ownerInfo(o, ctx).name, 'ETL worker')
+  assert.equal(ownerInfo(o, world([rec(CLI, { isArchived: true })])).gone, true) // archived
+  assert.equal(ownerInfo(o, { ...world([rec(CLI)]), deleted: new Set([APP]) }).gone, true)
+  const none = ownerInfo(o, world([]))
+  assert.deepEqual([none.gone, none.name], [true, CLI.slice(0, 8)])
+  assert.equal(ownerInfo(null, ctx), null)
+  assert.equal(ownerInfo(o, undefined).gone, false)
+  assert.equal(ownerInfo({ session: '', app: APP }, world([rec(CLI)])).session, CLI) // found by the app id
+  assert.equal(ownerInfo(o, world([rec(CLI, { isArchived: 'True' }), rec(CLI, { sessionId: 'local_x' })])).gone, false) // a live twin counts
+})
+
+test('owner: scheduleView carries the owner, light mode drops the runs', async () => {
+  const home = await tmp()
+  await addJob(home, { name: 'mine', cron: '0 * * * *', owner: { session: CLI, app: APP } })
+  await addJob(home, { name: 'orphan', cron: '0 * * * *', owner: { session: CLI2, app: '' } })
+  await addJob(home, { name: 'unowned', cron: '0 * * * *' })
+  const ctx = world([rec(CLI)])
+  const v = await scheduleView(home, { span: 3 * 3600000, now: at(2026, 3, 10, 10, 20), ctx })
+  const by = Object.fromEntries(v.jobs.map((j) => [j.name, j]))
+  assert.equal(by.mine.owner.gone, false)
+  assert.equal(by.orphan.owner.gone, true)
+  assert.equal(by.unowned.owner, null)
+  assert.ok(by.mine.runs.length > 0)
+  const light = await scheduleView(home, { now: at(2026, 3, 10, 10, 20), light: true, ctx })
+  assert.deepEqual(light.jobs.map((j) => j.runs.length), [0, 0, 0])
+  assert.equal(light.jobs[0].next, at(2026, 3, 10, 11, 0))
+})
+
+test('owner: roster entries and text carry the session\'s schedules', async () => {
+  const home = await tmp()
+  await addJob(home, { name: 'mine', cron: '0 9 * * 1-5', owner: { session: CLI, app: APP } })
+  await addJob(home, { name: 'other', cron: '0 * * * *', owner: { session: CLI2, app: '' } })
+  const now = at(2026, 3, 10, 10, 20)
+  const w = world([rec(CLI), rec(CLI2)])
+  const entries = await buildLookup({ ...w, now, all: true, branchOf: async () => '', schedules: schedulesBySession(await readJobs(home), now) })
+  const e = entries.find((x) => x.sessionId === CLI)
+  assert.deepEqual(e.schedules.map((s) => [s.name, s.desc, s.next]), [['mine', 'weekdays 09:00', at(2026, 3, 11, 9, 0)]])
+  assert.match(formatEntry(e, now), /\n {4}schedule mine — weekdays 09:00 — next /)
+  assert.deepEqual((await buildLookup({ ...w, now, all: true, branchOf: async () => '' })).map((x) => x.schedules), [[], []]) // no schedules passed: empty, not undefined
+})
+
+test('owner: palette finds a schedule by name, cron words, owner name and note; > and @ leave it out', () => {
+  const jobs = [{ name: 'Hourly source check', desc: 'hourly, on the hour', cron: '0 * * * *', note: 'digest', source: 'manual', owner: { name: 'ETL worker' } }, { name: 'Weekly report', desc: 'weekly Mon 08:30', cron: '30 8 * * mon', note: '', source: 'manual', owner: null }]
+  assert.ok(scoreSchedule('etl', jobs[0]))
+  assert.equal(scoreSchedule('etl', jobs[1]), null)
+  assert.ok(scoreSchedule('weekly mon', jobs[1]))
+  assert.ok(scoreSchedule('digest', jobs[0]))
+  const names = (q) => search(q, [], [], { schedules: jobs }).filter((e) => e.type === 'schedule').map((e) => e.label)
+  assert.deepEqual(names('etl worker'), ['Hourly source check'])
+  assert.deepEqual(names('schedule').sort(), ['Hourly source check', 'Weekly report'])
+  assert.deepEqual(names('>etl'), [])
+  assert.deepEqual(names('@etl'), [])
+  assert.equal(search('etl', [], [], { schedules: jobs })[0].key, 'sc:Hourly source check')
+  assert.equal(search('', [], [], {}).length, 0) // existing callers pass no schedules
+})
+
+test('owner: wiring - chip on the lane, jump through the palette\'s code, clock chip on cards, skills, README', async () => {
+  const [app, css, readme, palette] = await Promise.all([read('public/app.js'), read('public/app.css'), read('README.md'), read('public/palette.js')])
+  assert.match(app, /function ownerHtml\(o\)/)
+  assert.match(app, /\(session gone\)/)
+  assert.match(app, /e\.target\.closest\('\.sc-own\[data-s\]'\)/)
+  // the jump reuses jumpToSession, leaving the Schedule view first so a visible queue row cannot keep us here
+  assert.match(app, /function openOwner\(id\) \{[^}]*setView\('queue'\)[^}]*jumpToSession\(id\)/s)
+  assert.match(app, /view === 'schedule' && \['j', 'k', 'ArrowDown', 'ArrowUp', 'Enter'\]\.includes\(e\.key\)/)
+  assert.match(app, /if \(e\.type === 'schedule'\) return selectLane\(e\.ref\.name\)/)
+  assert.match(app, /function clockChip\(id\)/)
+  assert.match(app, /const clock = clockChip\(r\.sessionId\)/)
+  assert.match(palette, /export function scoreSchedule/)
+  assert.doesNotMatch(css.slice(css.indexOf('Schedule owners')), /animation|--rd|\bred\b/)
+  assert.match(readme, /Which session owns it/)
+  assert.match(readme, /schedule -- set/)
+  for (const skill of ['worker', 'manager', 'interface']) assert.match(await read(`skills/zarvis-${skill}/SKILL.md`), /--by <(your )?(own )?session id>/, skill)
 })

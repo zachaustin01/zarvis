@@ -334,7 +334,11 @@ const server = http.createServer(async (req, res) => {
       await openUrl(row.link)
       return send(res, 200, { ok: true, url: row.link, dryRun: DRY_OPEN })
     }
-    if (req.method === 'GET' && url.pathname === '/api/schedule') return send(res, 200, await scheduleView(ZARVIS_HOME, { span: Number(url.searchParams.get('span')) }))
+    if (req.method === 'GET' && url.pathname === '/api/schedule') {
+      const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
+      const ctx = { records, deleted, state, roles: await roleRegistry(state) }
+      return send(res, 200, await scheduleView(ZARVIS_HOME, { span: Number(url.searchParams.get('span')), light: url.searchParams.get('light') === '1', ctx }))
+    }
     if (req.method === 'POST' && url.pathname === '/api/open-link') {
       // Only a file: link this session (or this schedule) really posted, and only an existing path; nothing the client names is opened as given.
       const { sessionId, schedule, url: link, reveal } = await readJson(req)

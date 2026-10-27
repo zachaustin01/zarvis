@@ -85,6 +85,25 @@ export function scoreSession(q, r, stateLabel = r.state) {
   return { score, idx: nm ? nm.idx : [] }
 }
 
+/** Score a schedule ({ name, desc, cron, note, source, owner }) by name, cron words, owner session and note. */
+export function scoreSchedule(q, j) {
+  const ts = tokens(q)
+  if (!ts.length) return { score: 0, idx: [] }
+  const fields = [[j.name, 1], [j.desc, 0.8], [j.cron, 0.6], [j.owner?.name, 0.8], [j.note, 0.5], [j.source, 0.3], ['schedule', 0.3]]
+  let score = 0
+  for (const t of ts) {
+    let best = null
+    for (const [text, w] of fields) {
+      const m = text && fuzzy(t, text)
+      if (m && (!best || m.score * w > best)) best = m.score * w
+    }
+    if (best === null) return null
+    score += best
+  }
+  const nm = fuzzy(ts.join(' '), j.name)
+  return { score, idx: nm ? nm.idx : [] }
+}
+
 export function scoreCommand(q, c) {
   const ts = tokens(q)
   if (!ts.length) return { score: 0, idx: [] }
@@ -151,10 +170,11 @@ export function buildCommands(projects = []) {
 
 /**
  * The palette's result list. `sessions` are rows ({ sessionId, name, project, … }); `commands` from buildCommands.
- * Entries are { key, type, label, idx, score, ref }; `key` is stable across live updates ('s:<id>' / 'c:<id>').
+ * Entries are { key, type, label, idx, score, ref }; `key` is stable across live updates ('s:<id>' / 'c:<id>' / 'sc:<name>').
+ * `schedules` (jobs with name, desc, cron, owner) are found by a plain query, after sessions and commands when there is none; `>` and `@` leave them out.
  * No query: sessions in the given order, then commands.
  */
-export function search(raw, sessions, commands, { stateLabel = (r) => r.state, limit = 60 } = {}) {
+export function search(raw, sessions, commands, { stateLabel = (r) => r.state, limit = 60, schedules = [] } = {}) {
   const { mode, text } = parseMode(raw)
   const out = []
   if (mode !== 'commands') {
@@ -167,6 +187,12 @@ export function search(raw, sessions, commands, { stateLabel = (r) => r.state, l
     commands.forEach((c, i) => {
       const m = scoreCommand(text, c)
       if (m) out.push({ key: `c:${c.id}`, type: 'command', label: c.label, idx: m.idx, score: m.score, order: 1e6 + i, ref: c })
+    })
+  }
+  if (mode === 'all') {
+    schedules.forEach((j, i) => {
+      const m = scoreSchedule(text, j)
+      if (m) out.push({ key: `sc:${j.name}`, type: 'schedule', label: j.name, idx: m.idx, score: m.score, order: 2e6 + i, ref: j })
     })
   }
   const empty = !text.trim()

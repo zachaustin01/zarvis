@@ -519,3 +519,13 @@ body.v-schedule .wrap{max-width:1320px}
 }
 @media (prefers-reduced-motion:reduce){.sc-trk{transition:none}}
 body.tab-hidden .sc-trk{transition:none}
+/* Schedule owners: the session chip on a lane, the selected lane, and the clock chip on session cards */
+.sc-ds{display:flex;align-items:center;gap:8px;min-width:0}
+.sc-dt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+.sc-own{flex:none;max-width:64%;text-transform:none;letter-spacing:.04em}
+button.sc-own:hover{background:#0b1a28}
+.sc-own.gone{color:var(--t2);border-style:dashed;border-color:var(--edge)}
+.sc-lane.sel{box-shadow:inset 3px 0 0 var(--cy);background:#0c1a28}
+.sc-lane.sel .sc-n{color:var(--cy)}
+.lkc{cursor:pointer}
+.pl.sch .pt{color:var(--cy)}

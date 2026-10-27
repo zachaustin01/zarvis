@@ -223,6 +223,16 @@ runs. `--every` and `--at` are sugar that become cron, so only intervals that di
 `--link` takes an http(s) URL (a new tab) or a file path (a button that asks the server to open it, like session links).
 The file is validated on write and on read. Sessions that run on a schedule learn about the CLI after `npm run setup` copies the updated skills.
 
+**Which session owns it.** `--by <session id>` (the CLI id or the app's `local_…` id; both are stored when the app knows the
+session) ties a schedule to the session that registered it; without `--by` it is unowned (a system cron job, say).
+`add` with an existing name replaces the whole job (pass `--by` again to keep the owner);
+`npm run schedule -- set <name> [--by <id>|none] [--cron …|--every …|--at …] [--note …] [--link <url|file>|none]` changes only
+what you name, so existing jobs can be tied to a session later. The lane shows a `↳ session name` chip (name from your rename overlay, else
+the app title, else a short id; hover for the ids and role): click it, or `j`/`k` to pick a lane and `Enter`, to jump to that session (the view
+that shows it opens, parked and done included). A session the app no longer has, or has archived, shows dimmed as "(session gone)". The
+palette finds schedules by name, cron words, note or owner name (Enter selects the lane), a session's card gets a `⏱ next 11:07` chip when
+it owns one (click: the Schedule view on that lane), and `npm run roster -- get <id>` lists its schedules.
+
 Importers: `lib/schedule-import.mjs` has one hook for read-only sources (shown tagged `claude`). None is wired in yet:
 on the Mac this was written on, Claude's `~/.claude/jobs` holds background-session state, not schedules, and no
 other readable file with a name and a cron exists, so nothing is guessed.
