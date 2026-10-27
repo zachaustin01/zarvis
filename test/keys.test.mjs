@@ -253,3 +253,17 @@ test('pagination: nothing scrolls, lists page by measured height, page keys do n
   // Tab keeps switching views: the page keys are separate
   assert.match(app, /e\.key !== 'Tab'/)
 })
+
+test('update app: a banner and a dialog (palette command), version from the server, hard refresh drops caches and reloads', async () => {
+  const [app, html, server, palette] = await Promise.all([read('public/app.js'), read('public/index.html'), read('server.mjs'), read('public/palette.js')])
+  assert.match(html, /id="ovUpd"/)
+  assert.match(html, /id="updBanner"/)
+  assert.match(palette, /id: 'update'/)
+  assert.match(app, /update: openUpdate/)
+  assert.match(app, /noteVersion\(d\.version\)/)
+  assert.match(app, /getRegistrations/)
+  assert.match(app, /caches\?\.keys\?\.\(\)/)
+  assert.match(app, /location\.replace\(`\$\{location\.pathname\}\?v=\$\{Date\.now\(\)\}`\)/)
+  assert.match(server, /pathname === '\/api\/version'/)
+  assert.match(server, /lastVersion/)
+})

@@ -411,6 +411,16 @@ textarea{overflow:hidden;resize:none}
 @media (prefers-reduced-motion:reduce){.pager #pgTxt{animation:none!important}}
 body.tab-hidden .pager #pgTxt{animation-play-state:paused!important}
 
+/* Update app: a quiet banner when a new version is on disk, and a small dialog to check and hard-refresh */
+.upd-banner{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:35;display:flex;align-items:center;gap:12px;padding:7px 10px 7px 14px;
+ background:#0a1a2cf2;border:1px solid var(--cy);color:var(--t1);font-size:13px;box-shadow:0 0 18px #4fd8ff33}
+.upd-banner button{font:inherit;cursor:pointer;color:var(--void);background:var(--cy);border:0;padding:3px 12px}
+.upd-banner #updX{background:none;color:var(--t2);padding:0 4px;font-size:16px}
+.upd-box{width:min(420px,92vw)}
+.upd-msg{font-size:14px;color:var(--t1);margin:4px 0 6px}
+.upd-meta{color:var(--t3);margin-bottom:12px}
+.upd-btns{display:flex;gap:10px;margin-bottom:10px}
+
 /* ---- Command palette (Cmd/Ctrl-K): centred glass panel; open/close fade uses opacity and transform only ---- */
 .ov.pal{display:flex;visibility:hidden;opacity:0;transition:opacity .12s ease-out,visibility 0s .12s;z-index:40}
 .ov.pal.on{visibility:visible;opacity:1;transition:opacity .12s ease-out}

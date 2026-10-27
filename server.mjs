@@ -13,6 +13,7 @@ import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { collectRows, cwdsOf, nameFn } from './lib/lookup.mjs'
 import { contextOf, contextWindow } from './lib/context.mjs'
+import { appVersion } from './lib/version.mjs'
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
@@ -272,14 +273,16 @@ let lastQueue = []
 let lastHook = { status: 'absent', lastAt: 0 }
 let lastClaims = []
 let lastEvents = []
-const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook, claims: lastClaims, events: lastEvents })
+let lastVersion = ''
+const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook, claims: lastClaims, events: lastEvents, version: lastVersion })
 async function tick() {
   try {
     lastQueue = await currentQueue()
+    lastVersion = await appVersion(PUBLIC)
     lastHook = hookStatus([...(await readMarkers()), ...(await readMarkers(WORKING_DIR))])
     lastClaims = await currentClaims()
     lastEvents = await currentEvents()
-    const sig = JSON.stringify([lastQueue.map(({ waitMs, ...r }) => r), lastHook, lastClaims, lastEvents])
+    const sig = JSON.stringify([lastQueue.map(({ waitMs, ...r }) => r), lastHook, lastClaims, lastEvents, lastVersion])
     if (sig !== lastSig) {
       lastSig = sig
       for (const c of clients) c.write(`data: ${JSON.stringify(payload())}\n\n`)
@@ -332,6 +335,7 @@ const server = http.createServer(async (req, res) => {
       await openUrl(link)
       return send(res, 200, { ok: true, url: link, folder, marker, prompt, dryRun: DRY_OPEN })
     }
+    if (req.method === 'GET' && url.pathname === '/api/version') return send(res, 200, { version: await appVersion(PUBLIC) })
     if (req.method === 'GET' && url.pathname === '/api/claims') return send(res, 200, { now: Date.now(), claims: await currentClaims() })
     if (req.method === 'GET' && url.pathname === '/api/tree') return send(res, 200, await currentTree())
     if (req.method === 'POST' && url.pathname === '/api/classify') {

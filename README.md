@@ -321,3 +321,10 @@ input, cache-read and cache-creation tokens. The percentage is against a **refer
 real window is not recorded anywhere Zarvis can read (model ids carry no 1M marker, and sessions already run past
 200k). The reference is 1,000,000 by default; set `ZARVIS_CONTEXT_WINDOW` to a positive integer (for example
 `200000`) to change it. A session with no usage yet shows nothing, never 0%. After a compaction the figure simply drops.
+
+## Updating the page
+
+Zarvis serves its own files with `no-store`, and the server publishes a short fingerprint of `public/`. When a file
+changes on disk, an open page shows a banner ("A new version of Zarvis is ready" with an **Update** button). The command
+palette (⌘/Ctrl+K, "Update app") opens a small dialog that checks the fingerprint and offers a **Hard refresh**: it drops
+any service worker and cache and reloads the page on a fresh URL. A server-side change still needs the server restarted.

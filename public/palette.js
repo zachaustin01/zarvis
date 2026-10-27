@@ -127,6 +127,7 @@ export const COMMANDS = [
   { id: 'rail', group: 'Screen', label: 'Toggle project rail', key: 'b' },
   { id: 'ticker', group: 'Screen', label: 'Toggle event ticker', key: 'e' },
   { id: 'help', group: 'Screen', label: 'Key sheet', key: '?', words: 'help keys' },
+  { id: 'update', group: 'Screen', label: 'Update app: check for a new version, hard refresh', key: '', words: 'update refresh reload version upgrade' },
 ]
 
 /** The registry plus one "Project: X" command per project chip. */

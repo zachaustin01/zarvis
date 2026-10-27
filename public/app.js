@@ -1110,6 +1110,7 @@ const RUN = {
   rail: () => setRail(!railOpen),
   ticker: () => setTicker(!tickerOpen),
   help: toggleHelp,
+  update: openUpdate,
 }
 
 /** Every live session once: queue rows first, then tree-only ones (done sessions stay out; / finds those). */
@@ -1312,6 +1313,62 @@ for (const el of [$('#list'), $('#side')]) {
   })
   el.addEventListener('dblclick', (e) => { if (e.target.closest('.q')) openSel() })
 }
+// ---- Update app: a banner when the app on disk changed, and a dialog that checks and hard-refreshes ----
+let loadedVersion = ''
+let latestVersion = ''
+let bannerDismissed = ''
+function noteVersion(v) {
+  if (!v) return
+  latestVersion = v
+  if (!loadedVersion) loadedVersion = v // the version this page was loaded with
+  const stale = v !== loadedVersion
+  $('#updBanner').hidden = !stale || bannerDismissed === v
+  if ($('#ovUpd').classList.contains('on')) paintUpdate()
+}
+
+/** Drop any cached copy (service workers, Cache Storage) and reload with a fresh URL. The files are already served no-store. */
+if (/^\?v=\d+$/.test(location.search)) history.replaceState(null, '', location.pathname) // tidy the cache-busting query after a hard refresh
+
+async function hardRefresh() {
+  $('#updMsg').textContent = 'Refreshing…'
+  try {
+    for (const r of (await navigator.serviceWorker?.getRegistrations?.()) || []) await r.unregister()
+    for (const k of (await caches?.keys?.()) || []) await caches.delete(k)
+  } catch { /* nothing cached, or not allowed: the reload below still fetches fresh */ }
+  location.replace(`${location.pathname}?v=${Date.now()}`)
+}
+
+function paintUpdate() {
+  const stale = latestVersion && latestVersion !== loadedVersion
+  $('#updMsg').textContent = !latestVersion ? 'Could not check: the server did not answer.' : stale ? 'A new version is ready. Hard refresh to load it.' : "You're on the latest version."
+  $('#updMeta').textContent = latestVersion ? `loaded ${loadedVersion || '—'} · on disk ${latestVersion}` : ''
+}
+
+async function openUpdate() {
+  $('#ovHelp').classList.remove('on')
+  $('#ovUpd').classList.add('on')
+  $('#updMsg').textContent = 'Checking for a new version…'
+  try {
+    const r = await (await fetch('/api/version', { cache: 'no-store' })).json()
+    noteVersion(r.version)
+  } catch { /* paintUpdate says so */ }
+  paintUpdate()
+}
+const closeUpdate = () => $('#ovUpd').classList.remove('on')
+$('#updNow').addEventListener('click', hardRefresh)
+$('#updClose').addEventListener('click', closeUpdate)
+$('#ovUpd').addEventListener('click', (e) => { if (e.target.id === 'ovUpd') closeUpdate() })
+// While the dialog is open it owns the keyboard (capture phase, so nothing underneath fires).
+window.addEventListener('keydown', (e) => {
+  if (!$('#ovUpd').classList.contains('on')) return
+  if (e.key === 'Escape') closeUpdate()
+  else if (e.key === 'Enter') hardRefresh()
+  e.preventDefault()
+  e.stopPropagation()
+}, true)
+$('#updGo').addEventListener('click', hardRefresh)
+$('#updX').addEventListener('click', () => { bannerDismissed = latestVersion; $('#updBanner').hidden = true })
+
 function toggleHelp() {
   $('#ovHelp').classList.toggle('on')
   fitHelp()
@@ -1417,6 +1474,7 @@ function setHook(h) {
 es.onmessage = (m) => {
   const d = JSON.parse(m.data)
   live(true)
+  noteVersion(d.version)
   setHook(d.hook)
   claims = Array.isArray(d.claims) ? d.claims : []
   pushPushed(d.events)

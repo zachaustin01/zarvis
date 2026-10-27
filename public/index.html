@@ -108,6 +108,17 @@
   <div class="hint">↑↓ move · Enter tick · ⌘/Ctrl+Enter attach · Esc cancel</div>
   <span class="pill on" id="pickGo" style="cursor:pointer;display:inline-block;margin-top:8px">Attach</span>
 </div></div>
+<div class="ov" id="ovUpd"><div class="box upd-box" role="dialog" aria-modal="true" aria-label="Update app">
+  <div class="hd" style="margin-bottom:8px">Update app</div>
+  <div id="updMsg" class="upd-msg">Checking for a new version…</div>
+  <div class="upd-meta mono" id="updMeta"></div>
+  <div class="upd-btns">
+    <span class="pill on" id="updNow" role="button" tabindex="-1" style="cursor:pointer">Hard refresh</span>
+    <span class="pill" id="updClose" role="button" tabindex="-1" style="cursor:pointer">Close</span>
+  </div>
+  <div class="hint">Enter refreshes · Esc closes. A hard refresh drops any cached copy of the page and reloads it.</div>
+</div></div>
+<div id="updBanner" class="upd-banner" role="status" hidden><span>A new version of Zarvis is ready.</span><button id="updGo" type="button">Update</button><button id="updX" type="button" aria-label="Dismiss">×</button></div>
 <div class="ov" id="ovPark"><div class="box">
   <div class="hd" id="parkHd" style="margin-bottom:8px">Park</div>
   <label class="fl">Reason<input id="parkReason" maxlength="200" placeholder="Waiting on…"></label>
