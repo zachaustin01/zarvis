@@ -90,3 +90,13 @@ test('the Parked view includes archived parked sessions, dimmed and tagged, and 
   assert.match(app, /<span class="ap">archived<\/span>/)
   assert.doesNotMatch(app, /flatten = .*archived/) // the Roles tree and the chip set never see them
 })
+
+test('ticker scroll: planned from the pure helper, pauses on hover/focus/hidden, new events snap to the newest, collapsed state replans', async () => {
+  const app = await read('public/app.js')
+  assert.match(app, /scrollPlan\(\{ count: tickerItems\.length/)
+  assert.match(app, /TICKER_PAUSE_MS/)
+  for (const r of ['hover', 'focus', 'hidden']) assert.match(app, new RegExp(`hold\\('${r}'`))
+  assert.match(app, /planScroll\(r\.added\.length > 0 && !seed\)/)
+  assert.match(app, /paintTickerState\(\)\n\s+planScroll\(\)/) // expanding or collapsing replans
+  assert.doesNotMatch(app, /\.innerHTML = .*tk/) // entries are built with textContent
+})

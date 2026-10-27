@@ -96,15 +96,15 @@ test('mergeTicker: de-dupes on (at, sessionId, text), also across repeated paylo
   assert.equal(evKey({ at: 1, text: 'a' }), '1||a')
 })
 
-test('mergeTicker: keeps at most 12, dropping the oldest; an evicted old event is not "added"', () => {
+test('mergeTicker: keeps at most `max` (12 here; 40 by default), dropping the oldest; an evicted old event is not "added"', () => {
   const many = Array.from({ length: 20 }, (_, i) => pe(100 + i, `e${i}`))
-  const r = mergeTicker([], many)
-  assert.equal(TICKER_MAX, 12)
+  const r = mergeTicker([], many, 12)
+  assert.equal(TICKER_MAX, 40)
   assert.equal(r.items.length, 12)
   assert.equal(r.items[0].text, 'e19')
   assert.equal(r.items.at(-1).text, 'e8')
   assert.equal(r.added.length, 12)
-  const old = mergeTicker(r.items, [pe(1, 'ancient')])
+  const old = mergeTicker(r.items, [pe(1, 'ancient')], 12)
   assert.deepEqual(old.added, [])
   assert.equal(old.items.length, 12)
 })
@@ -125,4 +125,17 @@ test('XSS: the ticker renders event text only through textContent / properties, 
   const start = src.indexOf('function paintTicker')
   const body = src.slice(start, src.indexOf('function mergeInto', start))
   assert.ok(body.includes('textContent') && !/innerHTML|insertAdjacentHTML/.test(body))
+})
+
+import { scrollPlan, TICKER_PAUSE_MS, TICKER_SCROLL_MIN } from '../public/fx.js'
+
+test('scrollPlan: static up to ten entries, when it fits, or with reduced motion; otherwise oldest-to-newest', () => {
+  assert.equal(TICKER_SCROLL_MIN, 10)
+  assert.equal(TICKER_PAUSE_MS, 5000)
+  assert.deepEqual(scrollPlan({ count: 10, contentW: 5000, viewW: 800 }), { scroll: false, distance: 0, duration: 0 }) // ten: no scroll
+  assert.equal(scrollPlan({ count: 11, contentW: 700, viewW: 800 }).scroll, false) // fits
+  assert.equal(scrollPlan({ count: 30, contentW: 5000, viewW: 0 }).scroll, false) // not laid out yet
+  assert.equal(scrollPlan({ count: 30, contentW: 5000, viewW: 800, reduced: true }).scroll, false)
+  assert.deepEqual(scrollPlan({ count: 11, contentW: 1700, viewW: 800 }), { scroll: true, distance: 900, duration: 11250 }) // 80px/s
+  assert.deepEqual(scrollPlan({ count: 40, contentW: 1700, viewW: 800, speed: 90 }), { scroll: true, distance: 900, duration: 10000 })
 })

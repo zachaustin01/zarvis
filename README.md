@@ -218,7 +218,7 @@ puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists che
 
 ## Pushing events
 
-The footer ticker shows the last dozen state changes Zarvis sees. Sessions and scripts can add their own
+The footer ticker keeps the last forty state changes Zarvis sees. With more than ten it scrolls through them to the newest, rests five seconds there and starts over (a new event jumps to the front and rests too; hovering or focusing pauses it; reduced-motion and a hidden tab do not scroll). Sessions and scripts can add their own
 lines, and they survive a page reload:
 
 ```bash

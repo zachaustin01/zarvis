@@ -1,5 +1,5 @@
 'use strict'
-import { fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
+import { scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -262,7 +262,6 @@ function fuseHtml(r, now) {
 }
 
 // Event ticker: footer strip of the last dozen state transitions, diffed on each push. It lives outside #list.
-const TICKER_MAX = 12
 let tickerSnap = null
 let tickerOpen = true
 try { tickerOpen = localStorage.getItem('zarvis.ticker') !== '0' } catch { /* storage blocked */ }
@@ -274,10 +273,11 @@ function setTicker(open) {
   tickerOpen = open
   try { localStorage.setItem('zarvis.ticker', open ? '1' : '0') } catch { /* storage blocked */ }
   paintTickerState()
+  planScroll()
 }
 let tickerItems = [] // newest first: diffed transitions and events pushed through `npm run event`
 function paintTicker(added, seed) {
-  const box = $('#tkList')
+  const box = $('#tkTrack')
   const fresh = new Set(added)
   const now = Date.now()
   box.replaceChildren(...tickerItems.map((ev) => {
@@ -307,7 +307,55 @@ function mergeInto(incoming, seed = false) {
   if (!r.added.length && r.items.length === tickerItems.length) return
   tickerItems = r.items
   paintTicker(r.added, seed)
+  planScroll(r.added.length > 0 && !seed) // news jumps to the newest entry and rests there before the scroll resumes
 }
+
+// Auto-scroll through a long history: newest first, scroll from the oldest end to the newest, rest, restart.
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
+let scrollAnim = null
+let scrollTimer = 0
+const holds = new Set() // 'hover' / 'focus' / 'hidden': why the scroll is paused right now
+let runPending = false
+function stopScroll() {
+  clearTimeout(scrollTimer)
+  runPending = false
+  scrollAnim?.cancel()
+  scrollAnim = null
+  $('#tkTrack').style.transform = ''
+}
+function planScroll(snapToNewest = false) {
+  const track = $('#tkTrack')
+  const view = $('#tkList')
+  stopScroll()
+  if (!tickerOpen) return
+  const plan = scrollPlan({ count: tickerItems.length, contentW: track.scrollWidth, viewW: view.clientWidth, reduced: reduceMotion.matches })
+  if (!plan.scroll) return
+  const run = () => {
+    if (holds.size) { runPending = true; return }
+    scrollAnim?.cancel()
+    scrollAnim = track.animate([{ transform: `translateX(${-plan.distance}px)` }, { transform: 'translateX(0px)' }], { duration: plan.duration, easing: 'linear', fill: 'forwards' })
+    scrollAnim.onfinish = () => { scrollTimer = setTimeout(run, TICKER_PAUSE_MS) }
+  }
+  if (snapToNewest) {
+    scrollTimer = setTimeout(run, TICKER_PAUSE_MS) // sit on the newest entry first
+    runPending = false
+  } else run()
+}
+function hold(reason, on) {
+  on ? holds.add(reason) : holds.delete(reason)
+  if (holds.size) scrollAnim?.pause()
+  else if (runPending) { runPending = false; planScroll() }
+  else scrollAnim?.play()
+}
+$('#tkList').addEventListener('mouseenter', () => hold('hover', true))
+$('#tkList').addEventListener('mouseleave', () => hold('hover', false))
+$('#tkList').addEventListener('focusin', () => hold('focus', true))
+$('#tkList').addEventListener('focusout', () => hold('focus', false))
+document.addEventListener('visibilitychange', () => hold('hidden', document.hidden))
+reduceMotion.addEventListener?.('change', () => planScroll())
+let resizeTimer = 0
+// The strip's own size is what matters: this also fires once it is first laid out and when the window or the label changes it.
+new ResizeObserver(() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => planScroll(), 200) }).observe($('#tkList'))
 function pushEvents(rows) {
   const events = diffEvents(tickerSnap, rows)
   tickerSnap = snapshot(rows)

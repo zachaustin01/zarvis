@@ -171,7 +171,7 @@ async function currentClaims() {
   return entries.map((e) => claimView(e, now, claimProbes, names)).sort((a, b) => b.holder.lastWrite - a.holder.lastWrite)
 }
 
-const EVENTS_SHOWN = 30 // pushed events sent to the browser (it shows 12)
+const EVENTS_SHOWN = 30 // pushed events sent to the browser (it keeps up to 40 and scrolls through them)
 
 /** The newest pushed events (oldest first), each with the display name of its session when that is known. */
 async function currentEvents() {

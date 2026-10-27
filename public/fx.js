@@ -63,7 +63,7 @@ export function diffEvents(prev, rows) {
   return out
 }
 
-export const TICKER_MAX = 12
+export const TICKER_MAX = 40 // history kept; the strip scrolls through it once it holds more than TICKER_SCROLL_MIN
 const pad = (n) => String(n).padStart(2, '0')
 
 /** Identity of a ticker entry: pushed events are de-duplicated on (at, sessionId, text). Local transitions carry their own `key`. */
@@ -101,3 +101,18 @@ export const evKindClass = (kind) => (KNOWN_KINDS.includes(kind) ? kind : 'other
 
 /** An http(s) URL to link to, or ''. The server already checks; the browser does too, since the text is untrusted. */
 export const safeUrl = (u) => (/^https?:\/\/[^\s]+$/i.test(String(u ?? '')) && String(u).length <= 300 ? String(u) : '')
+
+export const TICKER_SCROLL_MIN = 10 // up to this many entries the strip is static
+export const TICKER_PAUSE_MS = 5000 // rest on the newest entry before the scroll restarts
+export const TICKER_SPEED = 80 // px per second
+
+/**
+ * Whether and how the ticker scrolls. Entries are newest first, so the scroll starts at the oldest end
+ * (the content shifted left by `distance`) and moves right until the newest entry is in view.
+ * No scrolling with `minCount` entries or fewer, when everything fits, or when `reduced` (reduced motion).
+ */
+export function scrollPlan({ count, contentW, viewW, reduced = false, minCount = TICKER_SCROLL_MIN, speed = TICKER_SPEED }) {
+  const distance = Math.max(0, Math.round(contentW - viewW))
+  if (reduced || count <= minCount || viewW <= 0 || distance <= 0) return { scroll: false, distance: 0, duration: 0 }
+  return { scroll: true, distance, duration: Math.round((distance / speed) * 1000) }
+}
