@@ -304,6 +304,10 @@ When a task is finished, run the same with --kind done and a one-line summary.
 npm test     # node --test, no test dependencies
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
