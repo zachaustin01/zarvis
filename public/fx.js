@@ -63,7 +63,7 @@ export function diffEvents(prev, rows) {
   return out
 }
 
-export const TICKER_MAX = 40 // history kept; the strip scrolls through it once it holds more than TICKER_SCROLL_MIN
+export const TICKER_MAX = 40 // history kept; the strip scrolls through it as soon as it overflows
 const pad = (n) => String(n).padStart(2, '0')
 
 /** Identity of a ticker entry: pushed events are de-duplicated on (at, sessionId, text). Local transitions carry their own `key`. */
@@ -102,7 +102,7 @@ export const evKindClass = (kind) => (KNOWN_KINDS.includes(kind) ? kind : 'other
 /** An http(s) URL to link to, or ''. The server already checks; the browser does too, since the text is untrusted. */
 export const safeUrl = (u) => (/^https?:\/\/[^\s]+$/i.test(String(u ?? '')) && String(u).length <= 300 ? String(u) : '')
 
-export const TICKER_SCROLL_MIN = 10 // up to this many entries the strip is static
+export const TICKER_SCROLL_MIN = 0 // the strip scrolls as soon as its entries overflow the width, however few they are
 export const TICKER_PAUSE_MS = 5000 // rest on the newest entry before the scroll restarts
 export const TICKER_SPEED = 80 // px per second
 

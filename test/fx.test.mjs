@@ -129,10 +129,11 @@ test('XSS: the ticker renders event text only through textContent / properties, 
 
 import { scrollPlan, TICKER_PAUSE_MS, TICKER_SCROLL_MIN } from '../public/fx.js'
 
-test('scrollPlan: static up to ten entries, when it fits, or with reduced motion; otherwise oldest-to-newest', () => {
-  assert.equal(TICKER_SCROLL_MIN, 10)
+test('scrollPlan: scrolls as soon as the entries overflow the width; static when they fit, before layout, or with reduced motion', () => {
+  assert.equal(TICKER_SCROLL_MIN, 0)
   assert.equal(TICKER_PAUSE_MS, 5000)
-  assert.deepEqual(scrollPlan({ count: 10, contentW: 5000, viewW: 800 }), { scroll: false, distance: 0, duration: 0 }) // ten: no scroll
+  assert.equal(scrollPlan({ count: 3, contentW: 1700, viewW: 800 }).scroll, true) // a few long entries that overflow scroll too
+  assert.equal(scrollPlan({ count: 0, contentW: 0, viewW: 800 }).scroll, false) // nothing to scroll
   assert.equal(scrollPlan({ count: 11, contentW: 700, viewW: 800 }).scroll, false) // fits
   assert.equal(scrollPlan({ count: 30, contentW: 5000, viewW: 0 }).scroll, false) // not laid out yet
   assert.equal(scrollPlan({ count: 30, contentW: 5000, viewW: 800, reduced: true }).scroll, false)
