@@ -43,6 +43,14 @@ export function parseMode(raw) {
   return { mode: 'all', text: s }
 }
 
+const hostOf = (url) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return ''
+  }
+}
+
 const SESSION_FIELDS = (r, stateLabel) => [
   [r.name, 1],
   [r.title && r.title !== r.name ? r.title : '', 0.8],
@@ -54,6 +62,8 @@ const SESSION_FIELDS = (r, stateLabel) => [
   [r.parked?.reason, 0.7],
   [r.parked?.handoffNote, 0.5],
   [r.parked?.parkedByName, 0.4],
+  // a session is found by the dashboard / page / PR it linked
+  ...(Array.isArray(r.links) ? r.links.flatMap((l) => [[l?.label, 0.6], [hostOf(l?.url), 0.5]]) : []),
 ]
 
 /** Score a session row against the query: every token must hit some field. Returns { score, idx } (idx into the name) or null. */

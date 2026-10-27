@@ -12,7 +12,7 @@
  *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle; but if the turn
  *                                                       ended on a question for the user (see askedQuestion), a blocked
  *                                                       marker with kind "question" is written instead
- *   SessionEnd                               -> `done`   both markers off (and the background-task file)
+ *   SessionEnd                               -> `done`   both markers off (and the background-task and link files)
  *   SubagentStop                             -> `agentstop` blocked marker off if that subagent owned it
  *   PreToolUse (second entry, timeout 5)     -> `guard`  claim the checkout a write / git command touches, or ASK when another live session holds it
  *   PostToolUse (second entry, timeout 5)    -> `guardpost` an allowed ask joins the claim's sharers
@@ -29,7 +29,7 @@
  * `start` also registers a role when the session's FIRST prompt begins with `[zarvis: role=manager]`
  * (or interface / worker, optionally `parent=<session id>`); the same text elsewhere is ignored.
  *
- * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/, tasks/ and claims/ (plus one line in events.jsonl after a push).
+ * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/, tasks/, links/ and claims/ (plus one line in events.jsonl after a push).
  * The transcript is read (never written) to find which tool is waiting, because the
  * Notification payload only carries a sentence like "Claude needs your permission to use Bash".
  * Never throws and never prints: a hook must not disturb the session.
@@ -299,7 +299,7 @@ async function main() {
   } else if (mode === 'clear') {
     await fsp.rm(file, { force: true })
   } else if (mode === 'done') {
-    await Promise.all([fsp.rm(file, { force: true }), fsp.rm(workFile, { force: true }), fsp.rm(path.join(HOME, 'tasks', `${id}.json`), { force: true })])
+    await Promise.all([fsp.rm(file, { force: true }), fsp.rm(workFile, { force: true }), fsp.rm(path.join(HOME, 'tasks', `${id}.json`), { force: true }), fsp.rm(path.join(HOME, 'links', `${id}.json`), { force: true })])
     try {
       ;(await import('../lib/claims.mjs')).releaseSession(HOME, id)
     } catch {

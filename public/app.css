@@ -449,3 +449,11 @@ body.tab-hidden .pager #pgTxt{animation-play-state:paused!important}
 body.tab-hidden .ov.pal,body.tab-hidden .pal-box{transition:none}
 @media (prefers-reduced-motion:reduce){.ov.pal,.ov.pal.on,.pal-box{transition:none}.pal-box{transform:none}}
 
+/* session links: HUD chips on a card (own row inside .q, so pagination measures them) */
+.lks{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.lk,.lkm{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--cy);border:1px solid var(--cyd);padding:1px 6px;text-decoration:none;display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0}
+.lk span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+.lk b{font-weight:400;flex:none}
+.lk:hover,.lkm:hover{background:#0b1a28}
+.lkm{cursor:pointer;color:var(--t2)}
+@media (max-width:480px){.lk span{max-width:200px}}

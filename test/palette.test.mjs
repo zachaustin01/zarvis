@@ -67,3 +67,12 @@ test('scoreSession: a parked session is found by its park reason, handoff note a
   assert.ok(scoreSession('shop manager', r))
   assert.equal(scoreSession('payments', { ...r, parked: undefined }), null)
 })
+
+test('scoreSession: a session is found by the label or host of a link it posted', () => {
+  const r = S('a', 'etl worker', { links: [{ url: 'https://dagster.example.com/runs/1', label: 'Dagster run' }, { url: 'javascript:1', label: '' }, null] })
+  assert.ok(scoreSession('dagster', r))
+  assert.ok(scoreSession('example.com', r))
+  assert.equal(scoreSession('grafana', r), null)
+  assert.ok(scoreSession('etl', S('b', 'etl worker', { links: 'nope' }))) // junk never throws
+  assert.equal(scoreSession('dagster', S('c', 'plain')), null)
+})

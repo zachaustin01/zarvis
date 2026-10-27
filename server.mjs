@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { readMarkers, hookStatus, WORKING_DIR, ZARVIS_HOME } from './lib/markers.mjs'
 import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE } from './lib/roles.mjs'
 import { readAllTasks } from './lib/tasks.mjs'
+import { readAllLinks } from './lib/links.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
@@ -62,11 +63,12 @@ async function allRows() {
   // Approximate context use per row, from the transcript tail (cached by mtime and size). Server-side only:
   // the file path never reaches the browser, and a session with no usage yet gets no `ctx` at all.
   const win = contextWindow()
+  const links = await readAllLinks(ZARVIS_HOME) // posted with `npm run link`; re-validated on read
   return Promise.all(
     rows.map(async ({ transcript, ...r }) => {
       const file = transcript || (await transcriptFor(r.sessionId))
       const ctx = await contextOf(file, win)
-      return ctx ? { ...r, ctx } : r
+      return ctx ? { ...r, ctx, links: links[r.sessionId] || [] } : { ...r, links: links[r.sessionId] || [] }
     }),
   )
 }
@@ -95,6 +97,7 @@ async function currentTree() {
   const [{ records }, state, queue] = await Promise.all([scanDesktopRecords(), readState(), allRows()])
   const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(queue) })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
+  const links = await readAllLinks(ZARVIS_HOME)
   const kids = childrenOf(nodes)
   const now = Date.now()
   const recent = new Map(records.map((r) => [r.cliSessionId, Number(r.lastActivityAt) || Number(r.createdAt) || now]))
@@ -124,6 +127,7 @@ async function currentTree() {
       state: row?.state ?? 'unknown', // no hook signal: never guess
       kind: row?.kind ?? '',
       ctx: row?.ctx ?? null,
+      links: links[n.sessionId] || [],
       tasks: row?.tasks ?? { count: 0, items: [] },
       blockedChildren: row?.blockedChildren ?? [],
       project: row?.project || path.basename(projectPathOf(n.cwd, recOf.get(n.sessionId)?.originCwd)) || '',
@@ -156,6 +160,7 @@ async function currentTree() {
       warnings: [],
       state: 'unknown',
       kind: '',
+      links: links[n.sessionId] || [],
       blockedChildren: [],
       project: path.basename(splitWorktree(n.cwd).root) || '',
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),

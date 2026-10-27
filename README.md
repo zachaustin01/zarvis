@@ -4,7 +4,8 @@ Local, read-only attention queue for Claude Code desktop sessions. It shows whic
 blocked on a permission prompt (longest wait first), then which are working, then which are idle; **Enter** opens that session in the Claude
 desktop app via its `claude://` deep link. There is no approve/deny here. While running, Zarvis
 never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers),
-`~/.zarvis/claims/*.json` (checkout claims, written by the hook and the claims CLI) and
+`~/.zarvis/claims/*.json` (checkout claims, written by the hook and the claims CLI),
+`~/.zarvis/links/*.json` (session links, written by the link CLI) and
 `~/.zarvis/state.json` (overlay names). The one exception is `npm run setup`, which adds its hook
 to your Claude settings and installs the `zarvis-interface`, `zarvis-manager` and `zarvis-worker` skills into `~/.claude/skills/` when you run it.
 
@@ -175,6 +176,27 @@ It is read-only. `running` is `live` (a fresh hook signal; `state` says blocked 
 or `archived`. Zarvis never guesses "not running". The `zarvis-interface` and `zarvis-manager` skills
 tell agents to use this instead of reading `~/.zarvis`. `roster.md` now also carries each
 interface/manager's app id and state, and points at this command.
+
+## Session links
+
+A session can attach links (a Dagster run, a served page, a PR, a report) to its own card. They show as small
+cyan chips on the card in the queue and the role tree (three, then `+N` to show all); clicking one opens it in a
+new tab and does not open the session. The palette finds a session by a link's label or host.
+
+```bash
+npm run link -- add https://dagster.example.com/runs/abc --label "Dagster run" --by <session id>
+npm run link -- list [--by <session id>] [--json]
+npm run link -- remove <url|number> [--by <session id>]
+```
+
+`--by` takes the CLI session id or the app's `local_…` id; without it the CLI uses `CLAUDE_CODE_SESSION_ID`
+when the session's environment has it, otherwise it needs `--by`. Links live in `~/.zarvis/links/<session id>.json`
+(under `ZARVIS_HOME`), up to 8 per session (the oldest drops); posting a URL again updates its label and moves it
+last. A label is one line, 60 characters; a URL is at most 300 characters. URLs are untrusted: only `http:` and
+`https:` are accepted (`localhost` too), with no spaces, control characters or `user:password@`, and the server and
+the page both re-check before rendering. Links survive park and are removed with the session at SessionEnd.
+`npm run roster -- get|list` shows them (`links` in `--json`). Sessions only learn about `npm run link` after
+`npm run setup` copies the updated skills.
 
 ## Checkout claims
 

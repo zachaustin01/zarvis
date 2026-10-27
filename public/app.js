@@ -141,6 +141,22 @@ function bgTag(r) {
   return `<span class="bg${open ? ' open' : ''}" title="${open ? 'Hide' : 'Show'} the ${n} background task${n > 1 ? 's' : ''}"><i></i>${esc(bgName(r.tasks.items[0]))}${n > 1 ? ` +${n - 1}` : ''}<b>${open ? '▾' : '▸'}</b></span>`
 }
 
+const openLk = new Set() // sessions whose link chips are all shown (click the +N)
+const LINKS_SHOWN = 3
+
+/**
+ * Links the session posted (`npm run link`): HUD chips, three then +N. The URL is re-checked here (safeUrl) and only ever
+ * reaches an escaped href; clicks on a chip are ignored by the row's own handler, so they never select or open the session.
+ */
+function linksHtml(r) {
+  const ls = (Array.isArray(r.links) ? r.links : []).map((l) => ({ url: safeUrl(l?.url), label: String(l?.label ?? '').slice(0, 60) })).filter((l) => l.url)
+  if (!ls.length) return ''
+  const all = openLk.has(r.sessionId)
+  const chips = (all ? ls : ls.slice(0, LINKS_SHOWN)).map((l) => `<a class="lk" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}"><span>${esc(l.label || l.url)}</span><b aria-hidden="true">↗</b></a>`)
+  const more = ls.length > LINKS_SHOWN ? `<span class="lkm" role="button" title="${all ? 'Show fewer links' : 'Show all links'}">${all ? '−' : `+${ls.length - LINKS_SHOWN}`}</span>` : ''
+  return `<div class="lks">${chips.join('')}${more}</div>`
+}
+
 /** The expanded list under a card: kind, name and how long each has run. */
 function bgList(r, now = Date.now()) {
   if (!r.tasks?.count || !openBg.has(r.sessionId)) return ''
@@ -169,7 +185,7 @@ function treeRow(r, depth) {
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}"${nd(r)} style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
     `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}${ctxHtml(r)}` +
-    `<span class="wt">${esc(treeStatus(r))}</span></div>${bgList(r)}<span class="go">ENTER ↵ OPEN</span></div>`
+    `<span class="wt">${esc(treeStatus(r))}</span></div>${linksHtml(r)}${bgList(r)}<span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
 
@@ -326,6 +342,7 @@ function rowHtml(r, now) {
     `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
+    linksHtml(r) +
     bgList(r, now) +
     fuseHtml(r, now) +
     (fresh.has(r.sessionId) ? '<i class="sweep"></i>' : '') +
@@ -1140,7 +1157,7 @@ function renderPalette(force) {
   palette.key = h.key
   palette.idx = h.idx
   palette.entries = entries
-  const sig = JSON.stringify([entries.map((e) => [e.key, e.label, e.type === 'session' ? [e.ref.state, e.ref.project, e.ref.branch || e.ref.worktree, e.ref.role, !!e.ref.parked, e.ref.parked?.reason] : e.ref.key]), h.idx])
+  const sig = JSON.stringify([entries.map((e) => [e.key, e.label, e.type === 'session' ? [e.ref.state, e.ref.project, e.ref.branch || e.ref.worktree, e.ref.role, !!e.ref.parked, e.ref.parked?.reason, (e.ref.links || []).map((l) => l.url).join(' ')] : e.ref.key]), h.idx])
   if (!force && sig === palette.sig) return // a live push that changes nothing visible leaves the list alone
   palette.sig = sig
   const list = $('#palList')
@@ -1154,7 +1171,7 @@ function renderPalette(force) {
         if (e.type === 'command') return `<div class="pl cmd${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${esc(e.ref.group)}</span><span class="pn">${markName(e.label, e.idx)}</span>${e.ref.key ? `<span class="pk2">${e.ref.key.split(' ').map((k) => `<kbd>${esc(k)}</kbd>`).join(' ')}</span>` : ''}</div>`
         const r = e.ref
         const where = showsWhere(r) ? r.branch || r.worktree || '' : ''
-        return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where, r.parked?.reason].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
+        return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where, r.parked?.reason, r.links?.length ? `↗ ${r.links[0].label}${r.links.length > 1 ? ` +${r.links.length - 1}` : ''}` : ''].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
       })
       .join('') + (w1 - w0 < entries.length ? `<div class="pe">${w0 + 1}–${w1} of ${entries.length} · ↑↓ for more</div>` : '') || '<div class="pe">No matches.</div>'
   $('#palIn').setAttribute('aria-activedescendant', `pl${h.idx}`)
@@ -1307,11 +1324,13 @@ for (const el of [$('#list'), $('#side')]) {
   el.addEventListener('click', (e) => {
     const q = e.target.closest('.q')
     if (!q || e.target.tagName === 'INPUT') return
+    if (e.target.closest('.lk')) return // a link chip opens its own tab: not a click on the row
     sel = q.dataset.id
+    if (e.target.closest('.lkm')) openLk.has(sel) ? openLk.delete(sel) : openLk.add(sel)
     if (e.target.closest('.bg')) openBg.has(sel) ? openBg.delete(sel) : openBg.add(sel)
     render()
   })
-  el.addEventListener('dblclick', (e) => { if (e.target.closest('.q')) openSel() })
+  el.addEventListener('dblclick', (e) => { if (e.target.closest('.q') && !e.target.closest('.lk, .lkm')) openSel() })
 }
 // ---- Update app: a banner when the app on disk changed, and a dialog that checks and hard-refreshes ----
 let loadedVersion = ''

@@ -69,6 +69,15 @@ Log a push or PR to the Zarvis ticker with
 `node "{{ZARVIS_DIR}}/scripts/event.mjs" "pushed PROJ-12" --kind push --by <your session id>`
 (kinds: push, pr, info, done, warn). It only appends a line to the event log and is not a report.
 
+## Links
+
+When you create something the user will want to look at (a dashboard, a served page, an artifact, a PR, a
+report), post it to your card:
+`node "{{ZARVIS_DIR}}/scripts/link.mjs" add <url> --label "Dagster run" --by <your session id>`
+(`list` shows yours, `remove <url|number>` drops one). Only a single `http(s)` URL without a password is
+accepted; the label is short, one line. Up to 8 stay on the card; the same URL again updates its label. Also put
+the URL in your report: the link is a convenience for the user, not the report.
+
 ## Must not
 
 - Push, merge or open a PR unless the brief says to.

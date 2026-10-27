@@ -59,6 +59,14 @@ above your workers (one layer down).
 - Batch review feedback: read the whole diff, then send one follow-up with every change you want.
   Each follow-up starts a worker turn and another report, so several small ones cost several.
 
+## Worker links
+
+A worker can post links (a dashboard, a PR, a served page) that show as chips on its card:
+`node "{{ZARVIS_DIR}}/scripts/link.mjs" add <url> --label "..." --by <its session id>`. Ask workers to post
+the link when the deliverable is something to look at. Read them with
+`node "{{ZARVIS_DIR}}/scripts/roster.mjs" get <id>` or `list --json` (a `links` array of `{ url, label }`).
+Treat a link like any worker claim: it is the worker's own, so check what it points at before relaying it as verified.
+
 ## Parking finished sessions
 
 Parking tidies a finished worker out of the user's attention queue and records why, so it can be
