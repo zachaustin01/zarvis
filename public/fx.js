@@ -105,14 +105,16 @@ export const safeUrl = (u) => (/^https?:\/\/[^\s]+$/i.test(String(u ?? '')) && S
 export const TICKER_SCROLL_MIN = 0 // the strip scrolls as soon as its entries overflow the width, however few they are
 export const TICKER_PAUSE_MS = 5000 // rest on the newest entry before the scroll restarts
 export const TICKER_SPEED = 80 // px per second
+export const TICKER_MAX_PASS_MS = 45000 // a long history speeds up rather than taking longer than this to cross
 
 /**
  * Whether and how the ticker scrolls. Entries are newest first, so the scroll starts at the oldest end
  * (the content shifted left by `distance`) and moves right until the newest entry is in view.
+ * A pass takes at most `maxMs` (long histories scroll faster than `speed`).
  * No scrolling with `minCount` entries or fewer, when everything fits, or when `reduced` (reduced motion).
  */
-export function scrollPlan({ count, contentW, viewW, reduced = false, minCount = TICKER_SCROLL_MIN, speed = TICKER_SPEED }) {
+export function scrollPlan({ count, contentW, viewW, reduced = false, minCount = TICKER_SCROLL_MIN, speed = TICKER_SPEED, maxMs = TICKER_MAX_PASS_MS }) {
   const distance = Math.max(0, Math.round(contentW - viewW))
   if (reduced || count <= minCount || viewW <= 0 || distance <= 0) return { scroll: false, distance: 0, duration: 0 }
-  return { scroll: true, distance, duration: Math.round((distance / speed) * 1000) }
+  return { scroll: true, distance, duration: Math.min(maxMs, Math.round((distance / speed) * 1000)) }
 }

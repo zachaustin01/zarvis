@@ -138,6 +138,7 @@ test('scrollPlan: scrolls as soon as the entries overflow the width; static when
   assert.equal(scrollPlan({ count: 30, contentW: 5000, viewW: 0 }).scroll, false) // not laid out yet
   assert.equal(scrollPlan({ count: 30, contentW: 5000, viewW: 800, reduced: true }).scroll, false)
   assert.deepEqual(scrollPlan({ count: 11, contentW: 1700, viewW: 800 }), { scroll: true, distance: 900, duration: 11250 }) // 80px/s
+  assert.equal(scrollPlan({ count: 40, contentW: 12400, viewW: 1000 }).duration, 45000) // a long history is capped at 45s, so it speeds up
   assert.deepEqual(scrollPlan({ count: 40, contentW: 1700, viewW: 800, speed: 90 }), { scroll: true, distance: 900, duration: 10000 })
 })
 
