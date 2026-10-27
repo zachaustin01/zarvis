@@ -1,5 +1,5 @@
 'use strict'
-import { dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
+import { ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -253,6 +253,27 @@ async function loadTree() {
   }
 }
 setInterval(loadTree, 2000)
+
+/** The interface session inside a big ring: the ring carries its state, the centre its name. Same data-id and .q class, so selection, clicks and Enter work as for any row. */
+function ringHtml(r, now) {
+  const g = ifaceRing(r, now, OVERDUE_MS)
+  const name =
+    renaming === r.sessionId
+      ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
+      : `<span class="nm">${esc(r.name)}</span>`
+  const arc = g.state === 'blocked' ? `<circle class="ifr-arc" cx="100" cy="100" r="88" transform="rotate(-90 100 100)" style="stroke-dasharray:${(g.p * IFACE_C).toFixed(1)} ${IFACE_C.toFixed(1)}"/>` : ''
+  const cmd = g.state === 'blocked' && (r.command || r.tool) ? `<div class="ifr-cmd mono">${esc(r.kind === 'question' ? 'asks' : r.tool)} ${esc(r.command)}</div>` : ''
+  return (
+    `<div class="q ifr ifr-${g.state}${g.od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}" data-id="${esc(r.sessionId)}" title="${esc(r.project)} · ${esc(g.label)} · Enter opens it">` +
+    `<div class="ifr-disc"><svg viewBox="0 0 200 200" aria-hidden="true">` +
+    `<circle class="ifr-ticks" cx="100" cy="100" r="96" style="animation-delay:${loopDelay(now, g.state === 'working' ? 12000 : 30000)}"/>` +
+    `<circle class="ifr-base" cx="100" cy="100" r="88"/>${arc}</svg>` +
+    `<div class="ifr-mid"><span class="ifr-role">${esc(r.project)}</span>${name}<span class="ifr-st">${esc(g.label)}</span>` +
+    `<span class="ifr-wt num${g.state === 'off' ? '' : ' wt'}"${g.state === 'off' ? '' : ` data-since="${r.since}"`}>${g.state === 'off' ? '' : fmt(now - r.since)}</span></div></div>` +
+    cmd +
+    `<span class="go">ENTER ↵ OPEN</span></div>`
+  )
+}
 
 function rowHtml(r, now) {
   const working = r.state === 'working'
@@ -642,7 +663,7 @@ function render() {
   const iface = vq.filter((r) => r.role === 'interface')
   const rest = vq.filter((r) => r.role !== 'interface')
   document.querySelector('.wrap').classList.toggle('has-side', iface.length > 0)
-  side.innerHTML = iface.length ? heading('Interface') + iface.map((r) => rowHtml(r, now)).join('') : ''
+  side.innerHTML = iface.length ? heading('Interface') + iface.map((r) => ringHtml(r, now)).join('') : ''
   let last = ''
   list.innerHTML =
     rest

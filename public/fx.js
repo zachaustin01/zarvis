@@ -1,4 +1,5 @@
 // Pure state for the HUD effects (fuse, ambient glow, tab title, ticker). No DOM in here, so it is unit-tested.
+import { liveProjectNames } from './projects.js'
 
 /** A blocked row that counts toward "needs you": blocked (permission or question) and not parked. */
 export const needsYou = (r) => r.state === 'blocked' && !r.parked
@@ -208,14 +209,12 @@ export function hookDial(status) {
 }
 
 /**
- * One gauge per project for the rail: its session mix as reactor arcs plus the counts. Projects come from
- * the queue rows and from parked sessions in `nodes` (the tree), never from the interface; blocked-first order.
- * `parked` is the tree's total for the project, since parked sessions mostly leave the queue.
+ * One gauge per live project for the rail (see liveProjectNames): its session mix as reactor arcs plus the counts,
+ * blocked-first. `parked` is the tree's total for the project (archived ones included), since parked sessions
+ * mostly leave the queue; it still counts for a project that stays visible.
  */
 export function projectGauges(rows, nodes = []) {
-  const names = new Set()
-  for (const r of rows) if (r.project && r.role !== 'interface') names.add(r.project)
-  for (const n of nodes) if (n.project && n.role !== 'interface' && n.parked && !n.done) names.add(n.project)
+  const names = liveProjectNames(rows, nodes) // a project with only parked or archived sessions has no gauge
   const gauges = [...names].map((project) => {
     const mine = rows.filter((r) => r.project === project && r.role !== 'interface')
     const parked = nodes.filter((n) => n.project === project && n.role !== 'interface' && n.parked && !n.done).length
@@ -224,3 +223,27 @@ export function projectGauges(rows, nodes = []) {
   })
   return gauges.sort((a, b) => b.counts.blocked - a.counts.blocked || b.counts.working - a.counts.working || a.project.localeCompare(b.project))
 }
+
+// ---- The interface session inside its big ring ----
+
+export const IFACE_R = 88
+export const IFACE_C = 2 * Math.PI * IFACE_R
+
+/**
+ * What the interface ring shows for a row: `state` (blocked / working / idle / off for no signal / child for
+ * waiting on a worker), the label under the name, `p` (a blocked wait as a share of the overdue window, else 0)
+ * and `od` once overdue. Never guesses: a row with no hook signal is "not running".
+ */
+export function ifaceRing(r, now, overdueMs) {
+  if (r.state === 'blocked') {
+    const wait = Math.max(0, now - r.since)
+    return { state: 'blocked', label: r.kind === 'question' ? 'asks a question' : 'needs you', p: Math.min(1, wait / overdueMs), od: wait > overdueMs && !r.parked }
+  }
+  if (r.state === 'waiting_on_child') return { state: 'child', label: 'waiting on a worker', p: 0, od: false }
+  if (r.state === 'working') return { state: 'working', label: 'working', p: 0, od: false }
+  if (r.state === 'idle') return { state: 'idle', label: 'idle', p: 0, od: false }
+  return { state: 'off', label: 'not running', p: 0, od: false }
+}
+
+/** A negative CSS animation delay that keeps a looping animation continuous across redraws of its element. */
+export const loopDelay = (now, periodMs) => `-${(now % periodMs) / 1000}s`

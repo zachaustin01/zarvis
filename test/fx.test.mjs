@@ -224,14 +224,44 @@ test('hookDial maps the server status and never guesses', () => {
   assert.deepEqual(hookDial(undefined), { p: 0, state: 'unknown' })
 })
 
-test('projectGauges: per-project mix, parked from the tree, no interface, blocked first', () => {
+test('projectGauges: per-project mix of live projects, parked from the tree, no interface, blocked first', () => {
   const r = (project, state, extra = {}) => ({ project, state, since: 0, role: 'worker', ...extra })
   const rows = [r('a', 'working'), r('b', 'blocked'), r('b', 'idle'), r('a', 'idle'), r('x', 'working', { role: 'interface' })]
   const nodes = [r('a', 'unknown', { parked: {} }), r('c', 'unknown', { parked: {} }), r('c', 'unknown', { parked: {}, done: true }), r('x', 'unknown', { role: 'interface', parked: {} })]
   const g = projectGauges(rows, nodes)
-  assert.deepEqual(g.map((x) => x.project), ['b', 'a', 'c']) // blocked first, then working, then name
-  assert.deepEqual(g[1].counts, { blocked: 0, working: 1, idle: 1, parked: 1 })
-  assert.deepEqual(g[2].counts, { blocked: 0, working: 0, idle: 0, parked: 1 }) // a parked-only project still gets a gauge
+  assert.deepEqual(g.map((x) => x.project), ['b', 'a']) // blocked first, then working, then name; parked-only 'c' has no gauge
+  assert.deepEqual(g[1].counts, { blocked: 0, working: 1, idle: 1, parked: 1 }) // a live project still counts its parked session
   assert.equal(g[0].total, 2)
   assert.equal(g[0].arcs.length, 4)
+})
+
+import { ifaceRing, loopDelay, IFACE_C } from '../public/fx.js'
+
+test('ifaceRing: honest state and label for the interface ring; a blocked wait fills toward overdue', () => {
+  const now = 10 * MIN
+  assert.deepEqual(ifaceRing({ state: 'working', since: 0 }, now, OD), { state: 'working', label: 'working', p: 0, od: false })
+  assert.equal(ifaceRing({ state: 'idle' }, now, OD).label, 'idle')
+  assert.deepEqual(ifaceRing({ state: 'unknown' }, now, OD), { state: 'off', label: 'not running', p: 0, od: false }) // never a guessed idle
+  assert.equal(ifaceRing({ state: 'waiting_on_child' }, now, OD).state, 'child')
+  assert.deepEqual(ifaceRing({ state: 'blocked', since: now - 2.5 * MIN }, now, OD), { state: 'blocked', label: 'needs you', p: 0.5, od: false })
+  const late = ifaceRing({ state: 'blocked', kind: 'question', since: now - 9 * MIN }, now, OD)
+  assert.deepEqual([late.label, late.p, late.od], ['asks a question', 1, true])
+  assert.ok(IFACE_C > 550 && IFACE_C < 560)
+})
+
+test('loopDelay keeps a looping animation continuous: the same instant gives the same phase', () => {
+  assert.equal(loopDelay(30_000, 30_000), '-0s')
+  assert.equal(loopDelay(37_500, 30_000), '-7.5s')
+  assert.equal(loopDelay(67_500, 30_000), loopDelay(37_500, 30_000))
+})
+
+test('projectGauges: a project whose only sessions are parked or archived has no gauge; a started session brings it back', () => {
+  const r = (project, state, extra = {}) => ({ project, state, since: 0, role: 'worker', ...extra })
+  const parkedOnly = [r('scratch', 'unknown', { parked: {} }), r('scratch', 'unknown', { parked: {}, archived: true })]
+  assert.deepEqual(projectGauges([], parkedOnly), [])
+  assert.deepEqual(projectGauges([r('scratch', 'idle', { parked: {} })], parkedOnly), []) // a parked row (wake-ready, blocked-parked) keeps nothing alive either
+  const back = projectGauges([r('scratch', 'working')], parkedOnly)
+  assert.deepEqual(back.map((g) => [g.project, g.counts]), [['scratch', { blocked: 0, working: 1, idle: 0, parked: 2 }]]) // parked count includes the archived one
+  const live = projectGauges([], [r('scratch', 'idle'), ...parkedOnly])
+  assert.deepEqual(live.map((g) => g.project), ['scratch']) // a live tree node with a hook signal also counts
 })

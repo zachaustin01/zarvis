@@ -209,3 +209,54 @@ body.tab-hidden .reactor *{animation-play-state:paused!important}
 .rl-g .rl-c .nd{color:var(--am)}.rl-g .rl-c .rn{color:var(--gr)}
 .rl-txt{min-width:0}
 .rl-empty{font-size:11px;color:var(--t3);padding:4px 2px}
+
+/* The interface session in its big ring (the left panel of the queue). The ring carries the state; the ticks turn only while working, on a time-driven loop so redraws do not restart it */
+#side .q.ifr{background:none;border:none;padding:0 0 6px;margin-bottom:14px;text-align:center;box-shadow:none;overflow:visible}
+#side .q.ifr::before,#side .q.ifr::after{display:none}
+.ifr-disc{position:relative;width:210px;height:210px;margin:6px auto 4px}
+.ifr-disc svg{position:absolute;inset:0;width:100%;height:100%;display:block;overflow:visible}
+.ifr-base{fill:#0a0f1ccc;stroke:#c792ea;stroke-width:5;opacity:.85}
+.ifr-ticks{fill:none;stroke:#c792ea;stroke-width:3;stroke-dasharray:1.5 8;opacity:.45;transform-origin:100px 100px}
+/* An occasional full turn, not a constant one: the ring turns for the first ~10% of each period and rests. Working turns more often. */
+.ifr-ticks{animation:ifrburst 30s ease-in-out infinite}
+.ifr-working .ifr-ticks{animation-duration:12s}
+.ifr-off .ifr-ticks{animation:none}
+.ifr-working .ifr-base{stroke:var(--gr)}
+.ifr-idle .ifr-base{stroke:#c792ea;opacity:.55}
+.ifr-child .ifr-base{stroke:var(--cy)}
+.ifr-off .ifr-base{stroke-dasharray:10 7;stroke:var(--t3);opacity:.6}
+.ifr-off .ifr-ticks{opacity:.15}
+.ifr-blocked .ifr-base{stroke:var(--edge);opacity:1}
+.ifr-arc{fill:none;stroke:var(--am);stroke-width:6;stroke-linecap:round}
+.ifr-blocked.od .ifr-arc{stroke:var(--rd)}
+.ifr-blocked .ifr-ticks{stroke:var(--am);opacity:.6}
+.ifr-mid{position:absolute;inset:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0 6px}
+.ifr-mid .nm{font-weight:600;font-size:14px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.ifr-mid input{width:100%;font-size:13px;text-align:center}
+.ifr-role{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#c792ea}
+.ifr-st{font-size:12px;color:var(--t2)}
+.ifr-blocked .ifr-st{color:var(--am)}.ifr-blocked.od .ifr-st{color:var(--rd)}
+.ifr-working .ifr-st{color:var(--gr)}.ifr-off .ifr-st{color:var(--t3)}
+.ifr-wt{font-size:12px;color:var(--t3);margin-left:0}
+.ifr-cmd{font-size:11px;color:var(--t2);background:#050a10;border:1px solid var(--edge);padding:3px 6px;margin:2px 4px 0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#side .q.ifr.sel .ifr-base{stroke:#c792ea;opacity:1}
+#side .q.ifr.sel .ifr-disc svg{filter:drop-shadow(0 0 7px #c792ea99)}
+#side .q.ifr.sel .nm{color:#e6cdfa}
+#side .q.ifr .go{display:none}#side .q.ifr.sel .go{display:block;text-align:center}
+@keyframes ifrburst{0%{transform:rotate(0)}10%,100%{transform:rotate(360deg)}}
+@media (max-width:760px){.ifr-disc{width:170px;height:170px}.ifr-mid{inset:20px}}
+@media (prefers-reduced-motion:reduce){.ifr-ticks{animation:none!important}}
+body.tab-hidden .ifr-ticks{animation-play-state:paused!important}
+
+/* The key sheet: sections in columns, key caps on the left */
+.box.wide{width:min(900px,94vw);max-height:76vh;overflow-y:auto}
+.sheet-hd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.sheet-hd .ap{font-size:11px;letter-spacing:.04em;text-transform:none;font-weight:400}
+.sheet{columns:2 340px;column-gap:28px}
+.sheet section{break-inside:avoid;margin:0 0 16px}
+.sheet h3{margin:0 0 6px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);font-weight:600;border-bottom:1px solid var(--edge);padding-bottom:3px}
+.kr{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:baseline;padding:3px 0;font-size:13px}
+.kk{display:flex;flex-wrap:wrap;gap:4px}
+.sheet kbd{font:12px ui-monospace,Menlo,Consolas,monospace;color:var(--cy);border:1px solid var(--cyd);border-bottom-width:2px;border-radius:4px;padding:0 6px;background:#0b1a28;min-width:22px;text-align:center}
+.kd{color:var(--t2)}
+.kd kbd{font-size:11px;padding:0 4px;min-width:0}

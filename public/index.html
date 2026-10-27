@@ -42,33 +42,43 @@
 <main class="wrap">
   <input id="flt" placeholder="Search roles (/) — also finds done sessions" hidden>
   <div class="cols"><aside id="side"></aside><div id="list"></div></div>
-  <div class="hint">j/k move · Tab views · b rail · e ticker · g project · m/w role filter · v parked in roles · i interface · Enter open in Claude · n new session · P park · d done · u unpark · z undo · p parked · r rename · c classify · t roles · h/q queue · ? keys</div>
 </main>
 
-<div class="ov" id="ovHelp"><div class="box">
-  <div class="hd" style="margin-bottom:8px">Keys</div>
-  <div class="kv">
-    <b>j k ↑ ↓</b><span>Move selection</span>
-    <b>Enter</b><span>Open the selected session in the Claude desktop app</span>
-    <b>g G</b><span>Filter by project: g next, Shift+G previous, back around to All projects (also click a chip). Blocked sessions in other projects are counted beside the chips; the interface session always shows</span>
-    <b>v</b><span>Roles page: show or hide parked sessions (hidden by default, counted in the chip; the Parked view, p, always lists them; searching with / still finds them). Remembered</span>
-    <b>m w</b><span>Queue role filter: m shows managers only, w workers only, the same key again clears it. Combines with the project filter, the interface session always shows, and blocked sessions it hides are counted beside the chips. n and c still take m / w as their second key</span>
-    <b>i</b><span>Jump to the interface session (again for the next, if there are several)</span>
-    <b>n</b><span>New Claude Code session in the selected session's repo. Pick its role: i interface, m manager, w worker (under the selected manager), p plain. The role tag is put in the new session's prompt box</span>
-    <b>a</b><span>In the role tree, with a manager selected: attach existing sessions to it as workers</span>
-    <b>b</b><span>Show or hide the project rail on the left (wide windows only): a ring gauge per project with its blocked, working, idle and parked mix; click one to filter by it. Remembered</span>
-    <b>e</b><span>Collapse or expand the event ticker along the bottom (arrivals, blocks, resumes, finishes and parks, plus events pushed with `npm run event`). Once the entries overflow the width it scrolls from the oldest to the newest, rests five seconds there, then starts over; hovering pauses it. Remembered</span>
-    <b>Tab</b><span>Cycle the views: Queue, Roles, Parked, back around (Shift+Tab goes the other way). Tab behaves normally while you are typing in a box or this sheet is open</span>
-    <b>t h q</b><span>Role tree · attention queue (h or q)</span>
-    <b>c</b><span>Classify the selection: i interface, m manager, w worker, x clear. In the role tree, Shift+C makes every unclassified session a worker</span>
-    <b>P</b><span>Park the selection (Shift+P): a one-line reason, an optional wake date, a handoff note (⌘/Ctrl+Enter saves). On a parked session, unparks it. Parked sessions leave the queue unless blocked or wake-ready</span>
-    <b>d</b><span>Mark done (hidden unless searched with / in the role tree); on a done session, brings it back</span>
-    <b>u</b><span>Unpark the selected session</span>
-    <b>z</b><span>Undo the last park, unpark or done</span>
-    <b>p</b><span>Parked view: every parked session with its reason, who parked it, and its handoff note. / searches the notes too</span>
-    <b>/</b><span>Search the role tree or Parked view, done sessions included. Esc clears</span>
-    <b>r</b><span>Rename (overlay only). Esc cancels, empty restores the app title</span>
-    <b>?</b><span>This sheet · Esc closes</span>
+<div class="ov" id="ovHelp"><div class="box wide">
+  <div class="hd sheet-hd">Keys <span class="ap">Esc or ? closes · nothing here fires while you type in a box</span></div>
+  <div class="sheet">
+    <section><h3>Move &amp; open</h3>
+      <div class="kr"><span class="kk"><kbd>j</kbd> <kbd>k</kbd></span><span class="kd">Move the selection (arrow keys work too)</span></div>
+      <div class="kr"><span class="kk"><kbd>Enter</kbd></span><span class="kd">Open the selected session in the Claude desktop app</span></div>
+      <div class="kr"><span class="kk"><kbd>i</kbd></span><span class="kd">Jump to the interface session (again for the next one)</span></div>
+      <div class="kr"><span class="kk"><kbd>n</kbd></span><span class="kd">New session in the selected repo, then <kbd>i</kbd> <kbd>m</kbd> <kbd>w</kbd> <kbd>p</kbd> picks its role (interface, manager, worker, plain)</span></div>
+      <div class="kr"><span class="kk"><kbd>r</kbd></span><span class="kd">Rename: Esc cancels, empty restores the app title</span></div>
+    </section>
+    <section><h3>Views</h3>
+      <div class="kr"><span class="kk"><kbd>Tab</kbd></span><span class="kd">Cycle Queue, Roles, Parked (Shift+Tab goes back)</span></div>
+      <div class="kr"><span class="kk"><kbd>h</kbd> <kbd>q</kbd></span><span class="kd">Attention queue</span></div>
+      <div class="kr"><span class="kk"><kbd>t</kbd></span><span class="kd">Role tree</span></div>
+      <div class="kr"><span class="kk"><kbd>p</kbd></span><span class="kd">Parked view: reason, who parked it, handoff note</span></div>
+      <div class="kr"><span class="kk"><kbd>/</kbd></span><span class="kd">Search the Roles or Parked view; done sessions are included</span></div>
+    </section>
+    <section><h3>Filters</h3>
+      <div class="kr"><span class="kk"><kbd>g</kbd> <kbd>G</kbd></span><span class="kd">Filter by project, next or previous, back around to All; blocked sessions elsewhere stay counted</span></div>
+      <div class="kr"><span class="kk"><kbd>m</kbd> <kbd>w</kbd></span><span class="kd">Queue role filter: managers only, workers only; the same key clears it</span></div>
+      <div class="kr"><span class="kk"><kbd>v</kbd></span><span class="kd">Roles: show or hide parked sessions (hidden by default)</span></div>
+    </section>
+    <section><h3>Sessions</h3>
+      <div class="kr"><span class="kk"><kbd>P</kbd></span><span class="kd">Park (Shift+P): reason, optional wake date, handoff note. On a parked session it unparks</span></div>
+      <div class="kr"><span class="kk"><kbd>u</kbd></span><span class="kd">Unpark the selection</span></div>
+      <div class="kr"><span class="kk"><kbd>d</kbd></span><span class="kd">Mark done; on a done session, bring it back</span></div>
+      <div class="kr"><span class="kk"><kbd>z</kbd></span><span class="kd">Undo the last park, unpark or done</span></div>
+      <div class="kr"><span class="kk"><kbd>c</kbd></span><span class="kd">Classify: <kbd>i</kbd> interface, <kbd>m</kbd> manager, <kbd>w</kbd> worker, <kbd>x</kbd> clear. In Roles, Shift+C makes every unclassified session a worker</span></div>
+      <div class="kr"><span class="kk"><kbd>a</kbd></span><span class="kd">Roles, with a manager selected: attach sessions to it as workers</span></div>
+    </section>
+    <section><h3>Screen</h3>
+      <div class="kr"><span class="kk"><kbd>b</kbd></span><span class="kd">Project rail on the left (wide windows): a gauge per project, click to filter</span></div>
+      <div class="kr"><span class="kk"><kbd>e</kbd></span><span class="kd">Event ticker along the bottom: collapse or expand; it scrolls when it holds more than ten events</span></div>
+      <div class="kr"><span class="kk"><kbd>?</kbd></span><span class="kd">This sheet</span></div>
+    </section>
   </div>
 </div></div>
 <div class="ov" id="ovPick"><div class="box">

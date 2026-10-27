@@ -63,12 +63,25 @@ export function projectHue(name) {
 }
 
 /**
- * The chip set: projects with a queue row (a hook signal), plus parked sessions' projects. Sessions the
- * hook has never seen, and the interface, add no chip, so the set is the same whichever view was opened.
+ * The projects that are alive: a queue row that is not parked, or a tree node with a hook signal that is
+ * not parked, not done and not archived. A project whose only sessions are parked or archived is not alive,
+ * so it drops out of the chips and the rail until a session there starts again (the Parked view still lists
+ * its sessions). Sessions the hook never saw, and the interface, keep nothing alive, so the set is the same
+ * whichever view was opened.
  */
+export function liveProjectNames(rows, nodes = []) {
+  const names = new Set()
+  for (const r of rows) if (r.project && r.role !== 'interface' && !r.parked) names.add(r.project)
+  for (const n of nodes) {
+    if (n.project && n.role !== 'interface' && !n.parked && !n.done && !n.archived && n.state && n.state !== 'unknown') names.add(n.project)
+  }
+  return names
+}
+
+/** The chip set: the live projects, with counts from the rows. */
 export function chipProjects(rows, nodes = []) {
-  const extra = nodes.filter((n) => n.role !== 'interface' && (n.parked || (n.state && n.state !== 'unknown'))).map((n) => n.project)
-  return projectsOf(rows, extra)
+  const live = liveProjectNames(rows, nodes)
+  return projectsOf(rows.filter((r) => !r.parked), [...live]).filter((c) => live.has(c.project))
 }
 
 /** The remembered project if it has a chip, else All. Callers drop a remembered one that fails this. */

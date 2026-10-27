@@ -48,7 +48,7 @@ test('projectHue is stable and in range', () => {
   assert.ok(projectHue('x') >= 0 && projectHue('x') < 360)
 })
 
-import { chipProjects, resolveProject, hiddenParked, ago } from '../public/projects.js'
+import { liveProjectNames, chipProjects, resolveProject, hiddenParked, ago } from '../public/projects.js'
 
 test('chip set is the same before and after the tree loads, and a stale remembered project stays All', () => {
   const queue = [row('zarvis', 'blocked'), row('ais', 'working'), row('brain', 'working', { role: 'interface' })]
@@ -70,9 +70,26 @@ test('chip set is the same before and after the tree loads, and a stale remember
   assert.equal(resolveProject('', after), '')
 })
 
-test('a parked session adds its project as a chip even without a hook signal', () => {
-  const chips = chipProjects([row('zarvis', 'blocked')], [row('old-repo', 'unknown', { parked: { reason: 'x' } })])
-  assert.deepEqual(chips.map((c) => c.project), ['old-repo', 'zarvis'])
+test('a project with only parked or archived sessions has no chip; a live one keeps it; a remembered filter on it resets', () => {
+  const P = { reason: 'x' }
+  const parkedOnly = [row('scratch', 'unknown', { parked: P }), row('scratch', 'unknown', { parked: P, archived: true }), row('old', 'idle', { parked: P })]
+  // parked-only and archived-parked projects are gone; the live one stays
+  const queue = [row('zarvis', 'blocked'), row('old', 'idle', { parked: P })]
+  assert.deepEqual(chipProjects(queue, parkedOnly).map((c) => c.project), ['zarvis'])
+  assert.deepEqual(chipProjects([], parkedOnly), [])
+  // a hook-signalled, unparked tree node keeps its project alive; one the hook never saw does not
+  assert.deepEqual(chipProjects([], [row('a', 'idle'), row('b', 'unknown')]).map((c) => c.project), ['a'])
+  // an archived or done node never keeps a project alive
+  assert.deepEqual(chipProjects([], [row('a', 'idle', { archived: true }), row('b', 'idle', { done: true })]), [])
+  // the exact report: scratch was remembered, its only session got parked/archived -> its chip vanishes -> All
+  assert.equal(resolveProject('scratch', chipProjects(queue, parkedOnly)), '')
+  // started again (a live row), the chip is back
+  assert.equal(resolveProject('scratch', chipProjects([...queue, row('scratch', 'working')], parkedOnly)), 'scratch')
+})
+
+test('liveProjectNames: queue rows that are not parked, plus live tree nodes; never the interface', () => {
+  const names = liveProjectNames([row('a', 'working'), row('b', 'idle', { parked: {} }), row('c', 'working', { role: 'interface' })], [row('d', 'blocked'), row('e', 'idle', { parked: {} })])
+  assert.deepEqual([...names].sort(), ['a', 'd'])
 })
 
 test('hiddenParked counts parked, not done, non-interface sessions outside the filter', () => {
