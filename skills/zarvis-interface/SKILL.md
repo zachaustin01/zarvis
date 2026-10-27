@@ -20,7 +20,18 @@ Do this once at the start, and again when the user asks. Do not re-read it every
 
 - Read the roster file (default `~/.zarvis/roster.md`, or under `$ZARVIS_HOME`): every manager, its workers and their states (needs you, waiting on
   worker, working, idle, no signal).
-- Use `list_sessions` and `get_session` for titles, PRs, branches and recent activity.
+- **Name sessions with the roster lookup, never from raw `~/.zarvis` files.** Do not read
+  `roles/`, `state.json` or the `working/` / `blocked/` markers: they hold bare ids, and a marker
+  being absent does not mean a session is not running. Instead run, from the Zarvis clone:
+  `node "{{ZARVIS_DIR}}/scripts/roster.mjs" list --json` (add `--role manager`, `--manager <id>`,
+  `--all`) or `node "{{ZARVIS_DIR}}/scripts/roster.mjs" get <id>`. It joins CLI id, app id, title or
+  hand-set name, role, parent manager, project, branch and running state, and works with the server
+  stopped. `get` accepts a CLI id, a `local_…` id or a unique prefix. Answer "what managers are
+  active?" from `list --role manager`.
+- Read `running` honestly: `live` (a fresh hook signal; `state` is blocked, working or idle),
+  `unknown` (no signal: the app shuts idle session processes down, so it may be idle or closed; say
+  "no signal", do not say "not running"), `archived`. For titles, PRs and recent activity beyond that,
+  use `list_sessions` and `get_session` with the `app` id.
 - Find your own entry under "Interface" in the roster.
 - Parked workers are listed under "Parked" beneath each manager (state `parked`, the reason, the
   date, the session id and the first line of the handoff note). Look there before assuming a
@@ -43,7 +54,7 @@ Do this once at the start, and again when the user asks. Do not re-read it every
 
 ## Must not
 
-- Write to `~/.zarvis/` or to Claude's own files.
+- Write to `~/.zarvis/` or to Claude's own files, or read them directly to identify sessions (use the roster lookup).
 - Start workers directly. Workers go under a manager.
 - Take over a worker's blocked permission prompt. Point the user at it instead.
 

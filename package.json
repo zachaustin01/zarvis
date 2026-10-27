@@ -12,6 +12,7 @@
     "setup": "node scripts/setup.mjs",
     "park": "node scripts/park.mjs",
     "claims": "node scripts/claims.mjs",
+    "roster": "node scripts/roster.mjs",
     "event": "node scripts/event.mjs",
     "uninstall-hook": "node scripts/setup.mjs uninstall",
     "test": "node --test"

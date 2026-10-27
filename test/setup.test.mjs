@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { addHooks, hasHooks, hookCommand, removeHooks, HOOK_EVENTS } from '../lib/hook-config.mjs'
 import { fileURLToPath } from 'node:url'
-import { run } from '../scripts/setup.mjs'
+import { run, render } from '../scripts/setup.mjs'
 import { execFile } from 'node:child_process'
 
 const HOOK = '/opt/zarvis/hooks/zarvis-hook.mjs'
@@ -152,7 +152,7 @@ test('every shipped skill has frontmatter that is valid YAML for name and descri
 test('setup installs the skill beside the settings, and re-running changes nothing', async () => {
   const s = await sandbox()
   await s.run([])
-  const shipped = await fsp.readFile(SKILL_SRC, 'utf8')
+  const shipped = render(await fsp.readFile(SKILL_SRC, 'utf8'))
   assert.equal(await fsp.readFile(s.dest, 'utf8'), shipped)
   const before = await fsp.readdir(path.dirname(s.dest))
   await s.run([])
@@ -167,7 +167,7 @@ test('a differing SKILL.md is backed up before it is overwritten', async () => {
   const files = await fsp.readdir(path.dirname(s.dest))
   const backup = files.find((f) => f.includes('zarvis-backup'))
   assert.equal(await fsp.readFile(path.join(path.dirname(s.dest), backup), 'utf8'), 'my edits')
-  assert.equal(await fsp.readFile(s.dest, 'utf8'), await fsp.readFile(SKILL_SRC, 'utf8'))
+  assert.equal(await fsp.readFile(s.dest, 'utf8'), render(await fsp.readFile(SKILL_SRC, 'utf8')))
 })
 
 test('uninstall removes the skill and its empty folder, and leaves other skills alone', async () => {
@@ -254,7 +254,6 @@ test('a skill rendered for a moved clone is replaced and removed without a backu
 })
 
 test('the installed park command survives clone paths with $, backticks, quotes and spaces', async () => {
-  const { render } = await import('../scripts/setup.mjs')
   const template = await fsp.readFile(MANAGER_SRC, 'utf8')
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-q-'))
   const odd = ['$HOME dir', 'back`tick`', 'dq"uote', "sq'uote", 'sp ace', '$(touch pwned)']  // (a backslash in a directory name is refused by Node's ESM loader itself, whatever the quoting)

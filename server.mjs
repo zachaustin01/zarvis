@@ -10,12 +10,13 @@ import { classify, childrenOf, roleMarker, rolePrompt, isNewSessionRole, NO_ROLE
 import { readAllTasks } from './lib/tasks.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf } from './lib/sessions.mjs'
-import { buildQueue, applyRoles, pinnedRows, newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
+import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
+import { collectRows, cwdsOf, nameFn } from './lib/lookup.mjs'
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
 import { readEvents } from './lib/events.mjs'
-import { annotateRows, visibleRows, lifecycleOf, hideDone, archivedParked } from './lib/lifecycle.mjs'
+import { visibleRows, lifecycleOf, hideDone, archivedParked } from './lib/lifecycle.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
 const HOST = '127.0.0.1' // loopback only, by design
@@ -51,21 +52,12 @@ function requestAllowed(req) {
   return true
 }
 
-/** A session's display name (overlay, else app title) by CLI id, for naming the parking manager. */
-const nameFn = (nodes, state) => (id) => state.overlays[id]?.name || nodes.get(id)?.title || ''
-
-/** CLI session id -> the cwd the queue resolved for it (hook marker first), for sessions that have a row. */
-const cwdsOf = (rows) => Object.fromEntries(rows.filter((r) => r.cwd).map((r) => [r.sessionId, r.cwd]))
-
 /** Every hook-signalled session with its lifecycle facts; parked and done ones included. */
 async function allRows() {
   const [markers, working] = await Promise.all([readMarkers(), readMarkers(WORKING_DIR)])
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
-  const rows = await buildQueue({ markers, working, tasks: await readAllTasks(ZARVIS_HOME), records, deleted, overlays: state.overlays, maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
-  const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(rows) })
-  // An interface session stays in the queue even with no live process (no markers): "not running", never a guessed state.
-  const withRoles = [...applyRoles(rows, nodes), ...pinnedRows(nodes, records, rows, { overlays: state.overlays })]
-  return annotateRows(withRoles, state, Date.now(), nameFn(nodes, state))
+  const { rows } = await collectRows({ markers, working, tasks: await readAllTasks(ZARVIS_HOME), records, deleted, state, roles: await roleRegistry(state), maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
+  return rows
 }
 
 /** The "Needs you" queue: done and parked sessions filtered out (see lifecycle.visibleRows). */

@@ -17,7 +17,9 @@ above your workers (one layer down).
 ## Orient
 
 - Read the roster file (default `~/.zarvis/roster.md`, or under `$ZARVIS_HOME`) for your workers and
-  their states. Find your own entry under "Manager" by your session id, name or project. Call `list_sessions` with
+  their states. To name a session by id (title, role, state, branch), use
+  `node "{{ZARVIS_DIR}}/scripts/roster.mjs" get <id>` rather than reading `~/.zarvis`; `unknown` running
+  state means no hook signal, not that the session is gone. Find your own entry under "Manager" by your session id, name or project. Call `list_sessions` with
   `linked: true` for the sessions you started.
 - Check the repo's `git status` and `git log` before assigning work.
 - Check the claimed checkouts too: the "Checkouts" section of the roster, or

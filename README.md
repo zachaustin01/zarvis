@@ -159,6 +159,23 @@ with its state and session ids. A manager session is an ordinary Claude session 
 about Zarvis, so `n` then `m` prefills its first prompt with the role tag plus a line pointing at
 this file and one pointing at the `zarvis-manager` skill. It refreshes on every classify and every few seconds.
 
+### Session lookup
+
+The roster file lists managers and workers; to name *any* session (the interface asking "which managers
+are active?") use the lookup CLI, which does the same join as the dashboard (CLI id → the app's record →
+title, hand-set name, role, parent manager, project, branch, running state) and needs no server:
+
+```bash
+npm run roster -- list [--role manager] [--manager <id>] [--running live|unknown|archived] [--all] [--json]
+npm run roster -- get <id> [--json]   # CLI id, the app's local_… id, or a unique prefix
+```
+
+It is read-only. `running` is `live` (a fresh hook signal; `state` says blocked / working / idle),
+`unknown` (no signal: the app shuts idle session processes down, so "idle" and "closed" look the same),
+or `archived`. Zarvis never guesses "not running". The `zarvis-interface` and `zarvis-manager` skills
+tell agents to use this instead of reading `~/.zarvis`. `roster.md` now also carries each
+interface/manager's app id and state, and points at this command.
+
 ## Checkout claims
 
 Two sessions editing the same checkout trip over each other's uncommitted work. Zarvis makes that
