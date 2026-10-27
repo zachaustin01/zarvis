@@ -139,3 +139,11 @@ test('scrollPlan: static up to ten entries, when it fits, or with reduced motion
   assert.deepEqual(scrollPlan({ count: 11, contentW: 1700, viewW: 800 }), { scroll: true, distance: 900, duration: 11250 }) // 80px/s
   assert.deepEqual(scrollPlan({ count: 40, contentW: 1700, viewW: 800, speed: 90 }), { scroll: true, distance: 900, duration: 10000 })
 })
+
+test('diffEvents: an interface row flipping between not running and live is not news; a real block still is', () => {
+  const prev = snapshot([row('i', 'unknown')])
+  assert.deepEqual(diffEvents(prev, [row('i', 'working')]), []) // process started
+  assert.deepEqual(diffEvents(snapshot([row('i', 'working')]), [row('i', 'unknown')]), []) // process shut down
+  assert.deepEqual(diffEvents(snapshot([row('i', 'idle')]), [row('i', 'unknown')]), [])
+  assert.deepEqual(diffEvents(prev, [row('i', 'blocked', { tool: 'Bash' })]).map((e) => e.kind), ['blocked'])
+})

@@ -42,6 +42,7 @@ main.wrap{padding-bottom:50px}
 .chip.hid{color:var(--am);border-color:var(--am)}
 .chip kbd{font:inherit;color:var(--cy);margin-left:4px}
 .chip.pv{border-style:dashed}
+.q.ns .prompt{color:var(--t3)}
 .q.arch{opacity:.65}.q.arch .wt .ap{border:1px solid var(--edge);padding:0 5px;margin-right:6px;letter-spacing:.08em;text-transform:uppercase;font-size:10px}
 .chip.rl{border-style:dashed}
 .projbar .g{margin-left:auto}

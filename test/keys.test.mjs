@@ -100,3 +100,10 @@ test('ticker scroll: planned from the pure helper, pauses on hover/focus/hidden,
   assert.match(app, /paintTickerState\(\)\n\s+planScroll\(\)/) // expanding or collapsing replans
   assert.doesNotMatch(app, /\.innerHTML = .*tk/) // entries are built with textContent
 })
+
+test('the interface keeps a queue row when not running: wired in the server, dimmed in the UI', async () => {
+  const [server, app] = await Promise.all([read('server.mjs'), read('public/app.js')])
+  assert.match(server, /interfaceRows\(nodes, records, rows/)
+  assert.doesNotMatch(server, /if \(!markers\.length && !working\.length\) return \[\]/) // no early return that drops it
+  assert.match(app, /r\.state === 'unknown' \? ' ns' : ''/)
+})
