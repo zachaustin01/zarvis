@@ -142,7 +142,7 @@ import { pinnedRows, applyRoles } from '../lib/queue.mjs'
 import { classify } from '../lib/roles.mjs'
 import { annotateRows, visibleRows } from '../lib/lifecycle.mjs'
 
-test('pinnedRows keeps a signal-less interface session in the queue as "not running", and nothing else', () => {
+test('pinnedRows keeps a signal-less interface session in the queue as "no signal", and nothing else', () => {
   const rec = (n, extra = {}) => ({ sessionId: `local_${String(n).repeat(8)}-0000-4000-8000-000000000000`, cliSessionId: `${String(n).repeat(8)}-0000-4000-8000-000000000000`, title: `S${n}`, cwd: `/code/proj${n}`, createdAt: 1000, lastActivityAt: 5000, ...extra })
   const id = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`
   const records = [rec(1, { originCwd: '/code/brain' }), rec(2), rec(3, { isArchived: true }), rec(4), rec(5, { branch: 'feat/ABC-9-x' })]
@@ -159,7 +159,7 @@ test('pinnedRows keeps a signal-less interface session in the queue as "not runn
   assert.equal(one.since, 5000)
   assert.equal(one.waitMs, 4000)
   assert.match(one.link, /^claude:\/\/claude\.ai\/epitaxy\/local_/)
-  assert.match(one.prompt, /Not running/)
+  assert.match(one.prompt, /No signal/)
   assert.equal(got.find((r) => r.sessionId === id(5)).initiative, 'ABC-9')
 })
 

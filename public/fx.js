@@ -232,7 +232,7 @@ export const IFACE_C = 2 * Math.PI * IFACE_R
 /**
  * What the interface ring shows for a row: `state` (blocked / working / idle / off for no signal / child for
  * waiting on a worker), the label under the name, `p` (a blocked wait as a share of the overdue window, else 0)
- * and `od` once overdue. Never guesses: a row with no hook signal is "not running".
+ * and `od` once overdue. Never guesses: a row with no hook signal is "no signal" (the app shuts idle sessions down, so a live one can lack markers).
  */
 export function ifaceRing(r, now, overdueMs) {
   if (r.state === 'blocked') {
@@ -242,7 +242,7 @@ export function ifaceRing(r, now, overdueMs) {
   if (r.state === 'waiting_on_child') return { state: 'child', label: 'waiting on a worker', p: 0, od: false }
   if (r.state === 'working') return { state: 'working', label: 'working', p: 0, od: false }
   if (r.state === 'idle') return { state: 'idle', label: 'idle', p: 0, od: false }
-  return { state: 'off', label: 'not running', p: 0, od: false }
+  return { state: 'off', label: 'no signal', p: 0, od: false }
 }
 
 /** A negative CSS animation delay that keeps a looping animation continuous across redraws of its element. */

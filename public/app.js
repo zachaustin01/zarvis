@@ -110,7 +110,7 @@ function crumbBase(r) {
 }
 
 const heading = (text) => `<div class="hd sec">${text}</div>`
-const SECTION = { working: 'Working', idle: 'Idle', blocked: 'Needs you', parked_blocked: 'Blocked, parked', waiting_on_child: 'Waiting on a worker', unknown: 'Not running' }
+const SECTION = { working: 'Working', idle: 'Idle', blocked: 'Needs you', parked_blocked: 'Blocked, parked', waiting_on_child: 'Waiting on a worker', unknown: 'No signal' }
 // Parked-but-blocked sessions are still shown, but apart from "Needs you" so that section and the badge agree.
 const sectionOf = (r) => (r.state === 'blocked' && r.parked ? 'parked_blocked' : r.state)
 const SECTION_RANK = { blocked: 0, parked_blocked: 1, waiting_on_child: 2, working: 3, idle: 4, unknown: 5 }

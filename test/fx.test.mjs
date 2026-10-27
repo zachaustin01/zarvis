@@ -142,7 +142,7 @@ test('scrollPlan: scrolls as soon as the entries overflow the width; static when
   assert.deepEqual(scrollPlan({ count: 40, contentW: 1700, viewW: 800, speed: 90 }), { scroll: true, distance: 900, duration: 10000 })
 })
 
-test('diffEvents: an interface row flipping between not running and live is not news; a real block still is', () => {
+test('diffEvents: an interface row flipping between no signal and live is not news; a real block still is', () => {
   const prev = snapshot([row('i', 'unknown')])
   assert.deepEqual(diffEvents(prev, [row('i', 'working')]), []) // process started
   assert.deepEqual(diffEvents(snapshot([row('i', 'working')]), [row('i', 'unknown')]), []) // process shut down
@@ -241,7 +241,7 @@ test('ifaceRing: honest state and label for the interface ring; a blocked wait f
   const now = 10 * MIN
   assert.deepEqual(ifaceRing({ state: 'working', since: 0 }, now, OD), { state: 'working', label: 'working', p: 0, od: false })
   assert.equal(ifaceRing({ state: 'idle' }, now, OD).label, 'idle')
-  assert.deepEqual(ifaceRing({ state: 'unknown' }, now, OD), { state: 'off', label: 'not running', p: 0, od: false }) // never a guessed idle
+  assert.deepEqual(ifaceRing({ state: 'unknown' }, now, OD), { state: 'off', label: 'no signal', p: 0, od: false }) // never a guessed idle
   assert.equal(ifaceRing({ state: 'waiting_on_child' }, now, OD).state, 'child')
   assert.deepEqual(ifaceRing({ state: 'blocked', since: now - 2.5 * MIN }, now, OD), { state: 'blocked', label: 'needs you', p: 0.5, od: false })
   const late = ifaceRing({ state: 'blocked', kind: 'question', since: now - 9 * MIN }, now, OD)

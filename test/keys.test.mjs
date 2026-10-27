@@ -98,7 +98,7 @@ test('ticker scroll: planned from the pure helper, pauses on hover/focus/hidden,
   assert.doesNotMatch(app, /\.innerHTML = .*tk/) // entries are built with textContent
 })
 
-test('the interface keeps a queue row when not running: wired in the server, dimmed in the UI', async () => {
+test('the interface keeps a queue row when it has no signal: wired in the server, dimmed in the UI', async () => {
   const [server, lookup, app] = await Promise.all([read('server.mjs'), read('lib/lookup.mjs'), read('public/app.js')])
   assert.match(lookup, /pinnedRows\(nodes, records, built/)
   assert.match(server, /collectRows\(/)
@@ -149,4 +149,14 @@ test('the key hints live only in the ? sheet: no always-on hint line, every key 
     assert.ok(sh.includes(`<kbd>${k}</kbd>`), `the sheet lists ${k}`)
   }
   for (const h of ['Move &amp; open', 'Views', 'Filters', 'Sessions', 'Screen']) assert.ok(sh.includes(`<h3>${h}</h3>`), h)
+})
+
+test('wording: no signal is "no signal", never "not running"; the ticker line describes the real scroll', async () => {
+  const [html, fx, app] = await Promise.all([read('public/index.html'), read('public/fx.js'), read('public/app.js')])
+  assert.match(fx, /label: 'no signal'/)
+  assert.match(app, /unknown: 'No signal'/)
+  assert.doesNotMatch(fx + app, /not running/i)
+  const e = html.match(/<kbd>e<\/kbd><\/span><span class="kd">([^<]*)<\/span>/)[1]
+  assert.match(e, /overflow the width/)
+  assert.doesNotMatch(e, /more than ten/)
 })
