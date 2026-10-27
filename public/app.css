@@ -10,6 +10,9 @@ body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0b1b2b 0,var(
 .bg{font-size:10px;letter-spacing:.06em;color:var(--cy);border:1px solid var(--cyd);padding:0 5px;margin:0 8px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .bg i{width:5px;height:5px;border-radius:50%;background:var(--cy);animation:bgp 2.4s ease-in-out infinite}
 @keyframes bgp{50%{opacity:.25}}
+.bg{cursor:pointer}.bg b{font-weight:400;color:var(--t2);margin-left:2px}.bg:hover,.bg.open{background:#0b1a28}
+.bgl{margin-top:6px;border-left:1px solid var(--cyd);padding-left:10px;font-size:12px}
+.bgl div{display:flex;gap:10px;padding:1px 0}.bgl .k{color:var(--t3);min-width:62px;text-transform:uppercase;font-size:10px;letter-spacing:.08em;padding-top:1px}.bgl .n{flex:1;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bgl .t{color:var(--t2)}
 @keyframes br{50%{opacity:.15}}
 .brand{font-weight:600;letter-spacing:.2em;color:var(--cy);margin-right:8px}
 .pill{border:1px solid var(--edge);border-radius:99px;padding:2px 10px;color:var(--t2);font-size:12px;background:none;cursor:default}

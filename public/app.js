@@ -129,12 +129,20 @@ function lifeTag(r) {
 
 const bgName = (t) => ((t?.label || t?.kind || 'task').length > 28 ? `${(t.label || t.kind).slice(0, 27)}…` : t?.label || t?.kind || 'task')
 
-/** Running background tasks: a pulsing dot, the first task's name and +N more; the title lists the first few. Empty when none. */
+const openBg = new Set() // sessions whose background-task list is expanded (click the chip)
+
+/** Running background tasks: a pulsing dot, the first task's name and +N more; click expands the list. Empty when none. */
 function bgTag(r) {
   const n = r.tasks?.count || 0
   if (!n) return ''
-  const items = (r.tasks.items || []).map((t) => `${t.kind}: ${t.label || '(no description)'}`).join('\n')
-  return `<span class="bg" title="${esc(items + (n > r.tasks.items.length ? `\n+${n - r.tasks.items.length} more` : ''))}"><i></i>${esc(bgName(r.tasks.items[0]))}${n > 1 ? ` +${n - 1}` : ''}</span>`
+  const open = openBg.has(r.sessionId)
+  return `<span class="bg${open ? ' open' : ''}" title="${open ? 'Hide' : 'Show'} the ${n} background task${n > 1 ? 's' : ''}"><i></i>${esc(bgName(r.tasks.items[0]))}${n > 1 ? ` +${n - 1}` : ''}<b>${open ? '▾' : '▸'}</b></span>`
+}
+
+/** The expanded list under a card: kind, name and how long each has run. */
+function bgList(r, now = Date.now()) {
+  if (!r.tasks?.count || !openBg.has(r.sessionId)) return ''
+  return `<div class="bgl">${r.tasks.items.map((t) => `<div><span class="k">${esc(t.kind)}</span><span class="n">${esc(t.label || '(no description)')}</span>${t.startedAt ? `<span class="t">${fmt(now - t.startedAt)}</span>` : ''}</div>`).join('')}</div>`
 }
 
 /** Tree status text: the real state first, so a parked-but-blocked session still says it needs you. */
@@ -156,7 +164,7 @@ function treeRow(r, depth) {
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}" style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
     `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}` +
-    `<span class="wt">${esc(treeStatus(r))}</span></div><span class="go">ENTER ↵ OPEN</span></div>`
+    `<span class="wt">${esc(treeStatus(r))}</span></div>${bgList(r)}<span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
 
@@ -259,6 +267,7 @@ function rowHtml(r, now) {
     `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
+    bgList(r, now) +
     fuseHtml(r, now) +
     (fresh.has(r.sessionId) ? '<i class="sweep"></i>' : '') +
     `<span class="go">ENTER ↵ OPEN</span></div>`
@@ -838,6 +847,7 @@ for (const el of [$('#list'), $('#side')]) {
     const q = e.target.closest('.q')
     if (!q || e.target.tagName === 'INPUT') return
     sel = q.dataset.id
+    if (e.target.closest('.bg')) openBg.has(sel) ? openBg.delete(sel) : openBg.add(sel)
     render()
   })
   el.addEventListener('dblclick', (e) => { if (e.target.closest('.q')) openSel() })

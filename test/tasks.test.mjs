@@ -158,7 +158,7 @@ test('queue rows and the roster carry the task count', async () => {
   const working = [{ sessionId: SID, state: 'idle', at: NOW - 5, seen: NOW - 5, cwd: '/r/p' }]
   const mk = (n) => Array.from({ length: n }, (_, i) => ({ id: `t${i}`, kind: 'shell', label: `cmd ${i}`, startedAt: NOW - 10, until: 0 }))
   const q = await buildQueue({ markers: [], working, tasks: { [SID]: mk(5) }, records, now: NOW, deps })
-  assert.equal(q[0].state, 'idle'); assert.equal(q[0].tasks.count, 5); assert.equal(q[0].tasks.items.length, 3)
+  assert.equal(q[0].state, 'idle'); assert.equal(q[0].tasks.count, 5); assert.equal(q[0].tasks.items.length, 5); assert.equal(q[0].tasks.items[0].startedAt, NOW - 10)
   assert.deepEqual((await buildQueue({ markers: [], working, records, now: NOW, deps }))[0].tasks, { count: 0, items: [] })
   assert.equal(taskSummary([{ id: 'x', kind: 'shell', label: '', startedAt: 1, until: 0 }], NOW + MAX_TASK_AGE_MS).count, 0)
   const tree = { interface: [], archived: [], managers: [{ name: 'M', sessionId: 'm1', project: 'p', children: [{ name: 'W', state: 'idle', tasks: { count: 2 }, sessionId: SID, project: 'p', branch: 'b' }] }] }
