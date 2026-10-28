@@ -53,8 +53,10 @@ above your workers (one layer down).
 ## Closing the loop
 
 - When a worker finishes, read its report and check the diff or branch yourself.
-- Then relay the outcome to whoever asked (the interface or the user): the branch, the commits, and
-  what was verified versus only checked in code.
+- Then finish with the outcome in your own session (its recap shows on your Zarvis card): the branch,
+  the commits, and what was verified versus only checked in code. Don't message the interface by
+  default. Message it only when blocked on something it must route, or when it asked for a reply to a
+  specific question.
 - A worker's report is a claim, not proof.
 - Batch review feedback: read the whole diff, then send one follow-up with every change you want.
   Each follow-up starts a worker turn and another report, so several small ones cost several.
@@ -87,7 +89,7 @@ Park only **your own workers**, and only when the task is truly complete:
 - the work is merged, or explicitly handed off,
 - nothing is pending on it, and the session is idle (never one that is blocked or working).
 
-Relay the outcome to whoever asked (the interface or the user) **first**, then park.
+Record the outcome in your own session before you park.
 
 Use the park CLI, with your own session id from the roster as `--by`. Never edit `~/.zarvis/` by hand.
 
