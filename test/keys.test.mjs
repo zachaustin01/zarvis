@@ -74,6 +74,7 @@ test('event ticker: diffed per push, collapsible with e, remembered, documented'
   const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])
   assert.match(app, /pushEvents\(queue\)/)
   assert.match(app, /e\.key === 'e'/)
+  assert.match(app, /e\.key === 'E'\) \{ e\.preventDefault\(\); setList\(!listOpen\) \}/) // Shift+E toggles the list, strip collapsed or not
   assert.match(app, /localStorage\.setItem\('zarvis\.ticker'/)
   assert.match(html, /id="tk"/)
   assert.match(sheet(html), /<kbd>e<\/kbd><\/span><span class="kd">Event ticker/)
@@ -148,7 +149,7 @@ test('the key hints live only in the ? sheet: no always-on hint line, every key 
   const html = await read('public/index.html')
   assert.doesNotMatch(html.slice(0, html.indexOf('id="ovHelp"')), /class="hint"/) // nothing under the list
   const sh = sheet(html)
-  for (const k of ['j', 'k', 'Enter', 'i', 'n', 'r', 'Tab', 'h', 'q', 't', 'p', '/', 'g', 'G', 'm', 'w', 'v', 'P', 'u', 'd', 'z', 'c', 'a', 'b', 'e', '?']) {
+  for (const k of ['j', 'k', 'Enter', 'i', 'n', 'r', 'Tab', 'h', 'q', 't', 'p', '/', 'g', 'G', 'm', 'w', 'v', 'P', 'u', 'd', 'z', 'c', 'a', 'b', 'e', 'E', '?']) {
     assert.ok(sh.includes(`<kbd>${k}</kbd>`), `the sheet lists ${k}`)
   }
   for (const h of ['Move &amp; open', 'Views', 'Filters', 'Sessions', 'Screen']) assert.ok(sh.includes(`<h3>${h}</h3>`), h)

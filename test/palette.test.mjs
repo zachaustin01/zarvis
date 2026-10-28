@@ -44,7 +44,7 @@ test('registry: unique ids, every key action has an entry, project commands gene
   const ids = COMMANDS.map((c) => c.id)
   assert.equal(new Set(ids).size, ids.length)
   const keys = new Set(COMMANDS.flatMap((c) => c.key.split(' ')))
-  for (const k of ['h', 't', 'p', 'Tab', '/', 'g', 'G', 'm', 'w', 'v', 'Enter', 'i', 'r', 'P', 'u', 'd', 'z', 'a', 'n', 'c', 'C', 'b', 'e', '?']) assert.ok(keys.has(k), `command for ${k}`)
+  for (const k of ['h', 't', 'p', 'Tab', '/', 'g', 'G', 'm', 'w', 'v', 'Enter', 'i', 'r', 'P', 'u', 'd', 'z', 'a', 'n', 'c', 'C', 'b', 'e', 'E', '?']) assert.ok(keys.has(k), `command for ${k}`)
   const cs = buildCommands(['alpha'])
   assert.ok(cs.some((c) => c.id === 'project:alpha' && c.label === 'Project: alpha'))
   assert.equal(buildCommands([]).some((c) => c.id === 'project-all'), false)

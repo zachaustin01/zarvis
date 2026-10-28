@@ -77,7 +77,7 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 
 ## Keys
 
-`j`/`k` or arrows move · `]`/`[` (or `PageDown`/`PageUp`, the wheel, a swipe, or the pager) turn the page when the list does not fit the window (nothing scrolls) · `Cmd/Ctrl+K` command palette (fuzzy-find a session or run any key action; `>` commands only, `@` sessions only) · `b` show/hide the project rail (wide windows) · `e` collapse/expand the event ticker · `Tab`/`Shift+Tab` cycle Queue → Roles → Parked → Schedule (`h`/`t`/`p`/`s` jump straight there; not while typing in a box) · `i` jump to the interface session · `v` show/hide parked sessions on the Roles page (hidden by default; remembered) · `m`/`w` queue role filter (managers / workers only; again to clear; remembered) · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude · `n` new Claude Code session · `r` rename
+`j`/`k` or arrows move · `]`/`[` (or `PageDown`/`PageUp`, the wheel, a swipe, or the pager) turn the page when the list does not fit the window (nothing scrolls) · `Cmd/Ctrl+K` command palette (fuzzy-find a session or run any key action; `>` commands only, `@` sessions only) · `b` show/hide the project rail (wide windows) · `e` collapse/expand the event ticker · `E` (Shift+E) open/close the event list · `Tab`/`Shift+Tab` cycle Queue → Roles → Parked → Schedule (`h`/`t`/`p`/`s` jump straight there; not while typing in a box) · `i` jump to the interface session · `v` show/hide parked sessions on the Roles page (hidden by default; remembered) · `m`/`w` queue role filter (managers / workers only; again to clear; remembered) · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude · `n` new Claude Code session · `r` rename
 (overlay; Esc cancels; empty restores the app title) · `P` park (Shift+P) · `d` done · `u` unpark · `z` undo ·
 `p` parked view · `s` schedule (`-`/`=` widen/narrow its window) · `/` search the role tree · `?` key sheet.
 
@@ -296,7 +296,7 @@ puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists che
 
 ## Pushing events
 
-The footer strip shows the newest event as plain text (session name, kind chip, what happened, dimmed detail; warnings, finished workers and sessions that need you are marked). Click `EVENTS` to open the last thirty of the forty it keeps, newest first and grouped by day; the label carries a count, highlighted while there are events you have not opened the list for. A new event slides in, and several arriving at once show in turn before it settles on the newest; reduced motion skips the slide. Sessions and scripts can add their own
+The footer strip shows the newest event as plain text (session name, kind chip, what happened, dimmed detail; warnings, finished workers and sessions that need you are marked). Click `EVENTS` (or press `E`, which works with the strip collapsed) to open the last thirty of the forty it keeps, newest first and grouped by day; the label carries a count, highlighted while there are events you have not opened the list for. A new event slides in, and several arriving at once show in turn before it settles on the newest; reduced motion skips the slide. Sessions and scripts can add their own
 lines, and they survive a page reload:
 
 ```bash

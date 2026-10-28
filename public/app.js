@@ -1153,6 +1153,7 @@ const RUN = {
   'classify-group': () => (view === 'tree' ? classifyGroup() : toast('Classify all applies on the Roles page (t)')),
   rail: () => setRail(!railOpen),
   ticker: () => setTicker(!tickerOpen),
+  events: () => setList(!listOpen),
   help: toggleHelp,
   update: openUpdate,
 }
@@ -1343,6 +1344,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
   else if (e.key === 'b') { e.preventDefault(); setRail(!railOpen) }
   else if (e.key === 'e') { e.preventDefault(); setTicker(!tickerOpen) }
+  else if (e.key === 'E') { e.preventDefault(); setList(!listOpen) }
   else if (e.key === 'v') { e.preventDefault(); toggleParkedShown() }
   else if (e.key === 'm' || e.key === 'w') { e.preventDefault(); toggleRoleKey(e.key) }
   else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); stepProject(e.key === 'g' ? 1 : -1) }

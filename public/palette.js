@@ -158,6 +158,7 @@ export const COMMANDS = [
   { id: 'classify-group', group: 'Classify', label: 'Roles: make every unclassified a worker', key: 'C' },
   { id: 'rail', group: 'Screen', label: 'Toggle project rail', key: 'b' },
   { id: 'ticker', group: 'Screen', label: 'Toggle event ticker', key: 'e' },
+  { id: 'events', group: 'Screen', label: 'Open event list', key: 'E', words: 'events recent history' },
   { id: 'help', group: 'Screen', label: 'Key sheet', key: '?', words: 'help keys' },
   { id: 'update', group: 'Screen', label: 'Update app: check for a new version, hard refresh', key: '', words: 'update refresh reload version upgrade' },
 ]
