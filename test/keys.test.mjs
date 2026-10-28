@@ -88,13 +88,16 @@ test('the Parked view includes archived parked sessions, dimmed and tagged, and 
   assert.doesNotMatch(app, /flatten = .*archived/) // the Roles tree and the chip set never see them
 })
 
-test('ticker scroll: planned from the pure helper, pauses on hover/focus/hidden, new events snap to the newest, collapsed state replans', async () => {
-  const app = await read('public/app.js')
-  assert.match(app, /scrollPlan\(\{ count: tickerItems\.length/)
-  assert.match(app, /TICKER_PAUSE_MS/)
-  for (const r of ['hover', 'focus', 'hidden']) assert.match(app, new RegExp(`hold\\('${r}'`))
-  assert.match(app, /planScroll\(r\.added\.length > 0 && !seed\)/)
-  assert.match(app, /paintTickerState\(\)\n\s+planScroll\(\)/) // expanding or collapsing replans
+test('ticker: static latest event, a list that opens from the label with an unread count, slide only for a batch, no marquee', async () => {
+  const [app, html, css] = await Promise.all([read('public/app.js'), read('public/index.html'), read('public/app.css')])
+  assert.match(html, /id="tkN"/)
+  assert.match(html, /id="tkPanel"/)
+  assert.match(app, /\$\('#tkLbl'\)\.addEventListener\('click', \(\) => setList\(!listOpen\)\)/)
+  assert.match(app, /tickerUnread = listOpen \? 0 : tickerUnread \+ r\.added\.length/)
+  assert.match(app, /groupByDay\(/)
+  assert.match(app, /setTimeout\(show, i \* TICKER_SLIDE_MS\)/)
+  assert.doesNotMatch(app, /\.animate\(|scrollPlan|tkTrack/) // no marquee
+  assert.match(css, /prefers-reduced-motion:reduce\)\{\.tk \.ev\.new\{animation:none\}/)
   assert.doesNotMatch(app, /\.innerHTML = .*tk/) // entries are built with textContent
 })
 
@@ -151,14 +154,14 @@ test('the key hints live only in the ? sheet: no always-on hint line, every key 
   for (const h of ['Move &amp; open', 'Views', 'Filters', 'Sessions', 'Screen']) assert.ok(sh.includes(`<h3>${h}</h3>`), h)
 })
 
-test('wording: no signal is "no signal", never "not running"; the ticker line describes the real scroll', async () => {
+test('wording: no signal is "no signal", never "not running"; the ticker line describes the real strip', async () => {
   const [html, fx, app] = await Promise.all([read('public/index.html'), read('public/fx.js'), read('public/app.js')])
   assert.match(fx, /label: 'no signal'/)
   assert.match(app, /unknown: 'No signal'/)
   assert.doesNotMatch(fx + app, /not running/i)
   const e = html.match(/<kbd>e<\/kbd><\/span><span class="kd">([^<]*)<\/span>/)[1]
-  assert.match(e, /overflow the width/)
-  assert.doesNotMatch(e, /more than ten/)
+  assert.match(e, /newest event/)
+  assert.doesNotMatch(e, /scrolls/)
 })
 
 test('JARVIS skin: backdrop, boot-up, telemetry and flicker exist, move only outside the list, and honour reduced motion', async () => {

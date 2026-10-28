@@ -1,5 +1,5 @@
 'use strict'
-import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, scrollPlan, TICKER_MAX, TICKER_PAUSE_MS, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evKindClass, safeUrl } from '/fx.js'
+import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
@@ -372,116 +372,121 @@ function fuseHtml(r, now) {
   return `<i class="fuse" style="--p:${f.p};--d:${f.d}"></i>`
 }
 
-// Event ticker: footer strip of the last dozen state transitions, diffed on each push. It lives outside #list.
+// Event ticker: a footer strip showing the newest event as plain text, and a short list of recent ones (newest first, by day)
+// that opens from the EVENTS label. Fed by diffed state transitions and by events pushed through `npm run event`. Lives outside #list.
 let tickerSnap = null
-let tickerOpen = true
+let tickerOpen = true // the strip itself (the e key); the label and its list stay available when it is collapsed
 try { tickerOpen = localStorage.getItem('zarvis.ticker') !== '0' } catch { /* storage blocked */ }
+let tickerItems = [] // newest first
+let tickerUnread = 0 // events that arrived since the list was last opened
+let listOpen = false
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
 function paintTickerState() {
   document.body.classList.toggle('tk-off', !tickerOpen)
-  $('#tkLbl').setAttribute('aria-expanded', String(tickerOpen))
+  $('#tkLbl').setAttribute('aria-expanded', String(listOpen))
 }
 function setTicker(open) {
   tickerOpen = open
   try { localStorage.setItem('zarvis.ticker', open ? '1' : '0') } catch { /* storage blocked */ }
   paintTickerState()
-  planScroll()
 }
-let tickerItems = [] // newest first: diffed transitions and events pushed through `npm run event`
-function paintTicker(added, seed) {
-  const box = $('#tkTrack')
-  const fresh = new Set(added)
+/** One event as markup-free DOM: time, kind chip, session name, what happened, then the dimmed detail and a link. */
+function eventEl(ev, time) {
+  const el = document.createElement('span')
+  el.className = `ev${ev.pushed ? ` pushed k-${evKindClass(ev.kind)}` : ` ${ev.kind}`}${evImportant(ev) ? ' hot' : ''}`
+  el.append(Object.assign(document.createElement('time'), { textContent: time }))
+  const kd = document.createElement('i')
+  kd.className = 'kd'
+  kd.textContent = ev.kind
+  el.append(kd)
+  if (ev.name) el.append(Object.assign(document.createElement('em'), { textContent: ev.name }))
+  const { head, detail } = evParts(ev.text)
+  el.append(Object.assign(document.createElement('b'), { textContent: head }))
+  if (detail) el.append(Object.assign(document.createElement('span'), { className: 'dt', textContent: detail }))
+  const href = ev.pushed ? safeUrl(ev.url) : ''
+  if (href) {
+    const a = Object.assign(document.createElement('a'), { href, target: '_blank', rel: 'noopener noreferrer', textContent: '↗', title: href })
+    a.setAttribute('aria-label', 'open link')
+    el.append(a)
+  }
+  return el
+}
+function paintCount() {
+  const n = $('#tkN')
+  n.textContent = tickerUnread || tickerItems.length || ''
+  n.classList.toggle('un', tickerUnread > 0)
+  n.title = tickerUnread ? `${tickerUnread} new` : `${tickerItems.length} recent`
+}
+function paintStrip(ev) {
+  const box = $('#tkCur')
+  if (!ev) { box.replaceChildren(Object.assign(document.createElement('span'), { className: 'none', textContent: 'No events yet' })); return }
+  box.replaceChildren(eventEl(ev, evTime(ev.at)))
+}
+function paintList() {
   const now = Date.now()
-  box.replaceChildren(...tickerItems.map((ev) => {
-    const el = document.createElement('span')
-    el.className = `ev mono ${ev.pushed ? `pushed k-${evKindClass(ev.kind)}` : ev.kind}${fresh.has(ev) && !seed ? ' new' : ''}`
-    el.append(`${evTime(ev.at, now)} `)
-    if (ev.pushed) {
-      const kd = document.createElement('i')
-      kd.className = 'kd'
-      kd.textContent = ev.kind
-      el.append(kd, ' ')
-      if (ev.name) el.append(Object.assign(document.createElement('em'), { textContent: `${ev.name} ` }))
+  const pn = $('#tkPanel')
+  pn.replaceChildren()
+  if (!tickerItems.length) { pn.append(Object.assign(document.createElement('div'), { className: 'none', textContent: 'No events yet' })); return }
+  let left = TICKER_LIST_MAX
+  for (const g of groupByDay(tickerItems.slice(0, TICKER_LIST_MAX), now)) {
+    pn.append(Object.assign(document.createElement('h4'), { textContent: g.label }))
+    for (const ev of g.items) { if (left-- <= 0) break; pn.append(eventEl(ev, evClock(ev.at))) }
+  }
+  // Nothing scrolls in Zarvis: drop the oldest rows that do not fit, and any day heading left with no rows under it.
+  while (pn.scrollHeight > pn.clientHeight + 1 && pn.children.length > 2) pn.lastElementChild.remove()
+  if (pn.lastElementChild?.tagName === 'H4') pn.lastElementChild.remove()
+}
+function setList(open) {
+  listOpen = open
+  $('#tkPanel').hidden = !open
+  if (open) { tickerUnread = 0; paintList(); paintCount() }
+  paintTickerState()
+}
+// A new event slides into the strip. Several at once show in turn (oldest first) and settle on the newest.
+let slideTimers = []
+function showLatest(added, seed) {
+  slideTimers.forEach(clearTimeout)
+  slideTimers = []
+  const latest = tickerItems[0]
+  if (seed || reduceMotion.matches || !added.length) { paintStrip(latest); return }
+  const seq = added.slice().reverse() // `added` is newest first
+  seq.forEach((ev, i) => {
+    const show = () => {
+      paintStrip(ev)
+      const el = $('#tkCur').firstElementChild
+      el?.classList.add('new')
     }
-    el.append(Object.assign(document.createElement('b'), { textContent: ev.text }))
-    const href = ev.pushed ? safeUrl(ev.url) : ''
-    if (href) {
-      const a = Object.assign(document.createElement('a'), { href, target: '_blank', rel: 'noopener noreferrer', textContent: '↗', title: href })
-      a.setAttribute('aria-label', 'open link')
-      el.append(' ', a)
-    }
-    if (el.classList.contains('new')) setTimeout(() => el.classList.remove('new'), 400)
-    return el
-  }))
+    if (i === 0) show()
+    else slideTimers.push(setTimeout(show, i * TICKER_SLIDE_MS))
+  })
 }
 function mergeInto(incoming, seed = false) {
   const r = mergeTicker(tickerItems, incoming, TICKER_MAX)
   if (!r.added.length && r.items.length === tickerItems.length) return
   tickerItems = r.items
-  paintTicker(r.added, seed)
-  planScroll(r.added.length > 0 && !seed) // news jumps to the newest entry and rests there before the scroll resumes
+  if (!seed) tickerUnread = listOpen ? 0 : tickerUnread + r.added.length
+  paintCount()
+  showLatest(r.added, seed)
+  if (listOpen) paintList()
 }
-
-// Auto-scroll through a long history: newest first, scroll from the oldest end to the newest, rest, restart.
-const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
-let scrollAnim = null
-let scrollTimer = 0
-const holds = new Set() // 'hover' / 'focus' / 'hidden': why the scroll is paused right now
-let runPending = false
-function stopScroll() {
-  clearTimeout(scrollTimer)
-  runPending = false
-  scrollAnim?.cancel()
-  scrollAnim = null
-  $('#tkTrack').style.transform = ''
-}
-function planScroll(snapToNewest = false) {
-  const track = $('#tkTrack')
-  const view = $('#tkList')
-  stopScroll()
-  if (!tickerOpen) return
-  const plan = scrollPlan({ count: tickerItems.length, contentW: track.scrollWidth, viewW: view.clientWidth, reduced: reduceMotion.matches })
-  if (!plan.scroll) return
-  const run = () => {
-    if (holds.size) { runPending = true; return }
-    scrollAnim?.cancel()
-    scrollAnim = track.animate([{ transform: `translateX(${-plan.distance}px)` }, { transform: 'translateX(0px)' }], { duration: plan.duration, easing: 'linear', fill: 'forwards' })
-    scrollAnim.onfinish = () => { scrollTimer = setTimeout(run, TICKER_PAUSE_MS) }
-  }
-  if (snapToNewest) {
-    scrollTimer = setTimeout(run, TICKER_PAUSE_MS) // sit on the newest entry first
-    runPending = false
-  } else run()
-}
-function hold(reason, on) {
-  on ? holds.add(reason) : holds.delete(reason)
-  if (holds.size) scrollAnim?.pause()
-  else if (runPending) { runPending = false; planScroll() }
-  else scrollAnim?.play()
-}
-$('#tkList').addEventListener('mouseenter', () => hold('hover', true))
-$('#tkList').addEventListener('mouseleave', () => hold('hover', false))
-$('#tkList').addEventListener('focusin', () => hold('focus', true))
-$('#tkList').addEventListener('focusout', () => hold('focus', false))
-document.addEventListener('visibilitychange', () => hold('hidden', document.hidden))
-reduceMotion.addEventListener?.('change', () => planScroll())
-let resizeTimer = 0
-// The strip's own size is what matters: this also fires once it is first laid out and when the window or the label changes it.
-new ResizeObserver(() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => planScroll(), 200) }).observe($('#tkList'))
 function pushEvents(rows) {
   const events = diffEvents(tickerSnap, rows)
   tickerSnap = snapshot(rows)
   const at = Date.now()
-  mergeInto(events.map((ev) => ({ ...ev, at, key: `t${at}|${ev.id}|${ev.text}`, sessionId: ev.id })))
+  mergeInto(events.map((ev) => ({ ...ev, text: ev.name && ev.text.startsWith(`${ev.name} `) ? ev.text.slice(ev.name.length + 1) : ev.text, at, key: `t${at}|${ev.id}|${ev.text}`, sessionId: ev.id })))
 }
-/** Events pushed by sessions and scripts (server payload). The first batch seeds the strip without animating. */
+/** Events pushed by sessions and scripts (server payload). The first batch seeds the strip without animating or counting as unread. */
 let pushedSeeded = false
 function pushPushed(list) {
   if (!Array.isArray(list)) return
   mergeInto(list.filter((e) => e && typeof e.text === 'string').map((e) => ({ ...e, pushed: true })), !pushedSeeded)
   pushedSeeded = true
 }
-$('#tkLbl').addEventListener('click', () => setTicker(!tickerOpen))
+$('#tkLbl').addEventListener('click', () => setList(!listOpen))
+document.addEventListener('click', (e) => { if (listOpen && !e.target.closest('#tk, #tkPanel')) setList(false) })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && listOpen) setList(false) })
 paintTickerState()
+paintStrip(null)
 
 /** Ambient edge glow on <body>: amber while anything needs you, red once any wait is overdue. Not filtered: it is the attention signal. */
 function updateAmbient(now = Date.now()) {

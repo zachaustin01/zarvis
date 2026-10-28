@@ -296,7 +296,7 @@ puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists che
 
 ## Pushing events
 
-The footer ticker keeps the last forty state changes Zarvis sees. As soon as they overflow the width it scrolls through them, oldest to newest, rests five seconds there and starts over (a new event jumps to the front and rests too; hovering or focusing pauses it; reduced-motion and a hidden tab do not scroll). Sessions and scripts can add their own
+The footer strip shows the newest event as plain text (session name, kind chip, what happened, dimmed detail; warnings, finished workers and sessions that need you are marked). Click `EVENTS` to open the last thirty of the forty it keeps, newest first and grouped by day; the label carries a count, highlighted while there are events you have not opened the list for. A new event slides in, and several arriving at once show in turn before it settles on the newest; reduced motion skips the slide. Sessions and scripts can add their own
 lines, and they survive a page reload:
 
 ```bash

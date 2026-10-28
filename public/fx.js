@@ -52,7 +52,7 @@ export function diffEvents(prev, rows) {
   const out = []
   for (const r of rows) {
     const p = prev.get(r.sessionId)
-    const ev = (kind, text) => out.push({ kind, id: r.sessionId, text: `${r.name} ${text}` })
+    const ev = (kind, text) => out.push({ kind, id: r.sessionId, name: r.name, text: `${r.name} ${text}` })
     if (!p) { ev('arrived', 'appeared'); continue }
     const wasBlocked = p.state === 'blocked' && !p.parked
     const isBlocked = needsYou(r)
@@ -64,7 +64,7 @@ export function diffEvents(prev, rows) {
   return out
 }
 
-export const TICKER_MAX = 40 // history kept; the strip scrolls through it as soon as it overflows
+export const TICKER_MAX = 40 // history kept; the strip shows the newest, the list the rest
 const pad = (n) => String(n).padStart(2, '0')
 
 /** Identity of a ticker entry: pushed events are de-duplicated on (at, sessionId, text). Local transitions carry their own `key`. */
@@ -96,6 +96,39 @@ export function evTime(at, now = Date.now()) {
   return d.toDateString() === new Date(now).toDateString() ? t : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${t}`
 }
 
+/** Clock time without seconds, for rows already grouped under a day heading. */
+export const evClock = (at) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}` }
+
+/** Day heading for an entry: Today, Yesterday, else a short date. */
+export function evDay(at, now = Date.now()) {
+  const d = new Date(at)
+  const day = (t) => new Date(t).toDateString()
+  if (d.toDateString() === day(now)) return 'Today'
+  if (d.toDateString() === day(now - 86400000)) return 'Yesterday'
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+/** Newest-first entries grouped by day, in order: [{ label, items }]. */
+export function groupByDay(items, now = Date.now()) {
+  const out = []
+  for (const e of items) {
+    const label = evDay(e.at, now)
+    if (out.at(-1)?.label === label) out.at(-1).items.push(e)
+    else out.push({ label, items: [e] })
+  }
+  return out
+}
+
+/** An entry's text as { head, detail }: what happened, and the dimmed detail after the first ": " ("" when none). */
+export function evParts(text) {
+  const t = String(text ?? '')
+  const i = t.indexOf(': ')
+  return i > 0 && i < t.length - 2 ? { head: t.slice(0, i), detail: t.slice(i + 2) } : { head: t, detail: '' }
+}
+
+/** Entries that should draw the eye: warnings, a worker finishing, a session that needs you. */
+export const evImportant = (e) => ['warn', 'done', 'blocked', 'finished'].includes(e.kind)
+
 const KNOWN_KINDS = ['push', 'pr', 'done', 'warn', 'info']
 /** CSS class for a pushed event's kind: the known kinds as themselves, any other word as the neutral 'other'. */
 export const evKindClass = (kind) => (KNOWN_KINDS.includes(kind) ? kind : 'other')
@@ -103,22 +136,8 @@ export const evKindClass = (kind) => (KNOWN_KINDS.includes(kind) ? kind : 'other
 /** An http(s) URL to link to, or ''. The server already checks; the browser does too, since the text is untrusted. */
 export const safeUrl = (u) => (/^https?:\/\/[^\s]+$/i.test(String(u ?? '')) && String(u).length <= 300 ? String(u) : '')
 
-export const TICKER_SCROLL_MIN = 0 // the strip scrolls as soon as its entries overflow the width, however few they are
-export const TICKER_PAUSE_MS = 5000 // rest on the newest entry before the scroll restarts
-export const TICKER_SPEED = 80 // px per second
-export const TICKER_MAX_PASS_MS = 45000 // a long history speeds up rather than taking longer than this to cross
-
-/**
- * Whether and how the ticker scrolls. Entries are newest first, so the scroll starts at the oldest end
- * (the content shifted left by `distance`) and moves right until the newest entry is in view.
- * A pass takes at most `maxMs` (long histories scroll faster than `speed`).
- * No scrolling with `minCount` entries or fewer, when everything fits, or when `reduced` (reduced motion).
- */
-export function scrollPlan({ count, contentW, viewW, reduced = false, minCount = TICKER_SCROLL_MIN, speed = TICKER_SPEED, maxMs = TICKER_MAX_PASS_MS }) {
-  const distance = Math.max(0, Math.round(contentW - viewW))
-  if (reduced || count <= minCount || viewW <= 0 || distance <= 0) return { scroll: false, distance: 0, duration: 0 }
-  return { scroll: true, distance, duration: Math.min(maxMs, Math.round((distance / speed) * 1000)) }
-}
+export const TICKER_SLIDE_MS = 1600 // when several events arrive at once, each shows this long in turn before the strip settles on the newest
+export const TICKER_LIST_MAX = 30 // entries in the opened list
 
 /** The reactor ring's circle radius and circumference (SVG user units; the viewBox is 40x40). */
 export const REACTOR_R = 15

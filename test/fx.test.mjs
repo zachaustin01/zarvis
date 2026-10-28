@@ -122,24 +122,35 @@ test('evKindClass, safeUrl and evTime', () => {
 
 test('XSS: the ticker renders event text only through textContent / properties, never innerHTML', async () => {
   const src = (await import('node:fs')).readFileSync(new URL('../public/app.js', import.meta.url), 'utf8')
-  const start = src.indexOf('function paintTicker')
-  const body = src.slice(start, src.indexOf('function mergeInto', start))
+  const start = src.indexOf('function eventEl')
+  const body = src.slice(start, src.indexOf('function paintCount', start))
   assert.ok(body.includes('textContent') && !/innerHTML|insertAdjacentHTML/.test(body))
 })
 
-import { scrollPlan, TICKER_PAUSE_MS, TICKER_SCROLL_MIN } from '../public/fx.js'
+import { evParts, evImportant, evDay, evClock, groupByDay, TICKER_SLIDE_MS } from '../public/fx.js'
 
-test('scrollPlan: scrolls as soon as the entries overflow the width; static when they fit, before layout, or with reduced motion', () => {
-  assert.equal(TICKER_SCROLL_MIN, 0)
-  assert.equal(TICKER_PAUSE_MS, 5000)
-  assert.equal(scrollPlan({ count: 3, contentW: 1700, viewW: 800 }).scroll, true) // a few long entries that overflow scroll too
-  assert.equal(scrollPlan({ count: 0, contentW: 0, viewW: 800 }).scroll, false) // nothing to scroll
-  assert.equal(scrollPlan({ count: 11, contentW: 700, viewW: 800 }).scroll, false) // fits
-  assert.equal(scrollPlan({ count: 30, contentW: 5000, viewW: 0 }).scroll, false) // not laid out yet
-  assert.equal(scrollPlan({ count: 30, contentW: 5000, viewW: 800, reduced: true }).scroll, false)
-  assert.deepEqual(scrollPlan({ count: 11, contentW: 1700, viewW: 800 }), { scroll: true, distance: 900, duration: 11250 }) // 80px/s
-  assert.equal(scrollPlan({ count: 40, contentW: 12400, viewW: 1000 }).duration, 45000) // a long history is capped at 45s, so it speeds up
-  assert.deepEqual(scrollPlan({ count: 40, contentW: 1700, viewW: 800, speed: 90 }), { scroll: true, distance: 900, duration: 10000 })
+test('evParts splits what happened from the dimmed detail after the first ": "', () => {
+  assert.deepEqual(evParts('finished a background command: npm run build: ok'), { head: 'finished a background command', detail: 'npm run build: ok' })
+  assert.deepEqual(evParts('needs you · Bash'), { head: 'needs you · Bash', detail: '' })
+  assert.deepEqual(evParts('ends with: '), { head: 'ends with: ', detail: '' })
+  assert.deepEqual(evParts(undefined), { head: '', detail: '' })
+})
+
+test('evImportant: warnings, finished workers and sessions that need you draw the eye', () => {
+  for (const kind of ['warn', 'done', 'blocked', 'finished']) assert.equal(evImportant({ kind }), true, kind)
+  for (const kind of ['info', 'push', 'pr', 'parked', 'arrived', 'resumed']) assert.equal(evImportant({ kind }), false, kind)
+})
+
+test('groupByDay: newest-first entries grouped under Today / Yesterday / a date, clock without seconds', () => {
+  const now = new Date(2026, 9, 28, 15, 0, 0).getTime()
+  const at = (d, h, m) => new Date(2026, 9, d, h, m, 5).getTime()
+  const items = [{ at: at(28, 14, 5) }, { at: at(28, 9, 30) }, { at: at(27, 22, 1) }, { at: at(20, 8, 0) }]
+  const g = groupByDay(items, now)
+  assert.deepEqual(g.map((x) => [x.label === 'Today' || x.label === 'Yesterday' ? x.label : 'date', x.items.length]), [['Today', 2], ['Yesterday', 1], ['date', 1]])
+  assert.equal(evDay(at(20, 8, 0), now), g[2].label)
+  assert.equal(evClock(at(28, 9, 3)), '09:03')
+  assert.deepEqual(groupByDay([], now), [])
+  assert.equal(TICKER_SLIDE_MS > 0, true)
 })
 
 test('diffEvents: an interface row flipping between no signal and live is not news; a real block still is', () => {

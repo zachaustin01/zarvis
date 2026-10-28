@@ -99,7 +99,7 @@
     </section>
     <section><h3>Screen</h3>
       <div class="kr"><span class="kk"><kbd>b</kbd></span><span class="kd">Project rail on the left (wide windows): a gauge per project, click to filter</span></div>
-      <div class="kr"><span class="kk"><kbd>e</kbd></span><span class="kd">Event ticker along the bottom: collapse or expand. Once the events overflow the width it scrolls from the oldest to the newest, rests five seconds there, then restarts; hovering pauses it</span></div>
+      <div class="kr"><span class="kk"><kbd>e</kbd></span><span class="kd">Event ticker along the bottom: collapse or expand it. It holds the newest event; click EVENTS for the recent ones, newest first by day</span></div>
       <div class="kr"><span class="kk"><kbd>⌘K</kbd> <kbd>Ctrl+K</kbd></span><span class="kd">Command palette: fuzzy-find a session or any key action. <kbd>&gt;</kbd> commands only, <kbd>@</kbd> sessions only; ↑↓ or Ctrl+N/P move, Enter runs, Esc closes</span></div>
       <div class="kr"><span class="kk"><kbd>?</kbd></span><span class="kd">This sheet</span></div>
     </section>
@@ -140,7 +140,8 @@
 </div></div>
 <div class="toast" id="toast"></div>
 <div id="pager" class="pager" hidden><span id="pgPrev" role="button" tabindex="-1" aria-label="Previous page" title="Previous page ( [ or PageUp )">‹</span><span id="pgTxt" class="mono">PAGE 1/1</span><span id="pgNext" role="button" tabindex="-1" aria-label="Next page" title="Next page ( ] or PageDown )">›</span><span id="pgAlert" class="pg-al"></span><span class="pg-hint">] [ · PgUp PgDn · wheel · swipe</span></div>
-<div id="tk" class="tk" aria-label="Recent events"><span class="lbl" id="tkLbl" title="e toggles">EVENTS <kbd>e</kbd></span><span id="tkList"><span id="tkTrack"></span></span></div>
+<div id="tkPanel" class="tkp" role="region" aria-label="Recent events" hidden></div>
+<div id="tk" class="tk"><button type="button" class="lbl" id="tkLbl" title="Click: recent events · e: show/hide the strip" aria-controls="tkPanel" aria-expanded="false">EVENTS <b id="tkN"></b> <kbd>e</kbd></button><span id="tkList" aria-live="polite"><span id="tkCur"></span></span></div>
 <script type="module" src="/app.js"></script>
 </body>
 </html>
