@@ -76,7 +76,8 @@ To pass work to a manager, send a brief that names:
 - the files or area,
 - what done looks like,
 - where it reports: in its own session, where its recap shows on its Zarvis card. It won't message
-  you; read the roster or the card when you need status.
+  you; read the roster or the card when you need status. The manager sets each worker's `Reporting:`
+  line (default `user review`), and merging and parking follow the user's review.
 
 Sending is sending: tell the user what was sent and to which session.
 

@@ -9,7 +9,7 @@ description: "Use when the opening prompt starts with `[zarvis: role=worker pare
 
 You are a **worker**: one manager gave you one task. The tag at the start of your first prompt,
 `[zarvis: role=worker parent=<manager session id>]`, names that manager; its session id is where
-your report goes. Do the task in the brief and report on it once.
+your questions go. Do the task in the brief and report on it once.
 
 ## Work the whole brief in one turn
 
@@ -20,11 +20,21 @@ your report goes. Do the task in the brief and report on it once.
   follow, or follow-ups you finished. The manager is not waiting on any of those, and each report
   costs it a turn.
 
-## Report up only when
+## Where you report
 
-1. **The brief's definition of done is met**: the work is committed (not pushed, unless the brief says to).
-2. **You are blocked on a decision only the manager or the user can make.** Ask one short question.
-3. **A checkpoint the brief names** is reached.
+The brief carries a `Reporting:` line.
+
+- `Reporting: user review` (the default): nobody is waiting on the result. Finish with the report below
+  in your own session (it shows on your Zarvis card), and end with a closing question that flags it as
+  ready for the user's review. Do not `SendMessage` the manager.
+- `Reporting: manager needed`: another worker or step depends on the result, or the manager must decide
+  something with it. Message the manager once, in the report format below.
+
+Whatever the line says, message the manager for:
+
+1. **A blocking question only the manager can answer** (scope or sequencing between workers).
+2. **A discovery that affects another worker's task** (overlapping files, a shared checkout, a changed interface).
+3. **A checkpoint the brief names.**
 
 Anything else you can decide, check or fix yourself: do that.
 
@@ -41,12 +51,11 @@ Only checked in code: <what you did not run, or "nothing">
 Open items: <decisions, risks, follow-ups, or "none">
 ```
 
-Send it with `SendMessage`, `to` set to the manager's session id from your tag. A final message
-inside your own session is not delivered to the manager.
+When the manager needs it, send it with `SendMessage`, `to` set to the manager's session id from your tag.
 
 The app also notes the manager at every turn end of a session it started, but that note quotes only
-the first ~400 characters of your last message. So a long completion report still goes by
-`SendMessage`, with the outcome (done or blocked, branch, verified or not) in its first lines.
+the first ~400 characters of your last message. So put the outcome (done or blocked, branch, verified
+or not) in its first lines.
 
 ## Questions from the user
 
