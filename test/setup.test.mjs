@@ -299,9 +299,9 @@ test('setup installs and removes the worker skill, with the placeholder rendered
   await assert.rejects(fsp.access(dest))
 })
 
-test('the manager skill tells managers to tag workers, brief "report once" and batch feedback', async () => {
+test('the manager skill tells managers to tag workers, set a Reporting line in each brief and batch feedback', async () => {
   const text = await fsp.readFile(MANAGER_SRC, 'utf8')
   assert.match(text, /\[zarvis: role=worker parent=<your session id>\]/)
-  assert.match(text, /report once, when done/)
+  assert.match(text, /Reporting: user review/)
   assert.match(text, /Batch review feedback/)
 })
