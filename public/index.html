@@ -39,6 +39,7 @@
   <span class="pill" data-view="tree" title="Tab / Shift+Tab cycle the views · t" style="cursor:pointer">Roles</span>
   <span class="pill" data-view="parked" title="Tab / Shift+Tab cycle the views · p" style="cursor:pointer">Parked</span>
   <span class="pill" data-view="schedule" title="Tab / Shift+Tab cycle the views · s" style="cursor:pointer">Schedule</span>
+  <span class="pill" data-view="costs" title="Tab / Shift+Tab cycle the views · $" style="cursor:pointer">Costs</span>
   <span class="sp"></span>
   <span class="telem mono" id="telem" title="Needs-you count over the last five minutes">
     <svg viewBox="0 0 64 18" width="64" height="18" aria-hidden="true"><polyline id="sparkLine" points="1,17 63,17"/></svg>
@@ -61,6 +62,14 @@
     <div id="scLanes"></div>
     <div id="scEmpty" class="sc-empty" hidden><div class="sc-e1">NO SCHEDULES</div><div class="sc-e2 mono">Register one: <code>npm run schedule -- add "name" --cron "0 * * * *"</code></div></div>
   </section>
+  <section id="costs" class="costs" aria-label="Costs: token usage and estimated cost by project" hidden>
+    <div class="sc-bar mono"><span class="sc-h">COSTS <i>API-equivalent estimate, not a bill</i></span><span class="sp"></span>
+      <span id="csGroup" class="sc-zoom" role="group" aria-label="Group by"></span><span id="csRange" class="sc-zoom" role="group" aria-label="Range"></span><kbd>-</kbd><kbd>=</kbd></div>
+    <div id="csSum" class="cs-sum"></div>
+    <div id="csList"></div>
+    <div id="csEmpty" class="sc-empty" hidden><div class="sc-e1">NO TOKEN USAGE</div><div class="sc-e2 mono">Nothing in this range. Try a longer one (<kbd>=</kbd>).</div></div>
+    <div id="csFoot" class="cs-foot mono"></div>
+  </section>
 </main>
 
 <div class="ov" id="ovHelp"><div class="box wide">
@@ -75,13 +84,14 @@
     </section>
     <section><h3>Views</h3>
       <div class="kr"><span class="kk"><kbd>]</kbd> <kbd>[</kbd></span><span class="kd">Next or previous page when the list does not fit the window (also PageDown and PageUp, the mouse wheel or a swipe, or click the pager). Nothing scrolls</span></div>
-      <div class="kr"><span class="kk"><kbd>Tab</kbd></span><span class="kd">Cycle Queue, Roles, Parked, Schedule (Shift+Tab goes back)</span></div>
+      <div class="kr"><span class="kk"><kbd>Tab</kbd></span><span class="kd">Cycle Queue, Roles, Parked, Schedule, Costs (Shift+Tab goes back)</span></div>
       <div class="kr"><span class="kk"><kbd>h</kbd> <kbd>q</kbd></span><span class="kd">Attention queue</span></div>
       <div class="kr"><span class="kk"><kbd>t</kbd></span><span class="kd">Role tree</span></div>
       <div class="kr"><span class="kk"><kbd>p</kbd></span><span class="kd">Parked view: reason, who parked it, handoff note</span></div>
       <div class="kr"><span class="kk"><kbd>s</kbd></span><span class="kd">Schedule: upcoming runs of scheduled jobs on a timeline that slides with the clock</span></div>
       <div class="kr"><span class="kk"><kbd>j</kbd> <kbd>k</kbd> <kbd>Enter</kbd></span><span class="kd">Schedule: pick a lane; Enter jumps to the session it is tied to (or click the ↳ chip). The ⏱ chip on a session card shows its next run</span></div>
       <div class="kr"><span class="kk"><kbd>-</kbd> <kbd>=</kbd></span><span class="kd">Schedule: widen or narrow the window (3h, 12h, 24h, 7d)</span></div>
+      <div class="kr"><span class="kk"><kbd>$</kbd></span><span class="kd">Costs: tokens and API-equivalent cost per project; <kbd>-</kbd> <kbd>=</kbd> change the range, <kbd>v</kbd> groups by project or by manager (a manager plus all its workers, parked ones included), <kbd>j</kbd> <kbd>k</kbd> <kbd>Enter</kbd> drill into a row's sessions, <kbd>Esc</kbd> back; on a session <kbd>r</kbd> renames it, and on an unclassified one <kbd>c</kbd> then <kbd>i</kbd> <kbd>m</kbd> <kbd>w</kbd> classifies it in place</span></div>
       <div class="kr"><span class="kk"><kbd>/</kbd></span><span class="kd">Search the Roles or Parked view; done sessions are included</span></div>
     </section>
     <section><h3>Filters</h3>

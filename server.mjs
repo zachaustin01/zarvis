@@ -22,6 +22,11 @@ import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } f
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
 import { readEvents } from './lib/events.mjs'
 import { visibleRows, lifecycleOf, hideDone, archivedParked } from './lib/lifecycle.mjs'
+import { readTags, resolveProject } from './lib/project-tags.mjs'
+import { createUsageScanner } from './lib/usage.mjs'
+import { costsReport } from './lib/costs-cli.mjs'
+import { liveDeps } from './lib/roster-cli.mjs'
+import { normalizeRange } from './lib/costs.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
 const HOST = '127.0.0.1' // loopback only, by design
@@ -61,7 +66,7 @@ function requestAllowed(req) {
 async function allRows() {
   const [markers, working] = await Promise.all([readMarkers(), readMarkers(WORKING_DIR)])
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
-  const { rows } = await collectRows({ markers, working, tasks: await readAllTasks(ZARVIS_HOME), records, deleted, state, roles: await roleRegistry(state), maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
+  const { rows } = await collectRows({ markers, working, tasks: await readAllTasks(ZARVIS_HOME), records, deleted, state, roles: await roleRegistry(state), projectTags: await readTags(ZARVIS_HOME), maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
   // Approximate context use per row, from the transcript tail (cached by mtime and size). Server-side only:
   // the file path never reaches the browser, and a session with no usage yet gets no `ctx` at all.
   const win = contextWindow()
@@ -100,6 +105,11 @@ async function currentTree() {
   const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(queue) })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
   const links = await readAllLinks(ZARVIS_HOME)
+  const projectTags = await readTags(ZARVIS_HOME)
+  const projectOf = (n, derived) => {
+    const { project, source } = resolveProject(n.sessionId, { managerId: n.managerId, derived, tags: projectTags })
+    return { project, projectSource: source }
+  }
   const kids = childrenOf(nodes)
   const now = Date.now()
   const recent = new Map(records.map((r) => [r.cliSessionId, Number(r.lastActivityAt) || Number(r.createdAt) || now]))
@@ -132,7 +142,7 @@ async function currentTree() {
       links: links[n.sessionId] || [],
       tasks: row?.tasks ?? { count: 0, items: [] },
       blockedChildren: row?.blockedChildren ?? [],
-      project: row?.project || path.basename(projectPathOf(n.cwd, recOf.get(n.sessionId)?.originCwd)) || '',
+      ...projectOf(n, path.basename(projectPathOf(n.cwd, recOf.get(n.sessionId)?.originCwd)) || ''),
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),
     }
   }
@@ -164,7 +174,7 @@ async function currentTree() {
       kind: '',
       links: links[n.sessionId] || [],
       blockedChildren: [],
-      project: path.basename(splitWorktree(n.cwd).root) || '',
+      ...projectOf(n, path.basename(splitWorktree(n.cwd).root) || ''),
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),
     }
   })
@@ -275,6 +285,17 @@ async function findInTree(sessionId) {
   return flat.find((n) => n.sessionId === sessionId)
 }
 
+// --- costs: computed on demand from the transcripts, never in the 1s push loop. One scanner keeps a per-file cache
+// (path + mtime + size, read incrementally), so only the first pass over a big history is slow; the server starts it in
+// the background at boot and a request that arrives mid-scan gets the partial numbers (`scanning`) after a short wait.
+const usageScanner = createUsageScanner()
+const COSTS_WAIT_MS = 1500
+async function costs(range, project) {
+  const pass = usageScanner.refresh().catch((e) => console.error('costs scan failed:', e.message))
+  await Promise.race([pass, new Promise((r) => setTimeout(r, COSTS_WAIT_MS))])
+  return costsReport({ scanner: usageScanner, world: await liveDeps(), home: ZARVIS_HOME, range, project, wait: false })
+}
+
 const send = (res, code, body, type = 'application/json') => {
   res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body))
@@ -367,6 +388,7 @@ const server = http.createServer(async (req, res) => {
       await openUrl(link)
       return send(res, 200, { ok: true, url: link, folder, marker, prompt, dryRun: DRY_OPEN })
     }
+    if (req.method === 'GET' && url.pathname === '/api/costs') return send(res, 200, await costs(normalizeRange(url.searchParams.get('range')), url.searchParams.get('project') || ''))
     if (req.method === 'GET' && url.pathname === '/api/version') return send(res, 200, { version: await appVersion(PUBLIC) })
     if (req.method === 'GET' && url.pathname === '/api/claims') return send(res, 200, { now: Date.now(), claims: await currentClaims() })
     if (req.method === 'GET' && url.pathname === '/api/tree') return send(res, 200, await currentTree())
@@ -405,6 +427,7 @@ const server = http.createServer(async (req, res) => {
 await tick()
 setInterval(tick, 1000).unref?.()
 writeRoster().catch(() => {})
+if (process.env.ZARVIS_COSTS_WARM !== '0') usageScanner.refresh().catch(() => {}) // warm the cache so the first Costs view is quick
 setInterval(() => writeRoster().catch((e) => console.error('roster failed:', e.message)), 5000).unref?.()
 setInterval(() => { for (const c of clients) c.write(': hb\n\n') }, 15000).unref?.()
 server.listen(PORT, HOST, () => console.log(`Zarvis → http://${HOST}:${PORT}${DRY_OPEN ? '  (dry-open)' : ''}`))

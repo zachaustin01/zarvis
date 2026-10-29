@@ -38,6 +38,21 @@ Whatever the line says, message the manager for:
 
 Anything else you can decide, check or fix yourself: do that.
 
+## What goes upstream, and what does not
+
+The manager coordinates parallel sessions; it does not approve work. The user can open your session and
+review or approve it there, so finishing, test results and diffs stay with you.
+
+| Goes to the manager (`SendMessage`) | Stays in your session |
+|---|---|
+| A blocking question only it can answer (scope, sequencing) | Done, branch, commits, what you verified |
+| A discovery that touches another worker (files, checkout, interface) | Progress, plans, follow-ups you finished |
+| A checkpoint the brief named | Anything the user can decide when they review |
+| A result another worker or step waits on (`Reporting: manager needed`) | Review feedback requests: the user gives those to you directly |
+
+The app notes the manager at every turn end anyway, so send nothing that note and your closing message
+already say.
+
 ## Report format
 
 One report per finished task, the outcome in the first lines:
@@ -90,6 +105,11 @@ Finder). The label is short, one line. Up to 8 stay on the card; the same URL ag
 the URL in your report: the link is a convenience for the user, not the report.
 
 If a session runs on a schedule (a cron job, an hourly check), register it so it shows on Zarvis's Schedule view: `node "{{ZARVIS_DIR}}/scripts/schedule.mjs" add <name> --cron "0 * * * *" --note "..." --by <your session id>` (`--every 30m`, `--at "09:00"`, `list`, `remove <name>`). Zarvis only displays it; it never runs or edits the job.
+
+## Project
+
+Your cost is counted under your project: your own tag, else your manager's tag, else your folder name. The manager
+tags it (`node "{{ZARVIS_DIR}}/scripts/project.mjs" set ...`); do not retag yourself unless the brief says to.
 
 ## Must not
 
