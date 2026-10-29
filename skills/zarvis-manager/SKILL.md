@@ -52,8 +52,8 @@ above your workers (one layer down).
   worker works the whole brief in one turn.
 - Workers still message you for a blocking question, or a discovery that affects another worker.
 - Don't ask for progress updates or per-item reports. Each one costs you a turn.
-- Start workers with `wake_when_done: false` unless a later step needs their result. A wake-up is a turn
-  you pay for at your full context size; with `Reporting: user review` nobody needs it.
+- The app wakes you when a session you started ends its turn, whatever `wake_when_done` says. Each wake-up
+  is a turn at your full context size, so end it at once when there is nothing to coordinate (see Closing the loop).
 
 ## Closing the loop
 
