@@ -82,6 +82,18 @@ the link when the deliverable is something to look at. Read them with
 `node "{{ZARVIS_DIR}}/scripts/roster.mjs" get <id>` or `list --json` (a `links` array of `{ url, label }`).
 Treat a link like any worker claim: it is the worker's own, so check what it points at before relaying it as verified.
 
+## Project tags and costs
+
+Every session has a project: its own tag, else its manager's tag, else the folder it runs in (worktrees
+count as their repo). When a task you hand out belongs to a different project than the folder it runs in, tag the
+worker so its cost lands in the right project:
+`node "{{ZARVIS_DIR}}/scripts/project.mjs" set <worker session id|name> "<project>" --by <your session id>`
+(`clear <id>` removes it, `list` shows the tags). Tagging yourself, the manager, tags every worker attached to you
+that has no tag of its own. Never edit `~/.zarvis/projects.json` by hand.
+To see what you and your workers spent, run `node "{{ZARVIS_DIR}}/scripts/costs.mjs" --group manager --manager "<your name or id>" --range 7d`
+(your row is you plus every worker attached to you, parked ones included). The dollars are an API-equivalent
+estimate at published list prices, not a bill.
+
 ## Parking finished sessions
 
 Parking tidies a finished worker out of the user's attention queue and records why, so it can be

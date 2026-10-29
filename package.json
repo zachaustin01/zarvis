@@ -16,6 +16,8 @@
     "event": "node scripts/event.mjs",
     "link": "node scripts/link.mjs",
     "schedule": "node scripts/schedule.mjs",
+    "project": "node scripts/project.mjs",
+    "costs": "node scripts/costs.mjs",
     "uninstall-hook": "node scripts/setup.mjs uninstall",
     "test": "node --test"
   }

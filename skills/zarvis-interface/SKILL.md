@@ -35,6 +35,12 @@ Do this once at the start, and again when the user asks. Do not re-read it every
 - To relay what a worker made, read its links: `node "{{ZARVIS_DIR}}/scripts/roster.mjs" get <id>` prints
   them (`--json` gives a `links` array of `{ url, label }`). They are posted by the worker itself, so say so
   when you pass one on.
+- Cost questions ("what did project X cost this week?", "what does manager Y spend?") are answered by
+  `node "{{ZARVIS_DIR}}/scripts/costs.mjs" --range 7d` (`today|7d|30d|all`; add `--project <name>`, `--group manager`,
+  `--manager <name|id>`, `--json`). Every session has a project (its explicit tag, else its manager's tag, else its
+  folder name); retag one with `node "{{ZARVIS_DIR}}/scripts/project.mjs" set <session id|name> <project> --by <your session id>`
+  (`clear`, `list`). Dollars are an API-equivalent estimate at published list prices, not a bill: say so when you
+  quote them, and report any "unpriced" tokens the output flags rather than guessing a price.
 - Jobs that run on a schedule are registered with `npm run schedule` (or `node "{{ZARVIS_DIR}}/scripts/schedule.mjs" list`); the Schedule view (`s`) shows their upcoming runs. Pass `--by <your own session id>` when you register one so it shows which session it belongs to (`set <name> --by <id>` ties an existing one).
 - Find your own entry under "Interface" in the roster.
 - Parked workers are listed under "Parked" beneath each manager (state `parked`, the reason, the

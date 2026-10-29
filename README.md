@@ -79,7 +79,7 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 
 `j`/`k` or arrows move · `]`/`[` (or `PageDown`/`PageUp`, the wheel, a swipe, or the pager) turn the page when the list does not fit the window (nothing scrolls) · `Cmd/Ctrl+K` command palette (fuzzy-find a session or run any key action; `>` commands only, `@` sessions only) · `b` show/hide the project rail (wide windows) · `e` collapse/expand the event ticker · `E` (Shift+E) open/close the event list · `Tab`/`Shift+Tab` cycle Queue → Roles → Parked → Schedule (`h`/`t`/`p`/`s` jump straight there; not while typing in a box) · `i` jump to the interface session · `v` show/hide parked sessions on the Roles page (hidden by default; remembered) · `m`/`w` queue role filter (managers / workers only; again to clear; remembered) · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude · `n` new Claude Code session · `r` rename
 (overlay; Esc cancels; empty restores the app title) · `P` park (Shift+P) · `d` done · `u` unpark · `z` undo ·
-`p` parked view · `s` schedule (`-`/`=` widen/narrow its window) · `/` search the role tree · `?` key sheet.
+`p` parked view · `s` schedule (`-`/`=` widen/narrow its window) · `$` costs (`v` project/manager, `-`/`=` range) · `/` search the role tree · `?` key sheet.
 
 `n` opens a new session in the Claude desktop app via `claude://code/new`, in the selected
 session's repo (its root, not its worktree), or a plain new session when nothing is selected.
@@ -236,6 +236,50 @@ it owns one (click: the Schedule view on that lane), and `npm run roster -- get 
 Importers: `lib/schedule-import.mjs` has one hook for read-only sources (shown tagged `claude`). None is wired in yet:
 on the Mac this was written on, Claude's `~/.claude/jobs` holds background-session state, not schedules, and no
 other readable file with a name and a cron exists, so nothing is guessed.
+
+## Costs
+
+The Costs view (`$`, or Tab) shows token usage and an **API-equivalent cost estimate** per project, or per manager (`v`), for
+today, 7 days, 30 days or all time (`-`/`=`, or click). Each row has the cost, tokens by type (input, output, cache read,
+cache write), the model mix, the session count, the manager / worker split and a daily cost bar chart; `j`/`k` + `Enter`
+(or a click) lists that row's sessions ranked by cost, `Esc` goes back. A **manager row is the manager plus every worker
+attached to it**, parked ones included. The same numbers, for an agent or a terminal:
+
+```bash
+npm run costs -- [--range today|7d|30d|all] [--group project|manager] [--project <name>] [--manager <name|id>] [--top N] [--json]
+```
+
+**Honesty.** Dollars are tokens x the published per-model API list price. If you are on a subscription that is not
+what you are billed, so the view says "API-equivalent estimate" everywhere. A model with no price in the table is
+**unpriced**: its tokens are shown, its cost is left out of the dollars and flagged, never guessed. Not modelled: the Batch API
+discount, fast-mode premiums, the US data-residency multiplier, server-tool fees. Prices live in `lib/pricing.mjs`
+(source: <https://platform.claude.com/docs/en/about-claude/pricing>, checked 2026-10-29); override or add models in
+`~/.zarvis/pricing.json` (honours `ZARVIS_HOME`), per million tokens:
+
+```json
+{ "claude-opus-5-5": { "input": 4, "output": 20, "cacheRead": 0.2, "cacheWrite5m": 5, "cacheWrite1h": 8 } }
+```
+
+Model ids match exactly (date suffix ignored), then by family prefix (flagged "approximate"). Claude Haiku 5.5's long-prompt
+tier (over 100k tokens per request) is priced per request.
+
+**Where the tokens come from.** The `message.usage` of every assistant message in each session's transcript under
+`~/.claude/projects` (subagent transcripts beside it count for their session; `<synthetic>` messages are skipped).
+Transcripts repeat messages (streaming, resumes), so each is counted once by message id + request id; a resumed session's
+replay of earlier messages belongs to the session that started first. Files are read incrementally and cached by path,
+mtime and size, so only the first scan of a big history is slow (it runs in the background at server start; the view shows
+partial numbers while it finishes). Days are local days. Nothing is written to Claude's files.
+
+**Projects.** Every session already has a project: the repo folder it runs in (worktrees roll up to their repo). To override:
+
+```bash
+npm run project -- set <session id|name> "<project>" [--by <your session id>]   # tag a session; a manager's tag covers its workers
+npm run project -- clear <session id|name>
+npm run project -- list [--json]
+```
+
+Resolution order: the session's own tag, then its manager's tag, then the folder name. Tags are stored in
+`~/.zarvis/projects.json`; cards, the roster and `npm run roster` show the effective project.
 
 ## Checkout claims
 

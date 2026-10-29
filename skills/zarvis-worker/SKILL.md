@@ -91,6 +91,11 @@ the URL in your report: the link is a convenience for the user, not the report.
 
 If a session runs on a schedule (a cron job, an hourly check), register it so it shows on Zarvis's Schedule view: `node "{{ZARVIS_DIR}}/scripts/schedule.mjs" add <name> --cron "0 * * * *" --note "..." --by <your session id>` (`--every 30m`, `--at "09:00"`, `list`, `remove <name>`). Zarvis only displays it; it never runs or edits the job.
 
+## Project
+
+Your cost is counted under your project: your own tag, else your manager's tag, else your folder name. The manager
+tags it (`node "{{ZARVIS_DIR}}/scripts/project.mjs" set ...`); do not retag yourself unless the brief says to.
+
 ## Must not
 
 - Push, merge or open a PR unless the brief says to.

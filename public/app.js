@@ -2,11 +2,13 @@
 import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
+import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel } from '/costs.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
-let view = 'queue' // 'queue' | 'tree' | 'parked' | 'schedule'
+let mgrCosts = new Map() // manager session id -> { cost, own, workerCost, workers } over 7 days, for the cards' cost chip (costChip)
+let view = 'queue' // 'queue' | 'tree' | 'parked' | 'schedule' | 'costs'
 let tree = { interface: [], managers: [], orphans: [], unclassified: [] }
 let rawTree = null // the server's tree, done sessions included
 let nodes = [] // the tree flattened in display order, for j/k
@@ -152,7 +154,7 @@ const LINKS_SHOWN = 3
  */
 function linksHtml(r) {
   const ls = (Array.isArray(r.links) ? r.links : []).map((l) => ({ url: safeUrl(l?.url) || safeFile(l?.url), label: String(l?.label ?? '').slice(0, 60) })).filter((l) => l.url)
-  const clock = clockChip(r.sessionId)
+  const clock = clockChip(r.sessionId) + costChip(r)
   if (!ls.length) return clock ? `<div class="lks">${clock}</div>` : ''
   const all = openLk.has(r.sessionId)
   const chips = (all ? ls : ls.slice(0, LINKS_SHOWN)).map((l) => l.url.startsWith('file:') ? `<button type="button" class="lk lkf" data-u="${esc(l.url)}" title="Open ${esc(decodeURI(l.url.slice(7)))} (Shift-click: show in Finder)"><span>${esc(l.label || l.url)}</span><b aria-hidden="true">▤</b></button>` : `<a class="lk" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}"><span>${esc(l.label || l.url)}</span><b aria-hidden="true">↗</b></a>`)
@@ -166,6 +168,18 @@ function clockChip(id) {
   if (!mine.length) return ''
   const j = mine.reduce((a, b) => (b.next < a.next ? b : a))
   return `<span class="lk lkc" role="button" tabindex="-1" data-n="${esc(j.name)}" title="${esc(`${mine.length > 1 ? `${mine.length} schedules; soonest: ` : ''}${j.name} (${j.desc}). Click: show on the Schedule view`)}"><span>next ${esc(clockLabel(j.next))}</span><b aria-hidden="true">⏱</b></span>`
+}
+
+/**
+ * `$12 · 7d` on a manager's card: what the manager and every worker attached to it (parked ones included) cost over the
+ * last 7 days, an API-equivalent estimate. A click opens the Costs view on that manager. The numbers come from the same
+ * /api/costs the Costs view uses, fetched every 30s in any view (the server caches the scan, so this is cheap).
+ */
+function costChip(r) {
+  const c = r.role === 'manager' ? mgrCosts.get(r.sessionId) : null
+  if (!c || !c.cost) return ''
+  const tip = `${c.workers} worker${c.workers === 1 ? '' : 's'} + this manager, last 7 days: manager itself ${usd(c.own)}, workers ${usd(c.workerCost)}. API-equivalent estimate, not a bill. Click: Costs view`
+  return `<span class="lk lkc lkk" role="button" tabindex="-1" data-m="${esc(r.sessionId)}" title="${esc(tip)}"><span>${esc(usd(c.cost))} · 7d</span><b aria-hidden="true">$</b></span>`
 }
 
 /** The expanded list under a card: kind, name and how long each has run. */
@@ -269,10 +283,13 @@ function setView(v) {
   anchorId = ''
   lastSelSeen = null
   document.querySelectorAll('.pill[data-view]').forEach((p) => p.classList.toggle('on', p.dataset.view === v))
-  $('#flt').hidden = v === 'queue' || v === 'schedule'
+  $('#flt').hidden = v === 'queue' || v === 'schedule' || v === 'costs'
   document.body.classList.toggle('v-schedule', v === 'schedule')
+  document.body.classList.toggle('v-costs', v === 'costs')
   $('#sched').hidden = v !== 'schedule'
+  $('#costs').hidden = v !== 'costs'
   if (v === 'schedule') { renderBar(); return loadSchedule(true) }
+  if (v === 'costs') { renderBar(); csPage = 0; return loadCosts(true) }
   $('#pager').dataset.key = '' // the other view's pager state is stale
   if (v !== 'queue') loadTree()
   else render()
@@ -293,7 +310,7 @@ async function loadTree() {
     rawTree = await (await fetch('/api/tree')).json()
     reconcileProject()
     updateAmbient() // the reactor's parked count comes from the tree
-    if (view === 'queue' || view === 'schedule') renderBar()
+    if (view === 'queue' || view === 'schedule' || view === 'costs') renderBar()
     else applyTree()
     renderPalette()
   } catch {
@@ -697,7 +714,7 @@ function renderBar() {
   const bar = $('#projbar')
   const list = projectList()
   const cur = activeProject()
-  if (view === 'schedule' || (list.length < 2 && !(view === 'queue' && queue.length) && view !== 'tree')) { bar.hidden = true; bar.innerHTML = ''; return }
+  if (view === 'schedule' || view === 'costs' || (list.length < 2 && !(view === 'queue' && queue.length) && view !== 'tree')) { bar.hidden = true; bar.innerHTML = ''; return }
   bar.hidden = false
   const counts = (e) => `${e.blocked ? `<b class="nd">${e.blocked}</b>` : ''}${e.working ? `<b class="rn">${e.working}</b>` : ''}`
   const all = list.reduce((a, e) => ({ blocked: a.blocked + e.blocked, working: a.working + e.working }), { blocked: 0, working: 0 })
@@ -727,6 +744,7 @@ function render() {
 function renderInner() {
   renderBar()
   if (view === 'schedule') return // the timeline has its own container and clock; a push never touches it
+  if (view === 'costs') return // so does the Costs view
   if (view === 'tree') return renderTreeInner()
   if (view === 'parked') return renderParkedInner()
   const vq = visibleQueue()
@@ -768,7 +786,7 @@ let lastFlipAt = 0
 let anchorId = '' // the first row on the current page: a re-measure (resize, rows appearing) keeps showing it
 
 function paginateList() {
-  if (view === 'schedule') return
+  if (view === 'schedule' || view === 'costs') return
   const list = $('#list')
   const kids = [...list.children]
   for (const k of kids) k.hidden = false // measure everything
@@ -802,6 +820,7 @@ function pageUrgency() {
 
 function renderPager() {
   if (view === 'schedule') return renderSchedPager()
+  if (view === 'costs') return renderCostPager()
   const el = $('#pager')
   const n = pageInfo.pages.length
   const urgent = n > 1 ? flagElsewhere(pageUrgency(), page) : ''
@@ -819,6 +838,7 @@ function renderPager() {
 /** Move to the next (1) or previous (-1) page and select its first row, so the selection stays on screen. */
 function flipPage(dir) {
   if (view === 'schedule') return flipSched(dir)
+  if (view === 'costs') return flipCosts(dir)
   const n = pageInfo.pages.length
   const to = clampPage(page + dir, n)
   if (to === page) return
@@ -855,7 +875,7 @@ addEventListener('resize', () => {
   clearTimeout(resizeTick)
   resizeTick = setTimeout(() => {
     const room = `${innerWidth}x${innerHeight}`
-    if (room !== lastAvail) { lastAvail = room; render(); renderSchedule(true); fitHelp(); renderRail(true); if (palette) renderPalette(true) }
+    if (room !== lastAvail) { lastAvail = room; render(); renderSchedule(true); renderCosts(true); fitHelp(); renderRail(true); if (palette) renderPalette(true) }
   }, 120)
 })
 
@@ -994,6 +1014,7 @@ async function commitRename() {
 }
 
 async function classifySel(role) {
+  if (view === 'costs') return classifyCostSel(role)
   const r = items().find((x) => x.sessionId === sel)
   if (!r) return
   const { ok, data } = await post('/api/classify', { sessionId: r.sessionId, role })
@@ -1123,6 +1144,13 @@ const RUN = {
   'view-tree': () => setView('tree'),
   'view-parked': () => setView('parked'),
   'view-schedule': () => setView('schedule'),
+  'view-costs': () => setView('costs'),
+  'costs-by-manager': () => setCostGroup('manager'),
+  'costs-by-project': () => setCostGroup('project'),
+  'costs-today': () => setCostRange('today'),
+  'costs-7d': () => setCostRange('7d'),
+  'costs-30d': () => setCostRange('30d'),
+  'costs-all': () => setCostRange('all'),
   'schedule-wider': () => zoomSched(1),
   'schedule-narrower': () => zoomSched(-1),
   'view-next': () => nextViewCmd(1),
@@ -1302,6 +1330,11 @@ window.addEventListener('keydown', (e) => {
 document.addEventListener('keydown', (e) => {
   if (pick || parking || palette) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
+  if (renaming && view === 'costs') {
+    if (e.key === 'Enter') { e.preventDefault(); commitCostRename() }
+    else if (e.key === 'Escape') { e.preventDefault(); renaming = null; renderCosts(true) }
+    return
+  }
   if (renaming) {
     if (e.key === 'Enter') { e.preventDefault(); commitRename() }
     else if (e.key === 'Escape') { renaming = null; render() }
@@ -1321,6 +1354,10 @@ document.addEventListener('keydown', (e) => {
     return
   }
   const help = $('#ovHelp')
+  if (view === 'costs' && !help.classList.contains('on') && ['j', 'k', 'ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Backspace'].includes(e.key)) {
+    e.preventDefault()
+    return e.key === 'Enter' ? enterCost() : e.key === 'Escape' || e.key === 'Backspace' ? leaveCost() : moveCost(e.key === 'j' || e.key === 'ArrowDown' ? 1 : -1)
+  }
   if (e.key === 'Escape') return help.classList.remove('on')
   if (e.key === '?') return toggleHelp()
   if (e.key === 'PageDown' || e.key === ']') { e.preventDefault(); return help.classList.contains('on') ? helpFlip(1) : flipPage(1) }
@@ -1339,6 +1376,8 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'z') { e.preventDefault(); undoLast() }
   else if (e.key === 'p') setView('parked')
   else if (e.key === 's') setView('schedule')
+  else if (e.key === '$') setView('costs')
+  else if (e.key === 'v' && view === 'costs') { e.preventDefault(); setCostGroup(costGroup === 'manager' ? 'project' : 'manager') }
   else if (e.key === '-') zoomSched(1)
   else if (e.key === '=' || e.key === '+') zoomSched(-1)
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
@@ -1353,6 +1392,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'h' || e.key === 'q') setView('queue')
   else if (e.key === 'c') { e.preventDefault(); startClassify() }
   else if (e.key === 'C' && view === 'tree') { e.preventDefault(); classifyGroup() }
+  else if (e.key === 'r' && view === 'costs') { e.preventDefault(); startCostRename() }
   else if (e.key === 'r' && items().length) { e.preventDefault(); startRename() }
   else if (e.key === 'n') { e.preventDefault(); startNew() }
 })
@@ -1362,6 +1402,8 @@ for (const el of [$('#list'), $('#side')]) {
   el.addEventListener('click', (e) => {
     const q = e.target.closest('.q')
     if (!q || e.target.tagName === 'INPUT') return
+    const kk = e.target.closest('.lkk')
+    if (kk) return openManagerCost(kk.dataset.m)
     const ck = e.target.closest('.lkc')
     if (ck) { schSel = ck.dataset.n; schFollow = true; setView('schedule'); return }
     if (e.target.closest('.lk')) {
@@ -1603,6 +1645,7 @@ setInterval(() => { loadSchedule(false); loadScheduleList() }, 30000)
 document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSchedule(false) })
 
 function zoomSched(dir) {
+  if (view === 'costs') return setCostRange(stepRange(costRange, dir), dir)
   if (view !== 'schedule') return toast('The window applies to the Schedule view (s)')
   const to = stepZoom(zoom, dir)
   if (to === zoom) return toast(dir > 0 ? 'Widest window: 7d' : 'Narrowest window: 3h')
@@ -1774,4 +1817,312 @@ $('#scLanes').addEventListener('click', (e) => {
   const lane = e.target.closest('.sc-lane')
   if (!f || !lane) return
   post('/api/open-link', { schedule: lane.dataset.n, url: f.dataset.u, reveal: e.shiftKey }).then(({ ok, data }) => toast(ok ? (data.mode === 'reveal' ? 'Showing the file…' : 'Opening the file…') + (data.dryRun ? ' (dry run)' : '') : data.error || 'Could not open the file'))
+})
+
+// ---- Costs: tokens and API-equivalent cost per project (npm run costs shows the same numbers). The server sums the
+// transcripts on demand (never in the live push); the view refetches every 15s, every 1.5s while the first scan of a big
+// history is still running. Every dollar is an estimate at API list prices, not a bill. ----
+let costRange = DEFAULT_RANGE
+try { costRange = rangeOf(localStorage.getItem('zarvis.costRange')).id } catch { /* storage blocked */ }
+let mgrCostSig = ''
+async function loadMgrCosts() {
+  if (document.hidden) return
+  try {
+    const d = await (await fetch('/api/costs?range=7d')).json()
+    if (!Array.isArray(d?.managers)) return
+    const m = new Map(d.managers.filter((g) => g.kind === 'manager').map((g) => [g.managerId, { cost: g.cost, own: g.roles.manager.cost, workerCost: g.roles.worker.cost, workers: g.roles.worker.sessions }]))
+    const sig = JSON.stringify([...m])
+    if (sig === mgrCostSig) return
+    mgrCostSig = sig
+    mgrCosts = m
+    if (view !== 'costs') render()
+  } catch { /* next poll */ }
+}
+loadMgrCosts()
+setInterval(loadMgrCosts, 30000)
+/** A manager card's cost chip: the Costs view, by manager, on that manager's sessions (last 7 days). */
+function openManagerCost(id) {
+  costGroup = 'manager'
+  costRange = '7d'
+  try { localStorage.setItem('zarvis.costGroup', 'manager'); localStorage.setItem('zarvis.costRange', '7d') } catch { /* storage blocked */ }
+  csDrill = id
+  csSel = 0
+  csPage = 0
+  csSig = ''
+  setView('costs')
+}
+let costs = null // the last /api/costs answer
+let costGroup = 'manager' // 'project' | 'manager': what the rows are (a manager row = the manager plus every worker attached to it, parked ones included)
+try { costGroup = localStorage.getItem('zarvis.costGroup') === 'project' ? 'project' : 'manager' } catch { /* storage blocked */ }
+let csDrill = '' // the project whose sessions are listed ('' = the project list)
+let csSel = 0 // selected row index in the current list
+let csPage = 0
+let csPaged = { pages: 1, page: 0, starts: [0] }
+let csFollow = false // the next draw moves to the page that holds the selected row
+let csSig = ''
+let csTimer = 0
+let csHtml = { sum: '', list: '', foot: '' }
+
+async function loadCosts(force) {
+  if (view !== 'costs' || (document.hidden && !force)) return
+  clearTimeout(csTimer)
+  const want = costRange
+  try {
+    const d = await (await fetch(`/api/costs?range=${want}`)).json()
+    if (view !== 'costs' || want !== costRange || !Array.isArray(d?.projects)) return
+    costs = d
+    renderCosts(false)
+  } catch { /* next poll */ }
+  csTimer = setTimeout(() => loadCosts(false), costs?.scanning ? 1500 : 15000)
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) loadCosts(false) })
+
+function setCostRange(r, dir = 0) {
+  if (r === costRange && view === 'costs') return toast(dir > 0 ? 'Longest range: all time' : dir < 0 ? 'Shortest range: today' : `Already showing ${rangeOf(r).label}`)
+  costRange = r
+  try { localStorage.setItem('zarvis.costRange', r) } catch { /* storage blocked */ }
+  csSel = 0
+  csPage = 0
+  csSig = ''
+  if (view !== 'costs') return setView('costs')
+  loadCosts(true)
+}
+$('#csRange').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-r]')
+  if (b && b.dataset.r !== costRange) setCostRange(b.dataset.r)
+})
+
+const csGroups = () => (costGroup === 'manager' ? costs?.managers.filter((g) => g.kind !== 'unmanaged') : costs?.projects) || []
+/** Workers attached to no manager, shown as a chip under the summary (the interface and unclassified sessions are rows). */
+const csBuckets = () => (costGroup === 'manager' ? costs?.managers.filter((g) => g.kind === 'unmanaged') : []) || []
+const csItems = () => {
+  if (!costs) return []
+  if (!csDrill) return csGroups()
+  return [...csGroups(), ...csBuckets()].find((p) => p.key === csDrill)?.top || []
+}
+function setCostGroup(g) {
+  if (g === costGroup) return view === 'costs' ? undefined : setView('costs')
+  costGroup = g
+  try { localStorage.setItem('zarvis.costGroup', g) } catch { /* storage blocked */ }
+  csDrill = ''
+  csSel = 0
+  csPage = 0
+  csSig = ''
+  if (view !== 'costs') return setView('costs')
+  renderCosts(true)
+}
+$('#csGroup').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-g]')
+  if (b) setCostGroup(b.dataset.g)
+})
+
+function sparkSvg(days, max) {
+  const bars = dayBars(days, max)
+  const n = bars.length || 1
+  return `<svg viewBox="0 0 ${n * 4} 20" preserveAspectRatio="none" aria-hidden="true">${bars.map((h, i) => `<rect class="${h ? '' : 'z'}" x="${i * 4}" y="${(20 - Math.max(h * 20, h ? 1.5 : 1)).toFixed(1)}" width="3" height="${Math.max(h * 20, h ? 1.5 : 1).toFixed(1)}"><title>${esc(dayLabel(days[i].day))}: ${esc(usd(days[i].cost))}</title></rect>`).join('')}</svg>`
+}
+const typeLine = (t) => `in <b>${tok(t.input)}</b> · out <b>${tok(t.output)}</b> · cache read <b>${tok(t.cacheRead)}</b> · cache write <b>${tok(t.cacheWrite5m + t.cacheWrite1h)}</b>`
+
+function groupRowHtml(p, i, max, dayMax) {
+  const mgr = costGroup === 'manager'
+  const segs = mixSegments(p.models)
+  const un = p.unpricedTokens ? `<span class="cs-un" style="color:var(--am)">${tok(p.unpricedTokens)} unpriced tokens (not in $)</span>` : ''
+  return (
+    `<div class="cs-row${i === csSel ? ' sel' : ''}" data-i="${i}" title="${esc(p.name)}: Enter lists its sessions by cost">` +
+    `<div class="cs-top"><span class="cs-nm"${mgr ? '' : ` style="color:hsl(${projectHue(p.project)} 65% 68%)"`}>${esc(p.name)}</span>${mgr ? `<span class="cs-tag">${p.kind === 'manager' ? 'manager + workers' : 'no manager'}</span>` : ''}${!mgr && p.explicit ? '<span class="cs-tag" title="A session in this project was tagged with npm run project">tagged</span>' : ''}<span class="cs-usd">${esc(usd(p.cost))}</span></div>` +
+    `<div class="cs-bar2"><i style="width:${share(p.cost, max).toFixed(1)}%"></i></div>` +
+    `<div class="cs-meta"><span><b>${tok(p.totalTokens)}</b> tokens</span><span>${typeLine(p.tokens)}</span></div>` +
+    `<div class="cs-meta"><span><b>${p.sessions}</b> session${p.sessions === 1 ? '' : 's'}</span><span>${mgr && p.kind !== 'manager' ? '' : `${mgr ? 'manager itself' : 'managers'} <b>${esc(usd(p.roles.manager.cost))}</b> · ${mgr ? `${p.roles.worker.sessions} worker${p.roles.worker.sessions === 1 ? '' : 's'}` : 'workers'} <b>${esc(usd(p.roles.worker.cost))}</b>${p.roles.other.cost ? ` · other <b>${esc(usd(p.roles.other.cost))}</b>` : ''}`}</span>${mgr ? `<span>${esc(p.projects.join(', '))}</span>` : ''}${un}</div>` +
+    `<div class="cs-mix">${segs.map((g) => `<i class="f-${g.family}" style="flex:${g.pct.toFixed(2)}" title="${esc(g.label)}${g.priced ? '' : ' (unpriced)'}: ${g.pct.toFixed(0)}%"></i>`).join('')}</div>` +
+    `<div class="cs-leg">${segs.slice(0, 5).map((g) => `<span><s class="f-${g.family}"></s>${esc(g.label)} ${g.pct.toFixed(0)}%${g.priced ? '' : ' unpriced'}</span>`).join('')}</div>` +
+    `<div class="cs-spark">${sparkSvg(p.days, dayMax)}</div>` +
+    '</div>'
+  )
+}
+
+/** Classify buttons on a session that has no manager above it: a role, or "worker of" one of the manager rows. */
+function classifyHtml(s) {
+  const mgrs = costs.managers.filter((g) => g.kind === 'manager')
+  const attach = mgrs.length ? `<select class="cs-pick" aria-label="Make a worker of a manager" title="Attach as a worker of…"><option value="">worker of…</option>${mgrs.map((g) => `<option value="${esc(g.managerId)}">${esc(g.name)}</option>`).join('')}</select>` : ''
+  const cur = s.role === 'worker' ? '' : '<span class="lk" role="button" tabindex="-1" data-role="worker" title="A worker with no manager yet (c w)">worker</span>'
+  return `<span class="cs-al">classify <kbd>c</kbd></span><span class="lk" role="button" tabindex="-1" data-role="interface" title="The interface session (c i)">interface</span><span class="lk" role="button" tabindex="-1" data-role="manager" title="A project manager (c m)">manager</span>${cur}${attach}`
+}
+
+function sessionRowHtml(s, i, max, classify = false) {
+  return (
+    `<div class="cs-row ss${i === csSel ? ' sel' : ''}" data-i="${i}" data-id="${esc(s.sessionId)}" title="Enter opens this session in Claude">` +
+    `<div class="cs-top">${s.sessionId === renaming ? `<input id="renIn" class="cs-rn" value="${esc(s.name)}" maxlength="120" aria-label="Rename session" placeholder="Name (empty restores the app title)">` : `<span class="cs-nm">${esc(s.name || s.sessionId)}</span>`}<span class="cs-tag">${esc(s.role === 'unclassified' ? 'session' : s.role === 'manager' && costGroup === 'manager' ? 'manager itself' : s.role)}</span>${s.parked ? '<span class="cs-tag">parked</span>' : ''}${costGroup === 'manager' ? `<span class="cs-tag">${esc(s.project)}</span>` : ''}${s.source === 'explicit' ? '<span class="cs-tag">tagged</span>' : s.source === 'manager' ? '<span class="cs-tag">manager\'s tag</span>' : ''}<span class="cs-usd">${esc(usd(s.cost))}</span></div>` +
+    `<div class="cs-bar2"><i style="width:${share(s.cost, max).toFixed(1)}%"></i></div>` +
+    `<div class="cs-meta"><span><b>${tok(s.totalTokens)}</b> tokens</span><span>${typeLine(s.tokens)}</span><span>${s.messages} message${s.messages === 1 ? '' : 's'}</span>${s.unpricedTokens ? `<span style="color:var(--am)">${tok(s.unpricedTokens)} unpriced</span>` : ''}</div>` +
+    `<div class="cs-act">${classify ? classifyHtml(s) : ''}<span class="lk" role="button" tabindex="-1" data-rename title="Rename this session (r). Empty restores its app title">rename <kbd>r</kbd></span></div>` +
+    '</div>'
+  )
+}
+
+function renderCosts(force) {
+  if (view !== 'costs') return
+  if (renaming && !force && document.activeElement?.id === 'renIn') return // a live redraw must not eat a half-typed name
+  const root = $('#costs')
+  root.setAttribute('aria-busy', costs ? 'false' : 'true')
+  $('#csGroup').innerHTML = ['project', 'manager'].map((g) => `<button type="button" data-g="${g}" class="${g === costGroup ? 'on' : ''}" aria-pressed="${g === costGroup}">${g}</button>`).join('')
+  $('#csRange').innerHTML = COST_RANGES.map((r) => `<button type="button" data-r="${r.id}" class="${r.id === costRange ? 'on' : ''}" aria-pressed="${r.id === costRange}">${r.label}</button>`).join('')
+  if (!costs) { setHtml('sum', $('#csSum'), '<span class="cs-kv">reading transcripts…</span>'); return }
+  if (csDrill && !csGroups().some((p) => p.key === csDrill) && !csBuckets().some((p) => p.key === csDrill)) csDrill = ''
+  const items = csItems()
+  csSel = stepIndex(csSel, items.length, 0)
+  const sig = JSON.stringify([costRange, costGroup, csDrill, csSel, innerWidth, innerHeight, costs, csPage], (k, v) => (k === 'now' ? undefined : v))
+  if (!force && sig === csSig) return renderCostPager()
+  csSig = sig
+  const t = costs.totals
+  const proj = csDrill ? [...csGroups(), ...csBuckets()].find((p) => p.key === csDrill) : null
+  const head = proj
+    ? `<span class="cs-big">${esc(usd(proj.cost))}<small>${esc(proj.name)}${proj.kind === 'manager' ? ` · total of the manager + ${proj.roles.worker.sessions} worker${proj.roles.worker.sessions === 1 ? '' : 's'}` : ''} · ${rangeOf(costRange).label} · sessions by cost · Esc back</small></span><span class="cs-kv"><b>${tok(proj.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(proj.tokens)}</span>`
+    : `<span class="cs-big">${esc(usd(t.cost))}<small>API-equivalent estimate · ${rangeOf(costRange).label} · by ${costGroup}</small></span><span class="cs-kv"><b>${tok(t.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(t.tokens)}</span><span class="cs-kv">managers <b>${esc(usd(t.roles.manager))}</b> · workers <b>${esc(usd(t.roles.worker))}</b>${t.roles.other ? ` · other <b>${esc(usd(t.roles.other))}</b>` : ''}</span><span class="cs-kv"><b>${t.sessions}</b> sessions</span>`
+  const unTok = proj ? proj.unpricedTokens : t.unpricedTokens
+  const unModels = proj ? proj.models.filter((m) => !m.priced).map((m) => m.model) : costs.unpriced.map((u) => u.model)
+  const warn = unTok ? `<span class="cs-warn">${tok(unTok)} tokens on ${esc(unModels.join(', '))} have no price: counted as tokens, left out of the dollars.</span>` : ''
+  const approx = costs.approx?.length ? `<span class="cs-note">Priced by model family (approximate): ${esc(costs.approx.map((a) => `${a.model} as ${a.as}`).join(', '))}</span>` : ''
+  const chips = !proj && costGroup === 'manager' ? csBuckets().filter((g) => g.cost || g.totalTokens).map((g) => `<span class="lk lkc cs-bk" role="button" tabindex="-1" data-k="${esc(g.key)}" title="${esc(`${g.sessions} session${g.sessions === 1 ? '' : 's'} not under any manager (${'workers with no manager'}). Click: list them`)}"><span>${esc(g.name.toLowerCase())} ${esc(usd(g.cost))} · ${g.sessions}</span></span>`).join('') : ''
+  const scan = costs.scanning ? `<span class="cs-warn cs-scan">Still reading transcripts (${costs.scanning.done}/${costs.scanning.total}): numbers are partial and fill in.</span>` : ''
+  setHtml('sum', $('#csSum'), head + (chips ? `<span class="cs-chips">${chips}</span>` : '') + warn + approx + scan)
+  const max = proj ? Math.max(0, ...items.map((s) => s.cost)) : Math.max(0, ...csGroups().map((p) => p.cost))
+  const dayMax = Math.max(0, ...csGroups().flatMap((p) => p.days.map((d) => d.cost)))
+  setHtml('list', $('#csList'), items.map((x, i) => (proj ? sessionRowHtml(x, i, max, proj.kind === 'unclassified' || proj.kind === 'unmanaged') : groupRowHtml(x, i, max, dayMax))).join(''))
+  $('#csEmpty').hidden = items.length > 0
+  const pr = costs.pricing
+  setHtml('foot', $('#csFoot'), `Cost = tokens x per-model API list price (${esc(pr.source.replace(/^https:\/\//, ''))}, checked ${esc(pr.checked)}${pr.overridden.length ? `; overridden in ~/.zarvis/pricing.json: ${esc(pr.overridden.join(', '))}` : ''}). It is not what a subscription bills. Subagent tokens count for their session; repeated transcript lines count once.`)
+  paginateCosts()
+}
+
+/** Write an element's HTML only when it changed. */
+function setHtml(slot, el, html) {
+  if (csHtml[slot] === html) return
+  csHtml[slot] = html
+  el.innerHTML = html
+}
+
+function paginateCosts() {
+  const list = $('#csList')
+  const kids = [...list.children]
+  for (const k of kids) k.hidden = false
+  if (!kids.length) { csPaged = { pages: 1, page: 0, starts: [0] }; return renderCostPager() }
+  const rects = kids.map((k) => k.getBoundingClientRect())
+  const avail = innerHeight - list.getBoundingClientRect().top - PAGER_RESERVE - 20
+  const heights = rects.map((r, i) => (i < kids.length - 1 ? rects[i + 1].top : r.bottom + 6) - r.top)
+  const pages = paginate(heights, kids.map(() => false), avail)
+  if (csFollow) { csPage = pageOfIndex(pages, csSel); csFollow = false }
+  csPage = clampPage(csPage, pages.length)
+  const [s0, e0] = pages[csPage]
+  kids.forEach((k, i) => { k.hidden = i < s0 || i >= e0 })
+  csPaged = { pages: pages.length, page: csPage, starts: pages.map((p) => p[0]) }
+  renderCostPager()
+}
+
+function renderCostPager() {
+  const el = $('#pager')
+  const { page, pages } = csPaged
+  const key = `c${page}/${pages}`
+  if (el.dataset.key === key) return
+  el.dataset.key = key
+  el.hidden = pages <= 1
+  el.className = 'pager'
+  $('#pgTxt').textContent = pageLabel(page, pages)
+  $('#pgAlert').textContent = ''
+  $('#pgPrev').classList.toggle('dim', page === 0)
+  $('#pgNext').classList.toggle('dim', page === pages - 1)
+}
+
+function flipCosts(dir) {
+  const to = clampPage(csPaged.page + dir, csPaged.pages)
+  if (to === csPaged.page) return
+  csPage = to
+  csSel = csPaged.starts[to] ?? csSel // the first row of the new page, so the selection stays on screen
+  csSig = ''
+  renderCosts(true)
+}
+
+function moveCost(d) {
+  csSel = stepIndex(csSel, csItems().length, d)
+  csFollow = true
+  renderCosts(true)
+}
+function enterCost() {
+  const x = csItems()[csSel]
+  if (!x) return
+  if (!csDrill) {
+    csDrill = x.key
+    csSel = 0
+    csPage = 0
+    return renderCosts(true)
+  }
+  post('/api/open', { sessionId: x.sessionId }).then(({ ok, data }) => toast(ok ? 'Opening in Claude…' + (data.dryRun ? ' (dry run)' : '') : data.error || 'That session is not listed (done, archived or gone)'))
+}
+function leaveCost() {
+  if (!csDrill) return setView('queue')
+  const i = csGroups().findIndex((p) => p.key === csDrill)
+  csDrill = ''
+  csSel = Math.max(0, i)
+  csPage = 0
+  csFollow = true
+  renderCosts(true)
+}
+$('#csSum').addEventListener('click', (e) => {
+  const b = e.target.closest('.cs-bk')
+  if (!b) return
+  csDrill = b.dataset.k
+  csSel = 0
+  csPage = 0
+  renderCosts(true)
+})
+/** Classify a session from the Costs view: it moves to its new row (or the unmanaged chip) on the refetch. */
+async function classifyCost(id, role, parent = '') {
+  const x = csItems().find((s) => s.sessionId === id)
+  const { ok, data } = await post('/api/classify', { sessionId: id, role, ...(parent ? { parent } : {}) })
+  toast(ok ? `“${x?.name || 'Session'}” is now ${/^[aeiou]/.test(role) ? 'an' : 'a'} ${role}${parent ? ` of ${csGroups().find((g) => g.managerId === parent)?.name || 'that manager'}` : ''}` : data.error || 'Classify failed')
+  loadTree()
+  loadCosts(true)
+  loadMgrCosts()
+}
+function classifyCostSel(role) {
+  const x = csDrill ? csItems()[csSel] : null
+  if (!x) return toast('Open a row first (Enter), then select a session to classify')
+  classifyCost(x.sessionId, role)
+}
+/** `r` on a session in a drill-down: the name becomes a box; Enter saves, Esc cancels, empty restores the app's own title. */
+function startCostRename() {
+  const x = csDrill ? csItems()[csSel] : null
+  if (!x) return toast('Open a row first (Enter), then select a session to rename')
+  renaming = x.sessionId
+  csSig = ''
+  renderCosts(true)
+  const box = $('#renIn')
+  box?.focus()
+  box?.select()
+}
+async function commitCostRename() {
+  const id = renaming
+  const x = csItems().find((s) => s.sessionId === id)
+  const val = $('#renIn')?.value ?? ''
+  renaming = null
+  const { ok, data } = await post('/api/rename', { sessionId: id, name: val })
+  toast(ok ? (val.trim() ? `Renamed to “${val.trim()}”` : 'Name restored to the app title') : data.error || `Could not rename “${x?.name || 'session'}”`)
+  loadTree()
+  loadCosts(true)
+}
+$('#csList').addEventListener('change', (e) => {
+  const sel2 = e.target.closest('.cs-pick')
+  const row = e.target.closest('.cs-row')
+  if (sel2 && row && sel2.value) classifyCost(row.dataset.id, 'worker', sel2.value)
+})
+$('#csList').addEventListener('click', (e) => {
+  if (e.target.closest('.cs-rn')) return
+  const rn = e.target.closest('[data-rename]')
+  if (rn) { csSel = Number(rn.closest('.cs-row').dataset.i) || 0; return startCostRename() }
+  const b = e.target.closest('[data-role]')
+  if (b) return classifyCost(b.closest('.cs-row').dataset.id, b.dataset.role)
+  if (e.target.closest('.cs-act')) return // the picker is not a click on the row
+  const row = e.target.closest('.cs-row')
+  if (!row) return
+  csSel = Number(row.dataset.i) || 0
+  enterCost()
 })
