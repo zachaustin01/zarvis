@@ -38,6 +38,21 @@ Whatever the line says, message the manager for:
 
 Anything else you can decide, check or fix yourself: do that.
 
+## What goes upstream, and what does not
+
+The manager coordinates parallel sessions; it does not approve work. The user can open your session and
+review or approve it there, so finishing, test results and diffs stay with you.
+
+| Goes to the manager (`SendMessage`) | Stays in your session |
+|---|---|
+| A blocking question only it can answer (scope, sequencing) | Done, branch, commits, what you verified |
+| A discovery that touches another worker (files, checkout, interface) | Progress, plans, follow-ups you finished |
+| A checkpoint the brief named | Anything the user can decide when they review |
+| A result another worker or step waits on (`Reporting: manager needed`) | Review feedback requests: the user gives those to you directly |
+
+The app notes the manager at every turn end anyway, so send nothing that note and your closing message
+already say.
+
 ## Report format
 
 One report per finished task, the outcome in the first lines:
