@@ -52,8 +52,8 @@ Do this once at the start, and again when the user asks. Do not re-read it every
 - Message or steer a session.
 - Start a manager for a project that has none, with the role tag `[zarvis: role=manager]` as the
   start of its first prompt. Only when the user asks. Start it on Sonnet: pass `model: "claude-sonnet-5-5"` to
-  `start_session` (a fresh start only; the app ignores a model more expensive than yours and keeps yours, so
-  if the manager's card shows Opus, say so to the user rather than switching it) unless the user names another
+  `start_session` (a fresh start only; the app ignores a model more expensive than yours, and the manager then
+  inherits yours) unless the user names another
   model. A manager coordinates, and Opus roughly doubles its cost for it.
 - When a manager hands off because its context is large, start its replacement the same way, with the
   handoff text in the brief, if the user asks.
