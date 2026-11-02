@@ -355,3 +355,29 @@ test('pageLabel, fitCount and windowAround', () => {
   assert.deepEqual(windowAround(19, 20, 5), [15, 20])
   assert.deepEqual(windowAround(2, 3, 5), [0, 3])
 })
+
+import { canBeOverdue, isOverdue } from '../public/fx.js'
+
+test('overdue applies to workers and unclassified rows, never managers or the interface', () => {
+  assert.deepEqual(['worker', undefined, 'unclassified', 'manager', 'interface'].map((role) => canBeOverdue({ role })), [true, true, true, false, false])
+  assert.equal(isOverdue(blocked(0, { role: 'worker' }), 6 * MIN, OD), true)
+  assert.equal(isOverdue(blocked(0, { role: 'manager' }), 20 * MIN, OD), false)
+  assert.equal(isOverdue(blocked(0, { role: 'worker', parked: {} }), 20 * MIN, OD), false)
+})
+
+test('glowState/attention/waitDial/ifaceRing: a blocked manager alone stays amber, an overdue worker turns it red', () => {
+  const now = 100 * MIN
+  const mgr = blocked(now - 20 * MIN, { role: 'manager' })
+  const late = blocked(now - 6 * MIN, { role: 'worker' })
+  const fresh = blocked(now - MIN, { role: 'worker' })
+  assert.equal(glowState([mgr], now, OD), 'blocked')
+  assert.equal(glowState([mgr, fresh], now, OD), 'blocked')
+  assert.equal(glowState([mgr, late], now, OD), 'overdue')
+  assert.deepEqual(attention([mgr], now, OD), { count: 1, overdue: false })
+  assert.deepEqual(attention([mgr, late], now, OD), { count: 2, overdue: true })
+  const w = waitDial([mgr], now, OD)
+  assert.deepEqual([w.p, w.text, w.state], [0, '20m', 'amber'])
+  assert.equal(waitDial([mgr, late], now, OD).state, 'red')
+  const ring = ifaceRing({ state: 'blocked', role: 'interface', since: now - 20 * MIN }, now, OD)
+  assert.deepEqual([ring.od, ring.p], [false, 0])
+})
