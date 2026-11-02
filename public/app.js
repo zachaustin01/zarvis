@@ -45,7 +45,11 @@ const ifaceFirst = () => {
   const q = visibleQueue()
   return [...q.filter((r) => r.role === 'interface'), ...q.filter((r) => r.role !== 'interface')]
 }
-const items = () => (view === 'tree' ? nodes : view === 'parked' ? parkedList : ifaceFirst())
+// The Roles view's checkout cards are selectable like session rows (id `ck:<claim id>`); Enter opens the holder.
+const ckItems = () => claims.map((c) => ({ sessionId: `ck:${c.id}`, ck: c, name: c.holder.name, role: 'checkout' }))
+const items = () => (view === 'tree' ? [...ckItems(), ...nodes] : view === 'parked' ? parkedList : ifaceFirst())
+/** The selected session row; undefined on a checkout card, so park / done / rename / classify never act on one. */
+const selRow = () => items().find((x) => x.sessionId === sel && !x.ck)
 /** Done sessions are hidden unless searched; a search matches name, title, project, park reason and handoff note. */
 function filterTree(t, q) {
   q = q.trim().toLowerCase()
@@ -92,10 +96,10 @@ function claimsSection() {
     claims
       .map(
         (c) =>
-          `<div class="ck${c.live ? '' : ' off'}"><div class="r1"><span class="clm${c.live ? '' : ' off'}">⛓ ${esc(c.label)}</span><span class="nm">${esc(c.holder.name)}</span>` +
+          `<div class="q tr ck${c.live ? '' : ' off'}${c.holder.link ? '' : ' nolink'}${`ck:${c.id}` === sel ? ' sel' : ''}" data-id="ck:${esc(c.id)}"><div class="r1"><span class="clm${c.live ? '' : ' off'}">⛓ ${esc(c.label)}</span><span class="nm">${esc(c.holder.name)}</span>` +
           `${c.shared.length ? `<span class="ap">shared with ${esc(c.shared.map((s) => s.name).join(', '))}</span>` : ''}` +
           `<span class="wt">${c.live ? 'live' : c.stale ? 'stale' : 'dead'} · ${esc(ago(c.holder.lastWrite))}</span></div>` +
-          `<div class="prompt mono">${esc(home(c.root))}${c.branch && c.branch !== c.label ? ` · ${esc(c.branch)}` : ''}</div></div>`,
+          `<div class="prompt mono">${esc(home(c.root))}${c.branch && c.branch !== c.label ? ` · ${esc(c.branch)}` : ''}</div>${c.holder.link ? '<span class="go">ENTER ↵ OPEN</span>' : ''}</div>`,
       )
       .join('')
   )
@@ -229,7 +233,8 @@ function renderTreeInner() {
   $('#list').innerHTML =
     claimsSection() + part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
     `<div class="empty">${hiddenParkedN ? `Everything here is parked (${hiddenParkedN} hidden) · v shows them, p lists them` : 'No sessions.'}</div>`
-  if (!nodes.some((r) => r.sessionId === sel) && nodes.length) sel = nodes[0].sessionId
+  const all = items()
+  if (!all.some((r) => r.sessionId === sel) && all.length) sel = (nodes[0] || all[0]).sessionId
   restoreRename(renameSnap)
 }
 
@@ -909,14 +914,16 @@ async function post(path, body) {
 async function openSel() {
   const r = items().find((x) => x.sessionId === sel)
   if (!r) return
+  // A checkout card opens the session that holds it, through the same /api/open path; with no app session behind it, only a notice.
+  if (r.ck && !r.ck.holder.link) return toast('terminal session: no desktop app session to open')
   // A manager with a blocked worker: the leaf-only rule says go to the worker that is blocked.
-  const target = r.blockedChildren?.[0]?.sessionId || r.sessionId
+  const target = r.ck ? r.ck.holder.sessionId : r.blockedChildren?.[0]?.sessionId || r.sessionId
   const { ok, data } = await post('/api/open', { sessionId: target })
   toast(ok ? `Opening “${r.name}” in Claude…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'Open failed')
 }
 
 async function newSession(role) {
-  const r = items().find((x) => x.sessionId === sel)
+  const r = selRow()
   // A worker started with a manager selected is attached to it; the server builds the tag.
   const parent = role === 'worker' && r?.role === 'manager' ? r.sessionId : ''
   const { ok, data } = await post('/api/new', { sessionId: r?.sessionId, role, parent })
@@ -934,7 +941,7 @@ async function lifecycle(path, body, label, back) {
 }
 
 function unparkSel() {
-  const r = items().find((x) => x.sessionId === sel)
+  const r = selRow()
   if (!r) return
   if (!r.parked) return toast('Not parked (Shift+P parks it)')
   const prev = r.parked
@@ -942,7 +949,7 @@ function unparkSel() {
 }
 
 function parkSel() {
-  const r = items().find((x) => x.sessionId === sel)
+  const r = selRow()
   if (!r) return
   if (r.parked) {
     const prev = r.parked
@@ -973,7 +980,7 @@ async function commitPark() {
 }
 
 function doneSel() {
-  const r = items().find((x) => x.sessionId === sel)
+  const r = selRow()
   if (!r) return
   const done = !r.done
   lifecycle('/api/done', { sessionId: r.sessionId, done }, done ? `Marked “${r.name}” done` : `Brought back “${r.name}”`, () => post('/api/done', { sessionId: r.sessionId, done: !done }))
@@ -1015,7 +1022,7 @@ async function commitRename() {
 
 async function classifySel(role) {
   if (view === 'costs') return classifyCostSel(role)
-  const r = items().find((x) => x.sessionId === sel)
+  const r = selRow()
   if (!r) return
   const { ok, data } = await post('/api/classify', { sessionId: r.sessionId, role })
   toast(ok ? (role ? `“${r.name}” is now ${/^[aeiou]/.test(role) ? 'an' : 'a'} ${role}` : `“${r.name}” unclassified`) : data.error || 'Classify failed')
@@ -1051,7 +1058,7 @@ function renderPick() {
 }
 
 function openPick() {
-  const mgr = items().find((x) => x.sessionId === sel)
+  const mgr = selRow()
   if (view !== 'tree' || mgr?.role !== 'manager') return toast('Select a manager in the role tree first (t)')
   pick = { mgr, rows: pickCandidates(mgr), checked: new Set(), idx: 0 }
   $('#pickIn').value = ''
@@ -1115,7 +1122,7 @@ function toggleRoleKey(k) {
 }
 
 const stepProject = (d) => setProject(cycleProject(projectList().map((p) => p.project), activeProject(), d))
-const startRename = () => { renaming = sel; render() }
+const startRename = () => (selRow() ? ((renaming = sel), render()) : toast('Select a session to rename'))
 const startClassify = () => { awaitingRole = true; toast('Classify: i interface · m manager · w worker · x clear') }
 const startNew = () => { awaitingNew = true; toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000) }
 

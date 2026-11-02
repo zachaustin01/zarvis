@@ -129,3 +129,17 @@ test('CLI with no records at all lists nothing, and bad options exit 1', async (
   assert.equal((await cli(['nope'])).code, 1)
   assert.throws(() => parseArgs(['list', '--role']), /needs a value/)
 })
+
+test('withHolderLinks: a claim\'s holder resolves to its desktop record and claude:// link; no record, or a deleted one, gives no link', async () => {
+  const { withHolderLinks } = await import('../lib/lookup.mjs')
+  const view = (n) => ({ id: `c${n}`, label: 'K-1', holder: { sessionId: id(n), name: `H${n}`, since: 1, lastWrite: 1 }, shared: [] })
+  const records = [rec(W), rec(LONE), rec(ARCH, { isArchived: true })]
+  const twin = rec(W, { sessionId: `local_${id(8)}`, isArchived: true, lastActivityAt: NOW }) // an archived twin must not win
+  const out = withHolderLinks([view(W), view(MGR), view(LONE), view(ARCH)], [...records, twin], new Set([`local_${id(LONE)}`]))
+  assert.equal(out[0].holder.link, `claude://claude.ai/epitaxy/local_${id(W)}`)
+  assert.equal(out[1].holder.link, '', 'no desktop record at all')
+  assert.equal(out[2].holder.link, '', 'the app deleted it')
+  assert.equal(out[3].holder.link, `claude://claude.ai/epitaxy/local_${id(ARCH)}`, 'archived is still openable, as in the lookup')
+  assert.equal(out[0].holder.name, 'H3', 'the rest of the view is untouched')
+  assert.deepEqual(withHolderLinks([], records), [])
+})

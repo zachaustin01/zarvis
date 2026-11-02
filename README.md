@@ -77,7 +77,7 @@ echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude nee
 
 ## Keys
 
-`j`/`k` or arrows move · `]`/`[` (or `PageDown`/`PageUp`, the wheel, a swipe, or the pager) turn the page when the list does not fit the window (nothing scrolls) · `Cmd/Ctrl+K` command palette (fuzzy-find a session or run any key action; `>` commands only, `@` sessions only) · `b` show/hide the project rail (wide windows) · `e` collapse/expand the event ticker · `E` (Shift+E) open/close the event list · `Tab`/`Shift+Tab` cycle Queue → Roles → Parked → Schedule (`h`/`t`/`p`/`s` jump straight there; not while typing in a box) · `i` jump to the interface session · `v` show/hide parked sessions on the Roles page (hidden by default; remembered) · `m`/`w` queue role filter (managers / workers only; again to clear; remembered) · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude · `n` new Claude Code session · `r` rename
+`j`/`k` or arrows move · `]`/`[` (or `PageDown`/`PageUp`, the wheel, a swipe, or the pager) turn the page when the list does not fit the window (nothing scrolls) · `Cmd/Ctrl+K` command palette (fuzzy-find a session or run any key action; `>` commands only, `@` sessions only) · `b` show/hide the project rail (wide windows) · `e` collapse/expand the event ticker · `E` (Shift+E) open/close the event list · `Tab`/`Shift+Tab` cycle Queue → Roles → Parked → Schedule (`h`/`t`/`p`/`s` jump straight there; not while typing in a box) · `i` jump to the interface session · `v` show/hide parked sessions on the Roles page (hidden by default; remembered) · `m`/`w` queue role filter (managers / workers only; again to clear; remembered) · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude (on a Roles-view checkout card: the session holding it) · `n` new Claude Code session · `r` rename
 (overlay; Esc cancels; empty restores the app title) · `P` park (Shift+P) · `d` done · `u` unpark · `z` undo ·
 `p` parked view · `s` schedule (`-`/`=` widen/narrow its window) · `$` costs (`v` project/manager, `-`/`=` range) · `/` search the role tree · `?` key sheet.
 
@@ -333,7 +333,7 @@ real path), written atomically; a new claim is created exclusively, so two sessi
 
 **Where you see them.** `~/.zarvis/roster.md` has a *Checkouts* section (root, label, branch, holder,
 sharers, last write, live/stale); `GET /api/claims` and the live-update payload carry them; the dashboard
-puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists checkouts at the top of the Roles view.
+puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists checkouts at the top of the Roles view. Checkout cards are selectable like session rows (`j`/`k`, click); `Enter` or a double-click opens the holder in the Claude desktop app, and a holder with no app session (a terminal session) only shows a notice and its card is not marked as openable.
 
 **Upgrading.** The guard is two new hook entries (a second `PreToolUse` and `PostToolUse`, each with
 `"timeout": 5`, running beside the existing ones). Re-run `npm run setup` and restart open sessions to pick them up.

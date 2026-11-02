@@ -784,6 +784,7 @@ test('server: /api/claims and the live payload carry claims (read-only, malforme
     assert.equal(body.claims.length, 1)
     assert.deepEqual([body.claims[0].root, body.claims[0].label, body.claims[0].holder.sessionId, body.claims[0].live], [r, 'PROJ-4', A, true])
     assert.equal(body.claims[0].holder.pid, undefined, 'no process ids on the wire')
+    assert.equal(body.claims[0].holder.link, '', 'no desktop record for the holder: no link')
     const q = await (await fetch(`http://127.0.0.1:${port}/api/queue`)).json()
     assert.equal(q.claims[0].label, 'PROJ-4')
     assert.equal((await fetch(`http://127.0.0.1:${port}/api/claims`, { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: '{}' })).status, 404)

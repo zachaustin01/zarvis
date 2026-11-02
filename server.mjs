@@ -14,7 +14,7 @@ import { scheduleView } from './lib/schedule-view.mjs'
 import { renderRoster } from './lib/roster.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
-import { collectRows, cwdsOf, nameFn } from './lib/lookup.mjs'
+import { collectRows, cwdsOf, nameFn, withHolderLinks } from './lib/lookup.mjs'
 import { contextOf, contextWindow } from './lib/context.mjs'
 import { appVersion } from './lib/version.mjs'
 import { roleRegistry } from './lib/registry.mjs'
@@ -198,12 +198,13 @@ const claimProbes = {
 async function currentClaims() {
   const entries = readClaims()
   if (!entries.length) return []
-  const [{ records }, state] = await Promise.all([scanDesktopRecords(), readState()])
+  const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
   const names = {}
   for (const r of records) if (r.cliSessionId && r.title) names[r.cliSessionId] = r.title
   for (const [id, o] of Object.entries(state.overlays)) if (o?.name) names[id] = o.name
   const now = Date.now()
-  return entries.map((e) => claimView(e, now, claimProbes, names)).sort((a, b) => b.holder.lastWrite - a.holder.lastWrite)
+  const views = entries.map((e) => claimView(e, now, claimProbes, names)).sort((a, b) => b.holder.lastWrite - a.holder.lastWrite)
+  return withHolderLinks(views, records, deleted)
 }
 
 const EVENTS_SHOWN = 30 // pushed events sent to the browser (it keeps up to 40 and scrolls through them)
