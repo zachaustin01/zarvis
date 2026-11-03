@@ -4,6 +4,12 @@ import { liveProjectNames } from './projects.js'
 /** A blocked row that counts toward "needs you": blocked (permission or question) and not parked. */
 export const needsYou = (r) => r.state === 'blocked' && !r.parked
 
+/** Only workers (and sessions of unknown role) can be overdue: managers and the interface wait for you by design, so they stay amber. */
+export const canBeOverdue = (r) => r.role !== 'manager' && r.role !== 'interface'
+
+/** A blocked row whose wait is past the overdue mark and that is allowed to be overdue. */
+export const isOverdue = (r, now, overdueMs) => needsYou(r) && canBeOverdue(r) && now - r.since > overdueMs
+
 /**
  * Wait-fuse inputs for one row: `p` is the elapsed fraction of the overdue window (0..1) and `d` the
  * negative animation delay that starts a CSS animation at that point, so it survives list redraws.
@@ -18,7 +24,7 @@ export function glowState(rows, now, overdueMs) {
   let state = ''
   for (const r of rows) {
     if (!needsYou(r)) continue
-    if (now - r.since > overdueMs) return 'overdue'
+    if (isOverdue(r, now, overdueMs)) return 'overdue'
     state = 'blocked'
   }
   return state
@@ -27,7 +33,7 @@ export function glowState(rows, now, overdueMs) {
 /** Tab-level attention state from the rows: how many need you and whether any wait is overdue. */
 export function attention(rows, now, overdueMs) {
   const blocked = rows.filter(needsYou)
-  return { count: blocked.length, overdue: blocked.some((r) => now - r.since > overdueMs) }
+  return { count: blocked.length, overdue: blocked.some((r) => isOverdue(r, now, overdueMs)) }
 }
 
 /** "(3!) Zarvis": the count in parentheses, `!` once overdue; plain "Zarvis" when nothing needs you. */
@@ -210,14 +216,17 @@ export function compactWait(ms) {
 }
 
 /**
- * The longest-wait dial: the oldest needs-you row, as a share of the overdue window (full ring = overdue).
+ * The longest-wait dial: the oldest needs-you row's wait as text; the ring and red state follow the oldest row that can be overdue
+ * (managers and the interface never fill it), so a ring is full only when a worker is overdue.
  * { p, text, state: '' | 'amber' | 'red', count }; nothing blocked reads "—" with an empty ring.
  */
 export function waitDial(rows, now, overdueMs) {
   const blocked = rows.filter(needsYou)
   if (!blocked.length) return { p: 0, text: '—', state: '', count: 0 }
   const wait = now - Math.min(...blocked.map((r) => r.since))
-  return { p: Math.min(1, Math.max(0, wait / overdueMs)), text: compactWait(wait), state: wait > overdueMs ? 'red' : 'amber', count: blocked.length }
+  const capable = blocked.filter(canBeOverdue)
+  const cw = capable.length ? now - Math.min(...capable.map((r) => r.since)) : 0
+  return { p: Math.min(1, Math.max(0, cw / overdueMs)), text: compactWait(wait), state: cw > overdueMs ? 'red' : 'amber', count: blocked.length }
 }
 
 /** The hook-status dial: live is a full green ring, stale a half amber one, absent or unknown an empty grey one. */
@@ -256,7 +265,7 @@ export const IFACE_C = 2 * Math.PI * IFACE_R
 export function ifaceRing(r, now, overdueMs) {
   if (r.state === 'blocked') {
     const wait = Math.max(0, now - r.since)
-    return { state: 'blocked', label: r.kind === 'question' ? 'asks a question' : 'needs you', p: Math.min(1, wait / overdueMs), od: wait > overdueMs && !r.parked }
+    return { state: 'blocked', label: r.kind === 'question' ? 'asks a question' : 'needs you', p: canBeOverdue(r) ? Math.min(1, wait / overdueMs) : 0, od: canBeOverdue(r) && wait > overdueMs && !r.parked }
   }
   if (r.state === 'waiting_on_child') return { state: 'child', label: 'waiting on a worker', p: 0, od: false }
   if (r.state === 'working') return { state: 'working', label: 'working', p: 0, od: false }

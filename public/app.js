@@ -1,5 +1,5 @@
 'use strict'
-import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
+import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, isOverdue, canBeOverdue, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
 import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel } from '/costs.js'
@@ -368,14 +368,14 @@ function ringHtml(r, now) {
 function rowHtml(r, now) {
   const working = r.state === 'working'
   const idle = r.state === 'idle'
-  const od = r.state === 'blocked' && now - r.since > OVERDUE_MS
+  const od = isOverdue(r, now, OVERDUE_MS)
   const name =
     renaming === r.sessionId
       ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
       : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
-    `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}>` +
+    `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}${canBeOverdue(r) ? '' : ' data-nood="1"'}>` +
     `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
@@ -389,7 +389,7 @@ function rowHtml(r, now) {
 
 /** The wait fuse: a time-driven CSS animation started part-way via a negative delay, so list redraws don't restart it. */
 function fuseHtml(r, now) {
-  if (r.state !== 'blocked' || r.parked) return ''
+  if (r.state !== 'blocked' || r.parked || !canBeOverdue(r)) return '' // managers wait by design: no fuse, no escalation
   const f = fuseVars(r.since, now, OVERDUE_MS)
   return `<i class="fuse" style="--p:${f.p};--d:${f.d}"></i>`
 }
@@ -510,7 +510,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && listOpen
 paintTickerState()
 paintStrip(null)
 
-/** Ambient edge glow on <body>: amber while anything needs you, red once any wait is overdue. Not filtered: it is the attention signal. */
+/** Ambient edge glow on <body>: amber while anything needs you, red once any worker wait is overdue (managers stay amber). Not filtered: it is the attention signal. */
 function updateAmbient(now = Date.now()) {
   const g = glowState(queue, now, OVERDUE_MS)
   document.body.classList.toggle('has-blocked', g !== '')
@@ -535,7 +535,7 @@ function updateDials(now) {
   wd.className = `dial ${w.state}`
   wd.querySelector('.dl-fg').style.strokeDasharray = dialDash(w.p)
   if (wd.querySelector('.dl-tx').textContent !== w.text) { wd.querySelector('.dl-tx').textContent = w.text; flicker(wd.querySelector('.dl-tx')) }
-  wd.title = w.count ? `Longest wait ${w.text} · ${w.count} need${w.count === 1 ? 's' : ''} you · the ring fills toward the 5 minute overdue mark` : 'Longest wait: nothing needs you'
+  wd.title = w.count ? `Longest wait ${w.text} · ${w.count} need${w.count === 1 ? 's' : ''} you · the ring fills toward the 5 minute overdue mark for workers; managers wait without going overdue` : 'Longest wait: nothing needs you'
   const hd = $('#dialHook')
   hd.className = `dial ${h.state}`
   hd.querySelector('.dl-fg').style.strokeDasharray = dialDash(h.p)
@@ -1532,7 +1532,7 @@ setInterval(() => {
   document.querySelectorAll('.wt[data-since]').forEach((el) => {
     const since = Number(el.dataset.since)
     el.textContent = fmt(now - since)
-    el.closest('.q').classList.toggle('od', !el.closest('.q').classList.contains('wk') && now - since > OVERDUE_MS)
+    el.closest('.q').classList.toggle('od', !el.closest('.q').classList.contains('wk') && !el.closest('.q').dataset.nood && now - since > OVERDUE_MS)
   })
   updateAmbient(now)
   updateTelemetry(now)

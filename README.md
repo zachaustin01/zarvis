@@ -199,6 +199,10 @@ the page both re-check before rendering. A file chip (▤) is a button, never a 
 `npm run roster -- get|list` shows them (`links` in `--json`). Sessions only learn about `npm run link` after
 `npm run setup` copies the updated skills.
 
+Files a session sends with `SendUserFile` and artifacts it publishes with `Artifact` (a publish, not list/read/delete or
+an asset upload) are pinned to its card automatically by the hook, on `PostToolUse`, with no `npm run link` call. They
+count toward the 8-link limit like any other link. An artifact chip is labelled with the page's `<title>` (HTML) or first `# heading` (Markdown); without one it is `Artifact<n>.<type>`. Off with `ZARVIS_AUTO_LINKS=0` or `"autoLinks": false` in `~/.zarvis/state.json`.
+
 ## Schedule
 
 The Schedule view (`s`, or Tab) is a timeline of the upcoming runs of your scheduled jobs: one lane per job, a fixed

@@ -104,6 +104,9 @@ something on disk: clicking it opens the file (documents and images open; anythi
 Finder). The label is short, one line. Up to 8 stay on the card; the same URL again updates its label. Also put
 the URL in your report: the link is a convenience for the user, not the report.
 
+Do not pin these yourself: a file you send with `SendUserFile` and an artifact you publish with `Artifact` are pinned to
+your card automatically. Pin anything else by hand (a file made with `Write`, a served page, a PR, a run URL).
+
 If a session runs on a schedule (a cron job, an hourly check), register it so it shows on Zarvis's Schedule view: `node "{{ZARVIS_DIR}}/scripts/schedule.mjs" add <name> --cron "0 * * * *" --note "..." --by <your session id>` (`--every 30m`, `--at "09:00"`, `list`, `remove <name>`). Zarvis only displays it; it never runs or edits the job.
 
 ## Project

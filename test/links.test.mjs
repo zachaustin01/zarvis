@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { cleanUrl, cleanLabel, parseLink, addLink, removeLink, readLinks, readAllLinks, clearLinks, linksFile, MAX_LINKS } from '../lib/links.mjs'
+import { autoLinksFor, logAutoLinks, cleanUrl, cleanLabel, parseLink, addLink, removeLink, readLinks, readAllLinks, clearLinks, linksFile, MAX_LINKS } from '../lib/links.mjs'
 import { runLink, parseArgs } from '../lib/links-cli.mjs'
 import { buildLookup } from '../lib/lookup.mjs'
 import { runRoster } from '../lib/roster-cli.mjs'
@@ -283,4 +283,48 @@ test('modeFor judges the real target: a document name that points at a script is
   assert.equal(modeFor('/t/report.html'), 'open')
   assert.equal(modeFor('/t/evil.command'), 'reveal')
   assert.equal(modeFor('/t/dir'), 'reveal')
+})
+
+test('autoLinksFor pins SendUserFile files and Artifact publishes, and nothing else', () => {
+  const sf = autoLinksFor({ tool_name: 'SendUserFile', cwd: '/work/proj', tool_input: { files: ['/tmp/report.html', 'out/chart.png', 42] } })
+  assert.deepEqual(sf, [
+    { url: 'file:///tmp/report.html', label: 'report.html' },
+    { url: 'file:///work/proj/out/chart.png', label: 'chart.png' },
+  ])
+  const art = { tool_name: 'Artifact', tool_input: { file_path: '/x/a.html', title: 'Costs' }, tool_response: 'Published https://claude.ai/artifact/abc-123 (private)' }
+  assert.deepEqual(autoLinksFor(art), [{ url: 'https://claude.ai/artifact/abc-123', label: 'Costs', artifact: { type: 'html', file: '/x/a.html' } }])
+  assert.deepEqual(autoLinksFor({ tool_name: 'Artifact', tool_input: { url: 'https://claude.ai/artifact/zzz', file_path: '/x/a.html' }, tool_response: {} }), [{ url: 'https://claude.ai/artifact/zzz', label: '', artifact: { type: 'html', file: '/x/a.html' } }])
+  for (const input of [{ action: 'list' }, { action: 'read', url: 'https://claude.ai/artifact/abc' }, { action: 'delete', url: 'https://claude.ai/artifact/abc' }, { asset: true, url: 'https://claude.ai/artifact/abc', file_path: '/a.png' }]) {
+    assert.deepEqual(autoLinksFor({ tool_name: 'Artifact', tool_input: input, tool_response: 'https://claude.ai/artifact/abc' }), [], JSON.stringify(input))
+  }
+  assert.deepEqual(autoLinksFor({ tool_name: 'Write', tool_input: { file_path: '/a/b.html' } }), [])
+  assert.deepEqual(autoLinksFor({ tool_name: 'Artifact', tool_input: { file_path: '/a.html' }, tool_response: 'no url here' }), [])
+})
+
+test('logAutoLinks writes chips to the session card and honours ZARVIS_AUTO_LINKS=0 and state.json', async () => {
+  const home = await tmp()
+  const payload = { session_id: A, tool_name: 'SendUserFile', cwd: '/w', tool_input: { files: ['/tmp/r.pdf'] } }
+  assert.equal((await logAutoLinks(payload, home, { ZARVIS_AUTO_LINKS: '0' })).length, 0)
+  assert.deepEqual(await readLinks(home, A), [])
+  assert.equal((await logAutoLinks(payload, home, {})).length, 1)
+  await logAutoLinks(payload, home, {})
+  assert.deepEqual(await readLinks(home, A), [{ url: 'file:///tmp/r.pdf', label: 'r.pdf' }])
+  await fsp.writeFile(path.join(home, 'state.json'), JSON.stringify({ autoLinks: false }))
+  assert.equal((await logAutoLinks({ ...payload, tool_input: { files: ['/tmp/other.pdf'] } }, home, {})).length, 0)
+  assert.equal((await logAutoLinks({ ...payload, session_id: 'bad' }, home, {})).length, 0)
+})
+
+test('logAutoLinks labels an artifact by its HTML <title>, else Artifact<n>.<type>, and keeps the label on a republish', async () => {
+  const home = await tmp()
+  const f = path.join(home, 'page.html')
+  await fsp.writeFile(f, '<meta charset="utf-8">\n<title>Cost &amp; Usage</title><p>x')
+  const pub = (url, file) => ({ session_id: A, tool_name: 'Artifact', tool_input: { file_path: file }, tool_response: `Published ${url}` })
+  await logAutoLinks(pub('https://claude.ai/artifact/aaa', f), home, {})
+  await logAutoLinks(pub('https://claude.ai/artifact/bbb', '/nope/notes.md'), home, {})
+  const md = path.join(home, 'doc.md')
+  await fsp.writeFile(md, 'intro\n\n# The **Plan** `v2`\n\ntext')
+  await logAutoLinks(pub('https://claude.ai/artifact/ddd', md), home, {})
+  await logAutoLinks(pub('https://claude.ai/artifact/ccc', '/nope/gone.html'), home, {})
+  await logAutoLinks(pub('https://claude.ai/artifact/bbb', '/nope/notes.md'), home, {})
+  assert.deepEqual((await readLinks(home, A)).map((l) => l.label), ['Cost & Usage', 'The Plan v2', 'Artifact4.html', 'Artifact2.md'])
 })
