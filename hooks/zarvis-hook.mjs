@@ -8,7 +8,8 @@
  *   UserPromptSubmit                         -> `start`  working marker, clock restarts
  *   PreToolUse / PermissionDenied            -> `resume` blocked marker off, working on
  *   PostToolUse                              -> `work`   working marker refreshed (clock kept); a successful `git push` /
- *                                                       `gh pr create` also appends a ticker event (see autoEvents)
+ *                                                       `gh pr create` also appends a ticker event (see autoEvents); SendUserFile / Artifact
+ *                                                       publish pin a link chip (see autoLinks)
  *   Stop / SessionStart                      -> `idle`   blocked marker off, working marker says idle; but if the turn
  *                                                       ended on a question for the user (see askedQuestion), a blocked
  *                                                       marker with kind "question" is written instead
@@ -29,7 +30,7 @@
  * `start` also registers a role when the session's FIRST prompt begins with `[zarvis: role=manager]`
  * (or interface / worker, optionally `parent=<session id>`); the same text elsewhere is ignored.
  *
- * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/, tasks/, links/ and claims/ (plus one line in events.jsonl after a push).
+ * Reads the hook payload (JSON) from stdin. Writes ONLY under ~/.zarvis/blocked/, working/, roles/, tasks/, links/ and claims/ (plus one line in events.jsonl after a push, and a chip in links/ after SendUserFile or an Artifact publish).
  * The transcript is read (never written) to find which tool is waiting, because the
  * Notification payload only carries a sentence like "Claude needs your permission to use Bash".
  * Never throws and never prints: a hook must not disturb the session.
@@ -361,6 +362,7 @@ async function main() {
     await writeAtomic(workFile, buildWorking(payload, prev))
     if (mode === 'work') {
       await autoEvents(payload)
+      await autoLinks(payload)
       if (!agentId && /^(Bash|Monitor|Agent|Task|TaskStop|KillShell)$/.test(payload.tool_name || '')) await backgroundTasks('work', payload)
     }
   }
@@ -395,6 +397,19 @@ async function autoEvents(payload) {
     await (await import('../lib/events.mjs')).logAutoEvents(payload, HOME)
   } catch {
     /* an event is only a log: never disturb the session */
+  }
+}
+
+/**
+ * A file sent with SendUserFile or an Artifact publish is pinned to the session's card (lib/links.mjs). Off with
+ * ZARVIS_AUTO_LINKS=0. The module is only loaded for those two tools.
+ */
+async function autoLinks(payload) {
+  if (!/^(SendUserFile|Artifact)$/.test(payload.tool_name || '')) return
+  try {
+    await (await import('../lib/links.mjs')).logAutoLinks(payload, HOME)
+  } catch {
+    /* ignore */
   }
 }
 
