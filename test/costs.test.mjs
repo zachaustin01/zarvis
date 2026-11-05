@@ -414,7 +414,13 @@ test('npm run costs --group manager / --manager: manager rows with their workers
 // ---- the page ----
 import { usd, tok, familyOf, modelLabel, mixSegments, dayBars, stepRange, rangeOf, share, stepIndex, RANGES, dayLabel } from '../public/costs.js'
 import { COMMANDS } from '../public/palette.js'
-const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8')
+// The README is a landing page; its reference detail lives in docs/*.md, so 'README.md' means both.
+const read = (f) => {
+  const one = (g) => fs.readFileSync(path.join(ROOT, g), 'utf8')
+  if (f !== 'README.md') return one(f)
+  const docs = fs.readdirSync(path.join(ROOT, 'docs')).filter((d) => d.endsWith('.md'))
+  return [one(f), ...docs.map((d) => one(`docs/${d}`))].join('\n')
+}
 
 test('costs.js: formatting, model colours and mix, bar maths', () => {
   assert.deepEqual([usd(0), usd(0.0123), usd(5.678), usd(123.4), usd(12345.6)], ['$0', '$0.012', '$5.68', '$123', '$12,346'])

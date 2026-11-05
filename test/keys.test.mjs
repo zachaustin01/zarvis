@@ -4,7 +4,14 @@ import fsp from 'node:fs/promises'
 
 /** The key sheet's markup. */
 const sheet = (html) => html.slice(html.indexOf('id="ovHelp"'), html.indexOf('id="ovPick"'))
-const read = (f) => fsp.readFile(new URL(`../${f}`, import.meta.url), 'utf8')
+const readFile = (f) => fsp.readFile(new URL(`../${f}`, import.meta.url), 'utf8')
+// The README is a landing page; its reference detail lives in docs/*.md, so 'README.md' means both.
+const read = async (f) => {
+  if (f !== 'README.md') return readFile(f)
+  const docs = await fsp.readdir(new URL('../docs/', import.meta.url))
+  const parts = await Promise.all(docs.filter((d) => d.endsWith('.md')).map((d) => readFile(`docs/${d}`)))
+  return [await readFile(f), ...parts].join('\n')
+}
 
 test('park keys: plain p opens the Parked view, Shift+P parks, in the code and in every place that names them', async () => {
   const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])

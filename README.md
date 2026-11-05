@@ -1,411 +1,131 @@
 # Zarvis
 
-Local, read-only attention queue for Claude Code desktop sessions. It shows which sessions are
-blocked on a permission prompt (longest wait first), then which are working, then which are idle; **Enter** opens that session in the Claude
-desktop app via its `claude://` deep link. There is no approve/deny here. While running, Zarvis
-never writes to Claude's files: its only writes are `~/.zarvis/blocked/*.json` and `~/.zarvis/working/*.json` (hook markers),
-`~/.zarvis/claims/*.json` (checkout claims, written by the hook and the claims CLI),
-`~/.zarvis/links/*.json` (session links, written by the link CLI),
-`~/.zarvis/schedules.json` (scheduled jobs, written by the schedule CLI) and
-`~/.zarvis/state.json` (overlay names). The one exception is `npm run setup`, which adds its hook
-to your Claude settings and installs the `zarvis-interface`, `zarvis-manager` and `zarvis-worker` skills into `~/.claude/skills/` when you run it.
+A local, **read-only attention queue** for Claude Code desktop sessions. It shows which sessions are
+blocked on a permission prompt (longest wait first), then which are working, then which are idle.
+Press **Enter** to open one in the Claude desktop app. There is no approve/deny here.
 
-**Zero npm dependencies.** Needs only Node >= 22.13.
+- **Zero npm dependencies.** Needs only Node >= 22.13.
+- **Local only.** Binds to 127.0.0.1, rejects foreign Host/Origin headers, sends nothing anywhere.
 
 > **Unofficial.** Zarvis is a personal tool, not affiliated with or endorsed by Anthropic. It reads the
 > Claude desktop app's local session records and uses its `claude://` links, none of which are a
-> documented interface, so an app update can break it. It runs only on your machine and sends nothing anywhere.
+> documented interface, so an app update can break it.
 
-## Run
+## Contents
+
+[Quick start](#quick-start) · [What it shows](#what-it-shows) · [What Zarvis writes](#what-zarvis-writes) ·
+[Setup details](#setup-details) · [Everyday use](#everyday-use) · [Reference docs](#reference-docs) ·
+[Configuration](#configuration) · [Repo layout](#repo-layout) · [Test](#test) · [Contributing](#contributing)
+
+## Quick start
 
 ```bash
 git clone https://github.com/zachaustin01/zarvis && cd zarvis
-npm run setup                   # installs the Claude Code hook (see below)
-npm run dev                     # or: node server.mjs
+npm run setup     # installs the Claude Code hook and the zarvis-* skills
+npm run dev       # or: npm start
 ```
 
-Open http://127.0.0.1:5274 (override with `ZARVIS_PORT`). The server binds to 127.0.0.1 only and
-rejects any Host/Origin that is not its own. `npm install` installs nothing; it is optional.
+Then open <http://127.0.0.1:5274> (override with `ZARVIS_PORT`) and **restart any Claude sessions
+that were already open** so they pick up the hook. `npm install` installs nothing and is optional.
 
-## The hook
+## What it shows
 
-Blocked state is not visible anywhere in Claude's files, so it comes from an opt-in hook. Without
-it the queue is always empty. `npm run setup` adds it to `~/.claude/settings.json`:
+| View | Key | Shows |
+|---|---|---|
+| Queue | `h` | Blocked, working and idle sessions, longest wait first |
+| Roles | `t` | Interface → project managers → workers, plus checkouts |
+| Parked | `p` | Sessions set aside, with reason, wake date and handoff note |
+| Schedule | `s` | Timeline of upcoming scheduled jobs |
+| Costs | `$` | API-equivalent token cost per project or manager |
 
-- Only Zarvis's own entries are added. Your other hooks and settings are kept as they are.
-- The previous file is backed up beside it (`settings.json.zarvis-backup-<time>`) first, and an
-  invalid settings file is never written.
-- Running it again is safe, including after moving the clone: it leaves exactly one set, pointing
-  at the current `hooks/zarvis-hook.mjs`.
-- `--dry-run` prints the result without writing; `--settings <file>` (or `CLAUDE_SETTINGS`) targets
-  another settings file.
-- Sessions already open need a restart to pick it up. After updating Zarvis, re-run `npm run setup` to
-  install new hook events (`PermissionRequest`, `SubagentStop` were added for subagent prompts).
+`Tab` cycles the views, `Cmd/Ctrl+K` opens the command palette, `?` shows every key. Full list:
+[docs/keys-and-parking.md](docs/keys-and-parking.md).
 
-`npm run uninstall-hook` takes the entries out again. Setup is the one time Zarvis writes to
-Claude files (the settings and the skills below), and only when you run it. Doing it by hand
-instead, the entries are:
+## What Zarvis writes
 
-```json
-{
-  "hooks": {
-    "Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" set" }] }],
-    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" set" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" start" }] }],
-    "PreToolUse": [
-      { "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] },
-      { "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" guard", "timeout": 5 }] }
-    ],
-    "PostToolUse": [
-      { "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" work" }] },
-      { "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" guardpost", "timeout": 5 }] }
-    ],
-    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" resume" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" idle" }] }],
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" idle" }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" done" }] }],
-    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "node \"/ABSOLUTE/PATH/zarvis/hooks/zarvis-hook.mjs\" agentstop" }] }]
-  }
-}
+While running, Zarvis **never writes to Claude's files**. Its writes are all under `~/.zarvis/`
+(or `$ZARVIS_HOME`): hook markers (`blocked/`, `working/`), `claims/`, `links/`, `roles/`,
+`schedules.json`, `events.jsonl` and `state.json` (names, parked, done).
+
+The one exception is `npm run setup`, run by you: it adds the hook to `~/.claude/settings.json` and
+installs the `zarvis-interface`, `zarvis-manager` and `zarvis-worker` skills into `~/.claude/skills/`.
+
+## Setup details
+
+Blocked state is not visible anywhere in Claude's files, so it comes from an opt-in hook. Without it
+the queue is always empty.
+
+- Only Zarvis's own entries are added; your other hooks and settings are kept.
+- The previous settings file is backed up first, and an invalid one is never written.
+- Re-running `npm run setup` is safe, including after moving the clone or updating Zarvis (new hook events need it).
+- `--dry-run` prints the result without writing; `--settings <file>` targets another settings file.
+- `npm run uninstall-hook` removes the hook and skills again.
+
+The hook entries, a manual install and a way to try it with a fake payload are in
+[docs/hook.md](docs/hook.md).
+
+## Everyday use
+
+| I want to… | Do this |
+|---|---|
+| Jump to a blocked session | Open the Queue, `j`/`k` to select, `Enter` |
+| Start a new session | `n` (then `i` / `m` / `w` to prefill an interface, manager or worker prompt) |
+| Set a session aside | `P` to park it, `u` to unpark, `d` to mark done, `z` to undo |
+| Tag roles by hand | `c`, then `i` / `m` / `w` / `x` |
+| Find any session | `Cmd/Ctrl+K`, or `/` to search the role tree |
+| Look up sessions from a terminal or agent | `npm run roster -- list` |
+| Log an event, link or schedule from an agent | `npm run event`, `npm run link`, `npm run schedule` |
+
+### Command-line tools
+
+All run with the server stopped; none need extra setup beyond `npm run setup`.
+
+| Command | Purpose | Docs |
+|---|---|---|
+| `npm run roster` | Look up sessions, roles, managers, running state | [roles-and-roster](docs/roles-and-roster.md#session-lookup) |
+| `npm run park` | Managers park their finished workers | [keys-and-parking](docs/keys-and-parking.md#managers-parking-their-own-workers) |
+| `npm run claims` | Claim / release a checkout, list holders | [session-tools](docs/session-tools.md#checkout-claims) |
+| `npm run link` | Attach links to a session card | [session-tools](docs/session-tools.md#session-links) |
+| `npm run event` | Push a line to the footer ticker | [session-tools](docs/session-tools.md#pushing-events) |
+| `npm run schedule` | Register scheduled jobs for the timeline | [session-tools](docs/session-tools.md#schedule) |
+| `npm run costs` | Token usage and API-equivalent cost | [session-tools](docs/session-tools.md#costs) |
+| `npm run project` | Tag sessions with a project | [session-tools](docs/session-tools.md#costs) |
+
+## Reference docs
+
+| Doc | Covers |
+|---|---|
+| [docs/hook.md](docs/hook.md) | Hook entries, manual install, testing with a fake payload |
+| [docs/keys-and-parking.md](docs/keys-and-parking.md) | Every key, park / done, manager parking CLI |
+| [docs/roles-and-roster.md](docs/roles-and-roster.md) | Roles, interface/manager/worker skills, `roster.md`, session lookup |
+| [docs/session-tools.md](docs/session-tools.md) | Links, schedule, costs, projects, checkout claims, events |
+| [docs/behaviour.md](docs/behaviour.md) | Working/idle/background states, context use, page updates, env vars |
+
+## Configuration
+
+| Variable | Effect |
+|---|---|
+| `ZARVIS_PORT` | Port (default 5274) |
+| `ZARVIS_HOME` | Where Zarvis keeps its files (default `~/.zarvis`) |
+| `ZARVIS_MAX_AGE_HOURS` | Drop markers older than this (default 12) |
+| `ZARVIS_WORKING_MAX_AGE_MIN` | Drop a quiet working session after this (default 30) |
+| `ZARVIS_CONTEXT_WINDOW` | Reference window for the context bar (default 1,000,000) |
+| `ZARVIS_AUTO_EVENTS=0` / `ZARVIS_AUTO_LINKS=0` | Turn off automatic ticker events / card links |
+| `ZARVIS_DESKTOP_SESSIONS`, `ZARVIS_CLI_PROJECTS` | Override where session records are read from |
+| `ZARVIS_DRY_OPEN=1` | Report the `claude://` link instead of opening it |
+
+## Repo layout
+
 ```
-
-Try it without the hook by piping a fake payload (use a real `cliSessionId` from a desktop session):
-
-```bash
-echo '{"session_id":"<cliSessionId>","cwd":"/path/to/repo","message":"Claude needs your permission to use Bash"}' | node hooks/zarvis-hook.mjs set
+server.mjs      HTTP server and live (SSE) payload
+hooks/          zarvis-hook.mjs, the fail-safe Claude Code hook
+lib/            logic: queue, roles, claims, costs, schedule, events, CLI cores
+scripts/        thin entry points for the npm run commands
+public/         the dashboard (plain JS/CSS, no build step)
+skills/         zarvis-interface, -manager, -worker, copied by setup
+test/           node --test suites and fixtures
+docs/           reference documentation
 ```
-
-## Keys
-
-`j`/`k` or arrows move · `]`/`[` (or `PageDown`/`PageUp`, the wheel, a swipe, or the pager) turn the page when the list does not fit the window (nothing scrolls) · `Cmd/Ctrl+K` command palette (fuzzy-find a session or run any key action; `>` commands only, `@` sessions only) · `b` show/hide the project rail (wide windows) · `e` collapse/expand the event ticker · `E` (Shift+E) open/close the event list · `Tab`/`Shift+Tab` cycle Queue → Roles → Parked → Schedule (`h`/`t`/`p`/`s` jump straight there; not while typing in a box) · `i` jump to the interface session · `v` show/hide parked sessions on the Roles page (hidden by default; remembered) · `m`/`w` queue role filter (managers / workers only; again to clear; remembered) · `g`/`G` filter by project (chips under the header; remembered; blocked sessions in other projects stay counted) · `Enter` open in Claude (on a Roles-view checkout card: the session holding it) · `n` new Claude Code session · `r` rename
-(overlay; Esc cancels; empty restores the app title) · `P` park (Shift+P) · `d` done · `u` unpark · `z` undo ·
-`p` parked view · `s` schedule (`-`/`=` widen/narrow its window) · `$` costs (`v` project/manager, `-`/`=` range) · `/` search the role tree · `?` key sheet.
-
-`n` opens a new session in the Claude desktop app via `claude://code/new`, in the selected
-session's repo (its root, not its worktree), or a plain new session when nothing is selected.
-
-## Park and done
-
-`P` (Shift+P) parks the selected session: a one-line reason, an optional wake date (`YYYY-MM-DD`, blank for
-none) and a handoff note (Enter or ⌘/Ctrl+Enter saves). A parked session leaves the "Needs you"
-queue and shows dim with a hollow dot in the role tree; a *blocked* parked session still appears in
-the queue, marked. When its wake date passes it is marked **wake ready** and returns to the queue.
-`u` (or `P` again) unparks. `d` marks a session done: hidden everywhere unless you search the role
-tree (`/`), where `d` brings it back. `z` undoes the last park, unpark or done.
-
-`p` opens the **Parked** view: every parked session with its reason, when and by whom it was parked
-(a manager's name, or "by hand"), the wake date, and the full handoff note. `/` searches names,
-reasons and notes; `u` unparks the selected one.
-
-### Managers parking their own workers
-
-A manager can park a finished worker so it drops out of your attention and can be found again:
-
-```bash
-npm run park -- park <workerSessionId> --by <managerSessionId> --reason "PR 7 merged" --note "..." [--wake YYYY-MM-DD]
-npm run park -- unpark <workerSessionId> --by <managerSessionId>
-npm run park -- list [--by <managerSessionId>]
-```
-
-It writes the same `parked` entry as the UI (plus `parkedBy`), straight to `~/.zarvis/state.json`,
-so it works with the server stopped and a running server picks it up within a second. Ids may be
-CLI session ids or the app's `local_…` ids. Guardrails: `--by` is required and must be a manager; the
-target must be a worker of that manager according to Zarvis's classification (never the interface or
-a manager); a session that is blocked or working per its hook markers is refused unless `--force`;
-`--dry-run` validates and prints what it would do. A refusal exits 1 with one line why. Parked
-workers are listed under each manager's "Parked" subsection in `~/.zarvis/roster.md`, with the
-reason, date, session id and the first line of the note.
-
-The `zarvis-manager` skill tells managers when to park (their own workers, only once finished,
-checked, and idle) and how. `npm run setup` fills in the absolute path of this clone in the
-installed copy of that skill, so re-run it if you move the clone.
-
-State lives in `~/.zarvis/state.json` (`parked`, `done`); nothing is written to Claude's files.
-Endpoints: `POST /api/park`, `/api/unpark`, `/api/done`. Ticket-status wake conditions are not built.
-
-## Roles
-
-Every session is the **interface** (one), a **project manager**, or a **worker** (one layer under a
-manager). The tree is Zarvis's own registry (`~/.zarvis/state.json`), not the app's spawn links.
-Press `t` for the role tree, `h` for the queue.
-
-- Tag by hand: `c`, then `i` / `m` / `w` / `x` (clear). In the tree, `Shift+C` makes every
-  unclassified session a worker.
-- Tag at session start: put `[zarvis: role=manager]` (or `interface`; `worker parent=<session id>`, which loads the `zarvis-worker` skill) in the
-  very first prompt, at its start (a mention later or mid-prompt is ignored). The hook records it under `~/.zarvis/roles/`; a hand-set role overrides it.
-- A session spawned by a manager becomes its worker; one that has spawned children is only
-  *suggested* as a manager. Spawn links from the interface are ignored.
-- A manager with a blocked worker is **waiting on worker** and Enter jumps to the worker, so a blocked
-  leaf never appears once per tier. Rule breaks show a ▲ and never block anything.
-
-## Interface session
-
-`npm run setup` also installs three skills from `skills/` to `~/.claude/skills/`: `zarvis-interface`,
-`zarvis-manager` and `zarvis-worker`, with the same rules as the hook: a differing existing
-`SKILL.md` is backed up first, only Zarvis's own `SKILL.md` files are touched, re-running is safe, `--dry-run`
-writes nothing, and `--skills-dir <dir>` (or `CLAUDE_SKILLS_DIR`) picks another folder. With
-`--settings <file>` the skill goes to a `skills/` folder beside that file. `npm run uninstall-hook`
-removes it.
-
-The skill tells an interface session its job: triage and route to project managers, orient from the
-roster, what it may do, what to ask first, what never to do and how to hand work to a manager and
-close the loop. `zarvis-manager` does the same for a project manager and its workers. `zarvis-worker` tells a worker
-to work its whole brief in one turn and report to its manager once (done, blocked, or a named checkpoint), in a fixed shape. `n` then `i` opens a new session with
-`[zarvis: role=interface]` and a line pointing at the skill prefilled in the prompt box (not sent); `n` then `m` does the same for a manager, with the roster line and a pointer to
-`zarvis-manager`; `n` then `w` prefills `[zarvis: role=worker]` and a pointer to `zarvis-worker`. Sessions already open need a restart to see a newly installed skill.
-
-## Roster
-
-Zarvis keeps `~/.zarvis/roster.md` current: every manager with the workers attached to it, each
-with its state and session ids. A manager session is an ordinary Claude session that knows nothing
-about Zarvis, so `n` then `m` prefills its first prompt with the role tag plus a line pointing at
-this file and one pointing at the `zarvis-manager` skill. It refreshes on every classify and every few seconds.
-
-### Session lookup
-
-The roster file lists managers and workers; to name *any* session (the interface asking "which managers
-are active?") use the lookup CLI, which does the same join as the dashboard (CLI id → the app's record →
-title, hand-set name, role, parent manager, project, branch, running state) and needs no server:
-
-```bash
-npm run roster -- list [--role manager] [--manager <id>] [--running live|unknown|archived] [--all] [--json]
-npm run roster -- get <id> [--json]   # CLI id, the app's local_… id, or a unique prefix
-```
-
-It is read-only. `running` is `live` (a fresh hook signal; `state` says blocked / working / idle),
-`unknown` (no signal: the app shuts idle session processes down, so "idle" and "closed" look the same),
-or `archived`. Zarvis never guesses "not running". The `zarvis-interface` and `zarvis-manager` skills
-tell agents to use this instead of reading `~/.zarvis`. `roster.md` now also carries each
-interface/manager's app id and state, and points at this command.
-
-## Session links
-
-A session can attach links (a Dagster run, a served page, a PR, a report) to its own card. They show as small
-cyan chips on the card in the queue and the role tree (three, then `+N` to show all); clicking one opens it in a
-new tab and does not open the session. The palette finds a session by a link's label or host.
-
-```bash
-npm run link -- add https://dagster.example.com/runs/abc --label "Dagster run" --by <session id>
-npm run link -- list [--by <session id>] [--json]
-npm run link -- remove <url|number> [--by <session id>]
-```
-
-`--by` takes the CLI session id or the app's `local_…` id; without it the CLI uses `CLAUDE_CODE_SESSION_ID`
-when the session's environment has it, otherwise it needs `--by`. Links live in `~/.zarvis/links/<session id>.json`
-(under `ZARVIS_HOME`), up to 8 per session (the oldest drops); posting a URL again updates its label and moves it
-last. A label is one line, 60 characters; a URL is at most 300 characters. URLs are untrusted: only `http:` and
-`https:` are accepted (`localhost` too), as are file paths (`add /abs/path`, `~/x`, or relative to the cwd; stored as `file:///…`), with no spaces, control characters or `user:password@`, and the server and
-the page both re-check before rendering. A file chip (▤) is a button, never a `file:` href: clicking asks the server to open it, and the server only acts on a file link that session posted and that exists. Documents and images open (html, pdf, png, jpg, svg, md, txt, csv, json, log, audio/video); anything else (a `.command`, `.app`, script) is only revealed in the file manager, and Shift-click always reveals. Links survive park and are removed with the session at SessionEnd.
-`npm run roster -- get|list` shows them (`links` in `--json`). Sessions only learn about `npm run link` after
-`npm run setup` copies the updated skills.
-
-Files a session sends with `SendUserFile` and artifacts it publishes with `Artifact` (a publish, not list/read/delete or
-an asset upload) are pinned to its card automatically by the hook, on `PostToolUse`, with no `npm run link` call. They
-count toward the 8-link limit like any other link. An artifact chip is labelled with the page's `<title>` (HTML) or first `# heading` (Markdown); without one it is `Artifact<n>.<type>`. Off with `ZARVIS_AUTO_LINKS=0` or `"autoLinks": false` in `~/.zarvis/state.json`.
-
-## Schedule
-
-The Schedule view (`s`, or Tab) is a timeline of the upcoming runs of your scheduled jobs: one lane per job, a fixed
-NOW marker, and a track that slides left with the clock so the future approaches the marker. Ticks are runs, the next
-one is emphasised and counted down in the lane label ("in 12m"; amber within 5 minutes). `-` / `=` (or the buttons)
-step the window through 3h, 12h, 24h and 7d; many jobs paginate with `]` / `[`. Future runs only: no history, no
-results. Zarvis never runs, edits or reads anyone's jobs; it only shows what is registered.
-
-```bash
-npm run schedule -- add "Hourly check" --cron "0 * * * *" --note "sources" --link https://example.com/dash
-npm run schedule -- add "Standup prep" --at "09:00" --note "weekday mornings"   # --every 30m|1h|1d, --at "09:00,13:00"
-npm run schedule -- list [--json]
-npm run schedule -- next "Hourly check" [--count 5]
-npm run schedule -- remove "Hourly check"
-```
-
-Jobs live in `~/.zarvis/schedules.json` (under `ZARVIS_HOME`), at most 40; a name is one line of up to 60 characters
-(re-adding a name replaces it), a note up to 200. `--cron` is standard 5-field cron in your local timezone: lists, ranges,
-steps, month and weekday names, and day-of-month OR day-of-week when both are set. A time that does not exist on a
-spring-forward day is skipped; one that happens twice on a fall-back day runs once; an impossible date (Feb 31) never
-runs. `--every` and `--at` are sugar that become cron, so only intervals that divide the hour or day evenly are allowed.
-`--link` takes an http(s) URL (a new tab) or a file path (a button that asks the server to open it, like session links).
-The file is validated on write and on read. Sessions that run on a schedule learn about the CLI after `npm run setup` copies the updated skills.
-
-**Which session owns it.** `--by <session id>` (the CLI id or the app's `local_…` id; both are stored when the app knows the
-session) ties a schedule to the session that registered it; without `--by` it is unowned (a system cron job, say).
-`add` with an existing name replaces the whole job (pass `--by` again to keep the owner);
-`npm run schedule -- set <name> [--by <id>|none] [--cron …|--every …|--at …] [--note …] [--link <url|file>|none]` changes only
-what you name, so existing jobs can be tied to a session later. The lane shows a `↳ session name` chip (name from your rename overlay, else
-the app title, else a short id; hover for the ids and role): click it, or `j`/`k` to pick a lane and `Enter`, to jump to that session (the view
-that shows it opens, parked and done included). A session the app no longer has, or has archived, shows dimmed as "(session gone)". The
-palette finds schedules by name, cron words, note or owner name (Enter selects the lane), a session's card gets a `⏱ next 11:07` chip when
-it owns one (click: the Schedule view on that lane), and `npm run roster -- get <id>` lists its schedules.
-
-Importers: `lib/schedule-import.mjs` has one hook for read-only sources (shown tagged `claude`). None is wired in yet:
-on the Mac this was written on, Claude's `~/.claude/jobs` holds background-session state, not schedules, and no
-other readable file with a name and a cron exists, so nothing is guessed.
-
-## Costs
-
-The Costs view (`$`, or Tab) shows token usage and an **API-equivalent cost estimate** per project, or per manager (`v`), for
-today, 7 days, 30 days or all time (`-`/`=`, or click). Each row has the cost, tokens by type (input, output, cache read,
-cache write), the model mix, the session count, the manager / worker split and a daily cost bar chart; `j`/`k` + `Enter`
-(or a click) lists that row's sessions ranked by cost, `Esc` goes back. A **manager row is the manager plus every worker
-attached to it**, parked ones included. The same numbers, for an agent or a terminal:
-
-```bash
-npm run costs -- [--range today|7d|30d|all] [--group project|manager] [--project <name>] [--manager <name|id>] [--top N] [--json]
-```
-
-**Honesty.** Dollars are tokens x the published per-model API list price. If you are on a subscription that is not
-what you are billed, so the view says "API-equivalent estimate" everywhere. A model with no price in the table is
-**unpriced**: its tokens are shown, its cost is left out of the dollars and flagged, never guessed. Not modelled: the Batch API
-discount, fast-mode premiums, the US data-residency multiplier, server-tool fees. Prices live in `lib/pricing.mjs`
-(source: <https://platform.claude.com/docs/en/about-claude/pricing>, checked 2026-10-29); override or add models in
-`~/.zarvis/pricing.json` (honours `ZARVIS_HOME`), per million tokens:
-
-```json
-{ "claude-opus-5-5": { "input": 4, "output": 20, "cacheRead": 0.2, "cacheWrite5m": 5, "cacheWrite1h": 8 } }
-```
-
-Model ids match exactly (date suffix ignored), then by family prefix (flagged "approximate"). Claude Haiku 5.5's long-prompt
-tier (over 100k tokens per request) is priced per request.
-
-**Where the tokens come from.** The `message.usage` of every assistant message in each session's transcript under
-`~/.claude/projects` (subagent transcripts beside it count for their session; `<synthetic>` messages are skipped).
-Transcripts repeat messages (streaming, resumes), so each is counted once by message id + request id; a resumed session's
-replay of earlier messages belongs to the session that started first. Files are read incrementally and cached by path,
-mtime and size, so only the first scan of a big history is slow (it runs in the background at server start; the view shows
-partial numbers while it finishes). Days are local days. Nothing is written to Claude's files.
-
-**Projects.** Every session already has a project: the repo folder it runs in (worktrees roll up to their repo). To override:
-
-```bash
-npm run project -- set <session id|name> "<project>" [--by <your session id>]   # tag a session; a manager's tag covers its workers
-npm run project -- clear <session id|name>
-npm run project -- list [--json]
-```
-
-Resolution order: the session's own tag, then its manager's tag, then the folder name. Tags are stored in
-`~/.zarvis/projects.json`; cards, the roster and `npm run roster` show the effective project.
-
-## Checkout claims
-
-Two sessions editing the same checkout trip over each other's uncommitted work. Zarvis makes that
-visible and, through the hook, makes the second session ask first.
-
-**What is enforced.** A session *claims* a checkout (the worktree root containing the file or the
-`git` command) on its first Edit / Write / MultiEdit / NotebookEdit or `git` command there that can write; read-only git (`log`, `show`, `diff`, `status`, `grep`, `blame`, `rev-parse`,
-`rev-list`, `ls-files`, `ls-tree`, `cat-file`, `merge-base`, `describe`, `shortlog`, `branch` / `tag` / `remote -v`
-that only list, `stash list`, `worktree list`, ...) neither claims nor asks, so a manager reviewing its worker's
-checkout with `git -C <dir> log / diff` never becomes a sharer. Commands that look read-only but write
-(`diff --output`, `branch -d`, `tag -d`, `remote add`) and any git command Zarvis does not know count as writes. The claim
-is labelled with a Jira key found in the branch name (`PROJ-123`), else the branch name, or the key you
-gave `claim <KEY>`, and is released when the session ends. When *another live session* holds the
-checkout, the `guard` PreToolUse hook returns `permissionDecision: "ask"` naming the holder (name,
-label, branch, last write), and you decide: **Allow** means "share this checkout". While a checkout
-is shared, whole-tree git (`add -A` / `add .` / `add -u`, `commit -a`, `stash`, `checkout`, `switch`,
-`reset`, `restore .`, `clean`, `rebase`, `merge`, `cherry-pick`, `pull`) asks **every time**, for the
-holder and the sharer alike; a plain `git status` or a single-file edit does not. The one exception on the
-holder's side: if the only sharer is the holder's own manager (the `parent=` of its role tag, or a hand-set
-role's parent), the holder's whole-tree git does not ask because of that share. A subagent's calls
-count as its parent session's, so they never conflict with it.
-
-**Ask, never deny.** The hook never blocks anything on its own. On any internal error (an unreadable
-claim file, a bad payload) or after a 400 ms self-timeout it prints nothing and exits 0, which changes
-nothing about the tool call. It does only file reads on the hot path; the one exception is a single
-`ps -o lstart=` call when a claim is created or another session's claim is being judged, to tell a
-reused process id from the real one.
-
-**What is not detected.** Only the write tools and `git` commands are seen. Other shell writes
-(`sed -i`, redirects, `npm install`, a formatter run) are not. `git` is found as a command word, also
-after `&&`, `;`, `|` and with `-C <dir>`, best effort: `git` hidden behind an alias, a script or `eval`
-is not. A claim is per checkout (worktree root), not per file.
-
-**Takeover.** A claim is taken over, silently, by the next session that writes there when its holder's
-process is gone (or the pid now belongs to a different process), its session ended, or nobody wrote in
-the checkout for 8 hours. Holders refresh their last-write time at most once a minute.
-
-**Claim and release by hand.**
-
-```bash
-npm run claims -- claim PROJ-123 --by <sessionId> [--root <dir>] [--dry-run]   # label the checkout (default: the current directory's)
-npm run claims -- release --by <sessionId> [--root <dir>] [--dry-run]           # no --root: all of that session's claims
-npm run claims -- unshare <root> <session> --by <sessionId> [--dry-run]         # drop a sharer; --by is the holder or the sharer itself
-npm run claims -- list [--json]
-```
-
-`--by` (and `<session>` in `unshare`) is a CLI session id or the app's `local_…` id; `unshare` is for a share made by mistake, without waiting for SessionEnd. A refusal (another live session holds it) exits 1 with
-one line why. Claims live in `~/.zarvis/claims/<id>.json` (id = first 16 hex of the sha1 of the checkout's
-real path), written atomically; a new claim is created exclusively, so two sessions cannot both create it.
-
-**Where you see them.** `~/.zarvis/roster.md` has a *Checkouts* section (root, label, branch, holder,
-sharers, last write, live/stale); `GET /api/claims` and the live-update payload carry them; the dashboard
-puts a `⛓ LABEL` chip on the holder's rows (`⇄` on a sharer's) and lists checkouts at the top of the Roles view. Checkout cards are selectable like session rows (`j`/`k`, click); `Enter` or a double-click opens the holder in the Claude desktop app, and a holder with no app session (a terminal session) only shows a notice and its card is not marked as openable.
-
-**Upgrading.** The guard is two new hook entries (a second `PreToolUse` and `PostToolUse`, each with
-`"timeout": 5`, running beside the existing ones). Re-run `npm run setup` and restart open sessions to pick them up.
-
-## Pushing events
-
-The footer strip shows the newest event as plain text (session name, kind chip, what happened, dimmed detail; warnings, finished workers and sessions that need you are marked). Click `EVENTS` (or press `E`, which works with the strip collapsed) to open the last thirty of the forty it keeps, newest first and grouped by day; the label carries a count, highlighted while there are events you have not opened the list for. A new event slides in, and several arriving at once show in turn before it settles on the newest; reduced motion skips the slide. Sessions and scripts can add their own
-lines, and they survive a page reload:
-
-```bash
-npm run event -- "pushed PROJ-12 to branch fix-login" --kind push --url https://github.com/me/repo/pull/12 --by <session id>
-```
-
-- `--kind` is `push`, `pr`, `info` (default), `done`, `warn`, or any other word of up to 20 characters (shown as a neutral tag).
-  `--url` must be http(s), at most 300 characters. `--dry-run` prints the line without writing it.
-- `--by` takes a CLI session id or the app's `local_…` id. Without it the command uses `CLAUDE_CODE_SESSION_ID` from
-  the environment (set in Claude Code sessions), else the event has no session. The ticker shows the session's name when it knows it.
-- Text is cut to 200 characters, one line, control characters stripped. A bad argument exits 1 with one line; trouble
-  writing the file prints a line to stderr and exits 0, so a logging step never fails an agent's task.
-- **File**: `~/.zarvis/events.jsonl` (`$ZARVIS_HOME`), one JSON object per line: `{"at":<ms>,"sessionId":"…","kind":"push","text":"…","url":"…"}`
-  (`sessionId` and `url` optional). Each event is one `O_APPEND` write of one short line, which concurrent appenders on a local disk
-  do not interleave (not guaranteed on network filesystems; the reader skips any torn line). Past 1000 lines the file is trimmed to the
-  newest 500. The server serves the latest as `events` in the live payload and as JSON from `GET /api/events` (the same URL is the SSE stream
-  when asked with `Accept: text/event-stream`).
-- **Automatic events**: the existing `PostToolUse` hook logs `pushed <branch> to <remote>` after a successful `git push` and
-  `opened a PR` (with the URL when `gh` prints it) after `gh pr create`. No extra setup; `npm run setup` is unchanged.
-  Turn them off with `ZARVIS_AUTO_EVENTS=0` in the environment of the Claude session, or for good with `npm run event -- --auto off`
-  (`--auto on` / `--auto status`).
-
-To have an agent log other things, paste this into a project's `CLAUDE.md` (adjust the clone path):
-
-```markdown
-After every git push, run: npm run --prefix /path/to/zarvis event -- 'pushed <branch>' --kind push --by $CLAUDE_CODE_SESSION_ID
-When a task is finished, run the same with --kind done and a one-line summary.
-```
-
-## Behaviour notes
-
-- Working sessions come from the same hook: a prompt starts the clock, each tool call refreshes it, and
-  Stop turns it into an idle entry (SessionStart makes one too), which lasts until SessionEnd or
-  `ZARVIS_MAX_AGE_HOURS`, newest first. A working session quiet for 30 min (`ZARVIS_WORKING_MAX_AGE_MIN`) drops out,
-  since an interrupted turn fires no Stop. A blocked session is never also listed as working.
-
-- **Background tasks** (background Bash commands, Monitors, background subagents, workflows) show on a session's
-  card as a pulsing `N bg` chip, and an idle session reads "Idle · N background tasks running" instead of
-  plain idle. The source is the `background_tasks` list Claude Code puts in the Stop payload (it replaces
-  `~/.zarvis/tasks/<session>.json`, so a missed completion heals at the next Stop; a finished task wakes the
-  session, which ends in another Stop); a launch seen on PostToolUse adds one in between and `TaskStop` removes
-  one. A task that vanished becomes one ticker event ("finished a background command: ..."; off with the other
-  auto events). Tasks expire on their own (a Monitor at its timeout, anything else after 12 h) and SessionStart /
-  SessionEnd clear them. No new hook events: nothing to re-run in `npm run setup`.
-
-- A subagent's permission prompt arrives under the parent's session id (tagged with `agent_id`), so it
-  blocks the parent, showing the subagent's tool and command. Other agents' tool calls don't clear it,
-  the parent's Stop doesn't either (a background subagent may still wait), and it clears when that
-  agent's next tool call starts, the agent stops, a new prompt is submitted, or the session ends.
-- A turn that ends on a question for you also counts as **needs you**: when Stop fires, the hook reads the
-  transcript tail, and if the turn's last tool call was the desktop app's `wrap_up` with an `ask` (a recap
-  alone does not count) or an unanswered `AskUserQuestion`, it writes a blocked marker with `kind: "question"`
-  (row text "Waiting for your answer", the question as the command line) instead of an idle one. It clears like
-  any blocked marker: a new prompt, the next tool call, SessionEnd. An unreadable transcript just means idle.
-  No new hook events: nothing to re-run.
-- Only sessions with their own marker appear (leaf-only); a parent waiting on a child never does.
-- Markers are dropped if the session record is archived/deleted, the session has no record or
-  transcript, or the marker is older than 12 h (`ZARVIS_MAX_AGE_HOURS`).
-- Terminal-only sessions (no desktop record) are listed but cannot be opened.
-- Env: `ZARVIS_HOME`, `ZARVIS_PORT`, `ZARVIS_DESKTOP_SESSIONS`, `ZARVIS_CLI_PROJECTS`, `ZARVIS_DRY_OPEN=1`
-  (report the link instead of opening it).
 
 ## Test
 
@@ -413,27 +133,20 @@ When a task is finished, run the same with --kind done and a one-line summary.
 npm test     # node --test, no test dependencies
 ```
 
+Tests only ever use temp directories, never your real `~/.zarvis` or `~/.claude`.
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
+Fork, branch, and open a PR against `main`. The short version:
+
+1. Keep it **zero-dependency** (Node built-ins and plain browser JS).
+2. Add tests, using temp dirs only; run `npm test`.
+3. No personal paths, emails, session ids or tokens in code, tests or docs.
+4. Hooks must never break a session: fail safe, stay fast.
+5. Update the README or `docs/` when behaviour, env vars or commands change.
+
+Details, UI rules and the PR checklist: [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
 
 ## License
 
 MIT, see [LICENSE](LICENSE).
-
-## Context use per session
-
-Each row shows a thin bar, the session's token count ("235k") and an approximate share ("~24%"), and the interface
-ring has an inner arc for the same figure. Amber from 70%, red from 90%. The tokens are exact: Zarvis reads the tail
-of the session's transcript (read-only, cached by file time and size) and takes the last assistant message's
-input, cache-read and cache-creation tokens. The percentage is against a **reference window**, because a session's
-real window is not recorded anywhere Zarvis can read (model ids carry no 1M marker, and sessions already run past
-200k). The reference is 1,000,000 by default; set `ZARVIS_CONTEXT_WINDOW` to a positive integer (for example
-`200000`) to change it. A session with no usage yet shows nothing, never 0%. After a compaction the figure simply drops.
-
-## Updating the page
-
-Zarvis serves its own files with `no-store`, and the server publishes a short fingerprint of `public/`. When a file
-changes on disk, an open page shows a banner ("A new version of Zarvis is ready" with an **Update** button). The command
-palette (⌘/Ctrl+K, "Update app") opens a small dialog that checks the fingerprint and offers a **Hard refresh**: it drops
-any service worker and cache and reloads the page on a fresh URL. A server-side change still needs the server restarted.

@@ -359,7 +359,13 @@ test('layout: lanes per page and page slices', () => {
 })
 
 // ---- wiring ----
-const read = (f) => fsp.readFile(path.join(ROOT, f), 'utf8')
+// The README is a landing page; its reference detail lives in docs/*.md, so 'README.md' means both.
+const read = async (f) => {
+  if (f !== 'README.md') return fsp.readFile(path.join(ROOT, f), 'utf8')
+  const docs = (await fsp.readdir(path.join(ROOT, 'docs'))).filter((d) => d.endsWith('.md'))
+  const parts = await Promise.all(docs.map((d) => fsp.readFile(path.join(ROOT, 'docs', d), 'utf8')))
+  return [await fsp.readFile(path.join(ROOT, f), 'utf8'), ...parts].join('\n')
+}
 test('wiring: s opens the view, - and = zoom, palette commands, help sheet, README, skills', async () => {
   const [app, html, css, readme, pal, pkg] = await Promise.all([read('public/app.js'), read('public/index.html'), read('public/app.css'), read('README.md'), read('public/palette.js'), read('package.json')])
   assert.match(app, /e\.key === 's'\) setView\('schedule'\)/)
