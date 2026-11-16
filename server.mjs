@@ -12,6 +12,7 @@ import { readAllLinks, readLinks, openPlan, modeFor } from './lib/links.mjs'
 import { readJobs } from './lib/schedule.mjs'
 import { scheduleView } from './lib/schedule-view.mjs'
 import { renderRoster } from './lib/roster.mjs'
+import { promptsOf } from './lib/prompts.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { collectRows, cwdsOf, nameFn, withHolderLinks } from './lib/lookup.mjs'
@@ -392,6 +393,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/costs') return send(res, 200, await costs(normalizeRange(url.searchParams.get('range')), url.searchParams.get('project') || ''))
     if (req.method === 'GET' && url.pathname === '/api/version') return send(res, 200, { version: await appVersion(PUBLIC) })
     if (req.method === 'GET' && url.pathname === '/api/claims') return send(res, 200, { now: Date.now(), claims: await currentClaims() })
+    // What each listed session was asked and last said, for the palette's content search. Fetched when the palette opens, not pushed live.
+    if (req.method === 'GET' && url.pathname === '/api/prompts') {
+      const out = {}
+      const { records, deleted } = await scanDesktopRecords()
+      const cutoff = Date.now() - 30 * 24 * 3600 * 1000
+      const wanted = records.filter((r) => r.cliSessionId && !deleted.has(r.sessionId) && (Number(r.lastActivityAt) || Number(r.createdAt) || 0) > cutoff)
+      await Promise.all(wanted.map(async (r) => {
+        const t = await promptsOf(await transcriptFor(r.cliSessionId))
+        if (t.prompt || t.reply) out[r.cliSessionId] = t
+      }))
+      return send(res, 200, out)
+    }
     if (req.method === 'GET' && url.pathname === '/api/tree') return send(res, 200, await currentTree())
     if (req.method === 'POST' && url.pathname === '/api/classify') {
       const { sessionId, role, parent } = await readJson(req)

@@ -28,6 +28,14 @@ Do this once at the start, and again when the user asks. Do not re-read it every
   hand-set name, role, parent manager, project, branch and running state, and works with the server
   stopped. `get` accepts a CLI id, a `local_…` id or a unique prefix. Answer "what managers are
   active?" from `list --role manager`.
+- **Finding a session by what it was asked or did** ("the one fixing the Dagster retry bug"): try
+  `node "{{ZARVIS_DIR}}/scripts/roster.mjs" list --query "dagster retry" --json` first. Every word must hit the
+  session's name, project, branch, park note, link labels, **first prompt** or **last reply**; results come best
+  first, with `prompt` and `reply` in the JSON (`asked:` / `last said:` in text). It only looks at the roster's
+  default scope (live, roled or active in the last 7 days), so add `--all` for older or archived sessions. Use
+  fewer, distinctive words (it matches whole words, not synonyms). Only if that returns nothing useful, fall back
+  to the app's `search_session_transcripts` tool, which searches full conversations, then map any hit back to a
+  roster entry with `roster.mjs get <id>` before you name it.
 - Read `running` honestly: `live` (a fresh hook signal; `state` is blocked, working or idle),
   `unknown` (no signal: the app shuts idle session processes down, so it may be idle or closed; say
   "no signal", do not say "not running"), `archived`. For titles, PRs and recent activity beyond that,
