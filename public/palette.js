@@ -153,7 +153,7 @@ export const COMMANDS = [
   { id: 'unpark', group: 'Session', label: 'Unpark selected', key: 'u' },
   { id: 'done', group: 'Session', label: 'Mark selected done (or bring it back)', key: 'd' },
   { id: 'undo', group: 'Session', label: 'Undo last park, unpark or done', key: 'z' },
-  { id: 'attach', group: 'Session', label: 'Attach workers to selected manager', key: 'a' },
+  { id: 'attach', group: 'Session', label: 'Attach workers to manager / assign selected worker to a manager', key: 'a' },
   { id: 'new-interface', group: 'New', label: 'New session: interface', key: 'n i' },
   { id: 'new-manager', group: 'New', label: 'New session: manager', key: 'n m' },
   { id: 'new-worker', group: 'New', label: 'New session: worker', key: 'n w' },

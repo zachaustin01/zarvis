@@ -105,7 +105,7 @@
       <div class="kr"><span class="kk"><kbd>d</kbd></span><span class="kd">Mark done; on a done session, bring it back</span></div>
       <div class="kr"><span class="kk"><kbd>z</kbd></span><span class="kd">Undo the last park, unpark or done</span></div>
       <div class="kr"><span class="kk"><kbd>c</kbd></span><span class="kd">Classify: <kbd>i</kbd> interface, <kbd>m</kbd> manager, <kbd>w</kbd> worker, <kbd>x</kbd> clear. In Roles, Shift+C makes every unclassified session a worker</span></div>
-      <div class="kr"><span class="kk"><kbd>a</kbd></span><span class="kd">Roles, with a manager selected: attach sessions to it as workers</span></div>
+      <div class="kr"><span class="kk"><kbd>a</kbd></span><span class="kd">Roles: on a manager, attach sessions to it as workers; on a worker or unclassified session, choose its manager</span></div>
     </section>
     <section><h3>Screen</h3>
       <div class="kr"><span class="kk"><kbd>b</kbd></span><span class="kd">Project rail on the left (wide windows): a gauge per project, click to filter</span></div>
@@ -127,7 +127,7 @@
   <div class="hd" id="pickHd" style="margin-bottom:8px">Attach sessions</div>
   <input id="pickIn" placeholder="Filter sessions…" style="width:100%">
   <div id="pickList"></div>
-  <div class="hint">↑↓ move · Enter tick · ⌘/Ctrl+Enter attach · Esc cancel</div>
+  <div class="hint" id="pickHint">↑↓ move · Enter tick · ⌘/Ctrl+Enter attach · Esc cancel</div>
   <span class="pill on" id="pickGo" style="cursor:pointer;display:inline-block;margin-top:8px">Attach</span>
 </div></div>
 <div class="ov" id="ovUpd"><div class="box upd-box" role="dialog" aria-modal="true" aria-label="Update app">

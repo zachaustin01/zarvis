@@ -14,7 +14,7 @@ let rawTree = null // the server's tree, done sessions included
 let nodes = [] // the tree flattened in display order, for j/k
 let parkedList = [] // parked sessions, newest first: the Parked view
 let palette = null // the command palette while open: { q, key, idx, sig, back }
-let pick = null // the attach picker: { mgr, rows, checked, idx }
+let pick = null // the attach picker: { mgr, rows, checked, idx } for a manager, or { target, rows, idx } to choose a manager for one session
 let awaitingNew = false // after `n`: the next key picks the new session's role
 let awaitingRole = false // after `c`: the next key picks the role
 let sel = null // sessionId of the selected row
@@ -1050,16 +1050,28 @@ function pickRows() {
 function renderPick() {
   const rows = pickRows()
   pick.idx = Math.min(pick.idx, Math.max(0, rows.length - 1))
-  $('#pickHd').textContent = `Attach to “${pick.mgr.name}” (${pick.checked.size} ticked)`
+  $('#pickHd').textContent = pick.target ? `Assign “${pick.target.name}” to a manager` : `Attach to “${pick.mgr.name}” (${pick.checked.size} ticked)`
+  $('#pickHint').textContent = pick.target ? '↑↓ move · Enter assign · Esc cancel' : '↑↓ move · Enter tick · ⌘/Ctrl+Enter attach · Esc cancel'
+  $('#pickGo').style.display = pick.target ? 'none' : 'inline-block'
   const [k0, k1] = windowAround(pick.idx, rows.length, fitCount(Math.min(innerHeight * 0.46, 380), 30)) // no scrollbar: a window that holds the highlight
   $('#pickList').innerHTML =
-    rows.map((r, i) => i < k0 || i >= k1 ? '' : `<div class="pk${i === pick.idx ? ' cur' : ''}" data-i="${i}"><span class="bx">${pick.checked.has(r.sessionId) ? '[x]' : '[ ]'}</span><span>${esc(r.name)}</span><span class="ap">${esc(r.project)}${r.role === 'worker' ? ' · worker elsewhere' : ''}</span></div>`).join('') + (k1 - k0 < rows.length ? `<div class="empty" style="font-size:12px;padding:6px 4px">${k0 + 1}–${k1} of ${rows.length} · ↑↓ for more</div>` : '') ||
+    rows.map((r, i) => i < k0 || i >= k1 ? '' : `<div class="pk${i === pick.idx ? ' cur' : ''}" data-i="${i}"><span class="bx">${pick.target ? '→' : pick.checked.has(r.sessionId) ? '[x]' : '[ ]'}</span><span>${esc(r.name)}</span><span class="ap">${esc(r.project)}${!pick.target && r.role === 'worker' ? ' · worker elsewhere' : ''}</span></div>`).join('') + (k1 - k0 < rows.length ? `<div class="empty" style="font-size:12px;padding:6px 4px">${k0 + 1}–${k1} of ${rows.length} · ↑↓ for more</div>` : '') ||
     '<div class="empty" style="font-size:13px;padding:12px 4px">No matches.</div>'
 }
 
 function openPick() {
   const mgr = selRow()
-  if (view !== 'tree' || mgr?.role !== 'manager') return toast('Select a manager in the role tree first (t)')
+  if (view === 'tree' && mgr && mgr.role !== 'manager' && mgr.role !== 'interface') {
+    // A worker (or unclassified session) is selected: choose its manager, skipping the one it already has.
+    const rows = tree.managers.filter((m) => m.sessionId !== mgr.sessionId && !m.children.some((c) => c.sessionId === mgr.sessionId))
+    if (!rows.length) return toast('No other managers to assign to · classify one with c m')
+    pick = { target: mgr, rows, idx: 0 }
+    $('#pickIn').value = ''
+    $('#ovPick').classList.add('on')
+    renderPick()
+    return $('#pickIn').focus()
+  }
+  if (view !== 'tree' || mgr?.role !== 'manager') return toast('Select a manager or a worker in the role tree first (t)')
   pick = { mgr, rows: pickCandidates(mgr), checked: new Set(), idx: 0 }
   $('#pickIn').value = ''
   $('#ovPick').classList.add('on')
@@ -1073,7 +1085,16 @@ function closePick() {
   $('#pickIn').blur()
 }
 
+async function assignTo(mgr) {
+  const { target } = pick
+  closePick()
+  const { ok, data } = await post('/api/classify', { sessionId: target.sessionId, role: 'worker', parent: mgr.sessionId })
+  toast(ok ? `“${target.name}” is now a worker of “${mgr.name}”` : data.error || 'Assign failed')
+  loadTree()
+}
+
 async function commitPick() {
+  if (pick.target) return
   const { mgr, checked } = pick
   closePick()
   if (!checked.size) return toast('Nothing ticked')
@@ -1093,6 +1114,7 @@ $('#pickIn').addEventListener('keydown', (e) => {
   else if (e.key === 'Enter') {
     e.preventDefault()
     const r = rows[pick.idx]
+    if (r && pick.target) return assignTo(r)
     if (r) pick.checked.has(r.sessionId) ? pick.checked.delete(r.sessionId) : pick.checked.add(r.sessionId)
     renderPick()
   }
@@ -1101,6 +1123,7 @@ $('#pickList').addEventListener('click', (e) => {
   const row = e.target.closest('.pk')
   const r = row && pickRows()[Number(row.dataset.i)]
   if (!r) return
+  if (pick.target) return assignTo(r)
   pick.checked.has(r.sessionId) ? pick.checked.delete(r.sessionId) : pick.checked.add(r.sessionId)
   pick.idx = Number(row.dataset.i)
   renderPick()
