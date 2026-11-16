@@ -47,9 +47,16 @@ are active?") use the lookup CLI, which does the same join as the dashboard (CLI
 title, hand-set name, role, parent manager, project, branch, running state) and needs no server:
 
 ```bash
-npm run roster -- list [--role manager] [--manager <id>] [--running live|unknown|archived] [--all] [--json]
+npm run roster -- list [--query "words"] [--role manager] [--manager <id>] [--running live|unknown|archived] [--all] [--json]
 npm run roster -- get <id> [--json]   # CLI id, the app's local_… id, or a unique prefix
 ```
+
+`--query` finds sessions by content: every word must hit a session's name, project, branch, park note, link
+labels, **first prompt** or **last assistant reply** (read from the head and tail of its transcript, whole-word
+substring matches, nothing fuzzy across prose), best match first, with `asked:` and `last said:` lines. It searches
+the same default scope as `list` (add `--all` for older or archived sessions). The dashboard palette (`Cmd/Ctrl+K`)
+matches the same text and quotes the hit when the name did not match. For anything deeper the interface falls back
+to the app's `search_session_transcripts`.
 
 It is read-only. `running` is `live` (a fresh hook signal; `state` says blocked / working / idle),
 `unknown` (no signal: the app shuts idle session processes down, so "idle" and "closed" look the same),

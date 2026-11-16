@@ -6,7 +6,7 @@
  * Returns { score, idx } (idx = matched character positions, for highlighting) or null.
  * Rewards a prefix, word starts and consecutive runs; a contiguous substring beats a scattered match.
  */
-export function fuzzy(token, text) {
+export function fuzzy(token, text, { contiguous = false } = {}) {
   const q = token.toLowerCase()
   const t = String(text ?? '').toLowerCase()
   if (!q) return { score: 0, idx: [] }
@@ -17,6 +17,7 @@ export function fuzzy(token, text) {
     const wordStart = at === 0 || /[^a-z0-9]/.test(t[at - 1])
     return { score: 100 + q.length * 10 + (at === 0 ? 60 : wordStart ? 40 : 0) - Math.min(at, 30) - Math.min(t.length - q.length, 40) / 4, idx }
   }
+  if (contiguous) return null // prose: a scattered match across a paragraph means nothing
   const idx = []
   let score = 0
   let run = 0
@@ -63,6 +64,9 @@ const SESSION_FIELDS = (r, stateLabel) => [
   [r.parked?.handoffNote, 0.5],
   [r.parked?.parkedByName, 0.4],
   // a session is found by the dashboard / page / PR it linked
+  // what it was asked to do and what it last said: whole-word-ish substring matches only, and tokens under 3 characters skip them
+  [r.prompt, 0.35, true],
+  [r.reply, 0.25, true],
   ...(Array.isArray(r.links) ? r.links.flatMap((l) => [[l?.label, 0.6], [hostOf(l?.url), 0.5]]) : []),
 ]
 
@@ -74,8 +78,9 @@ export function scoreSession(q, r, stateLabel = r.state) {
   let score = 0
   for (const t of ts) {
     let best = null
-    for (const [text, w] of fields) {
-      const m = text && fuzzy(t, text)
+    for (const [text, w, prose] of fields) {
+      if (prose && t.length < 3) continue
+      const m = text && fuzzy(t, text, prose ? { contiguous: true } : undefined)
       if (m && (!best || m.score * w > best)) best = m.score * w
     }
     if (best === null) return null

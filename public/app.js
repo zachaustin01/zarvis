@@ -1228,12 +1228,34 @@ function paletteSessions() {
   return out
 }
 
-const paletteEntries = () => paletteSearch(palette.q, paletteSessions(), buildCommands(projectList().map((p) => p.project)), { stateLabel: (r) => STATE_LABEL[r.state] || r.state, schedules: schedList })
+// Prompt and last reply per session id, fetched when the palette opens so a query can match what a session was asked.
+let promptText = {}
+async function loadPrompts() {
+  try {
+    promptText = await (await fetch('/api/prompts')).json()
+    if (palette) renderPalette(true)
+  } catch {
+    /* the palette still searches names, branches and notes */
+  }
+}
+const withPrompts = (rows) => rows.map((r) => (promptText[r.sessionId] ? { ...r, prompt: promptText[r.sessionId].prompt, reply: promptText[r.sessionId].reply } : r))
+
+const paletteEntries = () => paletteSearch(palette.q, withPrompts(paletteSessions()), buildCommands(projectList().map((p) => p.project)), { stateLabel: (r) => STATE_LABEL[r.state] || r.state, schedules: schedList })
 
 function markName(label, idx) {
   if (!idx.length) return esc(label)
   const on = new Set(idx)
   return [...label].map((ch, i) => (on.has(i) ? `<mark>${esc(ch)}</mark>` : esc(ch))).join('')
+}
+
+/** When the name did not match but the prompt or last reply did, a short quote of it so the hit explains itself. */
+function promptWhy(raw, r, nameIdx) {
+  if (nameIdx.length) return ''
+  const t = raw.replace(/^[@>]/, '').trim().split(/\s+/).find((w) => w.length >= 3 && ((r.prompt || '').toLowerCase().includes(w.toLowerCase()) || (r.reply || '').toLowerCase().includes(w.toLowerCase())))
+  if (!t) return ''
+  const src = (r.prompt || '').toLowerCase().includes(t.toLowerCase()) ? r.prompt : r.reply
+  const at = Math.max(0, src.toLowerCase().indexOf(t.toLowerCase()) - 30)
+  return `“${at ? '…' : ''}${src.slice(at, at + 90)}…”`
 }
 
 function renderPalette(force) {
@@ -1258,7 +1280,8 @@ function renderPalette(force) {
         if (e.type === 'schedule') return `<div class="pl sch${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">⏱ schedule</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([e.ref.desc, e.ref.owner ? `↳ ${e.ref.owner.name}${e.ref.owner.gone ? ' (session gone)' : ''}` : ''].filter(Boolean).join(' › '))}</span><span class="ps">${e.ref.next ? esc(`next ${clockLabel(e.ref.next)}`) : 'never'}</span></div>`
         const r = e.ref
         const where = showsWhere(r) ? r.branch || r.worktree || '' : ''
-        return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where, r.parked?.reason, r.links?.length ? `↗ ${r.links[0].label}${r.links.length > 1 ? ` +${r.links.length - 1}` : ''}` : ''].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
+        const why = promptWhy(palette.q, r, e.idx)
+        return `<div class="pl ses s-${esc(r.state)}${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${ICON[r.role] || '?'} ${esc(r.role)}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([r.project, where, r.parked?.reason, r.links?.length ? `↗ ${r.links[0].label}${r.links.length > 1 ? ` +${r.links.length - 1}` : ''}` : '', why].filter(Boolean).join(' › '))}</span><span class="ps">${esc(r.parked ? 'parked' : STATE_LABEL[r.state] || r.state)}</span></div>`
       })
       .join('') + (w1 - w0 < entries.length ? `<div class="pe">${w0 + 1}–${w1} of ${entries.length} · ↑↓ for more</div>` : '') || '<div class="pe">No matches.</div>'
   $('#palIn').setAttribute('aria-activedescendant', `pl${h.idx}`)
@@ -1272,6 +1295,7 @@ function openPalette() {
   $('#ovPal').classList.add('on')
   renderPalette(true)
   $('#palIn').focus()
+  loadPrompts()
 }
 
 function closePalette(restore = true) {
