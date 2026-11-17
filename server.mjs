@@ -138,6 +138,7 @@ async function currentTree() {
       suggested: n.suggested,
       warnings: n.warnings,
       state: row?.state ?? 'unknown', // no hook signal: never guess
+      lastActivityAt: recent.get(n.sessionId) || 0, // the app's last-activity time; shown on "no signal" rows and used to sort
       kind: row?.kind ?? '',
       ctx: row?.ctx ?? null,
       links: links[n.sessionId] || [],
@@ -147,7 +148,7 @@ async function currentTree() {
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),
     }
   }
-  const byState = (a, b) => (STATE_RANK[a.state] ?? 9) - (STATE_RANK[b.state] ?? 9) || a.name.localeCompare(b.name)
+  const byState = (a, b) => (STATE_RANK[a.state] ?? 9) - (STATE_RANK[b.state] ?? 9) || (b.lastActivityAt || 0) - (a.lastActivityAt || 0) || a.name.localeCompare(b.name)
   const all = [...nodes.values()]
   const managers = all
     .filter((n) => n.role === 'manager')

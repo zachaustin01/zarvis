@@ -196,7 +196,8 @@ function bgList(r, now = Date.now()) {
 function treeStatus(r) {
   if (r.done) return 'done · d to undo'
   const base = r.state === 'blocked' && r.kind === 'question' ? 'needs your answer' : STATE_LABEL[r.state] || r.state
-  const real = r.tasks?.count ? `${base} · ${r.tasks.count} background` : base
+  const seen = r.state === 'unknown' && r.lastActivityAt ? ` · ${ago(r.lastActivityAt)}` : '' // no signal: still say when it last did anything
+  const real = (r.tasks?.count ? `${base} · ${r.tasks.count} background` : base) + seen
   if (!r.parked) return real
   return r.state === 'unknown' ? 'parked · u to unpark' : `${real} · parked · u to unpark`
 }
