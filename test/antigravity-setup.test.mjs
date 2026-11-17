@@ -24,6 +24,7 @@ test('addAntigravityHooks adds zarvis config and preserves existing custom hooks
   assert.ok(result.zarvis)
   assert.equal(result.zarvis.SessionStart[0].command, `node "/opt/zarvis/hooks/zarvis-antigravity-hook.mjs" session_start`)
   assert.equal(result.zarvis.PreInvocation[0].command, `node "/opt/zarvis/hooks/zarvis-antigravity-hook.mjs" pre_invocation`)
+  assert.equal(result.zarvis.PreToolUse[0].hooks[0].command, `node "/opt/zarvis/hooks/zarvis-antigravity-hook.mjs" pre_tool_use`)
   assert.equal(result.zarvis.PostToolUse[0].hooks[0].command, `node "/opt/zarvis/hooks/zarvis-antigravity-hook.mjs" post_tool_use`)
   assert.equal(result.zarvis.Stop[0].command, `node "/opt/zarvis/hooks/zarvis-antigravity-hook.mjs" stop`)
 
