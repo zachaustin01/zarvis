@@ -946,7 +946,7 @@ async function newSession(role, runtime = 'claude') {
   const where = data?.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
   const rtLabel = runtime === 'antigravity' ? 'Antigravity' : 'Claude Code'
   const tag = data?.marker
-    ? (runtime === 'antigravity' ? ` (prompt copied to clipboard: ${data.marker} — hit “+” & Cmd+V)` : ` with ${data.marker} in the prompt box (not sent)`)
+    ? ` with ${data.marker} in the prompt box (not sent)`
     : ''
   toast(ok ? `Opening a new ${rtLabel} session${where}${tag}…${data?.dryRun ? ' (dry run)' : ''}` : data?.error || 'New session failed', data?.marker ? 7000 : 2600)
 }

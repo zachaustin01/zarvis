@@ -253,13 +253,42 @@ function openAntigravity(folder) {
   return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 10000 }, (err) => (err ? reject(err) : resolve())))
 }
 
+function openNewAntigravitySession(prompt, folder) {
+  if (DRY_OPEN) return Promise.resolve()
+  if (process.platform === 'darwin') {
+    return new Promise((resolve) => {
+      // 1. Copy prompt to macOS clipboard first
+      const cp = execFile('pbcopy', [], () => {
+        // 2. Activate Antigravity, send Cmd+N to start a New Conversation, then Cmd+V to paste prompt
+        const script = `
+tell application "Antigravity" to activate
+delay 0.3
+tell application "System Events" to keystroke "n" using command down
+${prompt ? `delay 0.4\ntell application "System Events" to keystroke "v" using command down` : ''}
+`
+        execFile('osascript', ['-e', script], { timeout: 10000 }, (err) => {
+          if (err) {
+            // Fallback to open -a Antigravity if AppleScript fails
+            openAntigravity(folder).then(resolve, resolve)
+          } else {
+            resolve()
+          }
+        })
+      })
+      if (prompt) cp.stdin.end(prompt)
+      else cp.stdin.end()
+    })
+  }
+  return Promise.all([
+    openAntigravity(folder),
+    copyToClipboard(prompt),
+  ])
+}
+
 async function openNewSession(link, runtime, folder, prompt) {
   if (DRY_OPEN) return
   if (runtime === 'antigravity') {
-    await Promise.all([
-      openUrl(link).catch(() => openAntigravity(folder)),
-      copyToClipboard(prompt),
-    ])
+    await openNewAntigravitySession(prompt, folder)
     return
   }
   await openUrl(link)
