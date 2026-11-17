@@ -63,6 +63,8 @@ test('helpers', () => {
 test('newSessionLink opens a new desktop session, in a folder when given one', () => {
   assert.equal(newSessionLink(''), 'claude://code/new')
   assert.equal(newSessionLink('/Users/a b/repo'), 'claude://code/new?folder=%2FUsers%2Fa+b%2Frepo')
+  assert.equal(newSessionLink('', '', 'antigravity'), 'antigravity://new')
+  assert.equal(newSessionLink('/Users/a b/repo', '', 'antigravity'), 'antigravity://new?path=%2FUsers%2Fa+b%2Frepo')
 })
 
 const wk = (id, ago, seenAgo = 0, state = 'working') => ({ sessionId: id, state, at: NOW - ago, seen: NOW - seenAgo })
@@ -80,6 +82,7 @@ test('idle sessions come last, newest first, and age out on the long limit', asy
 test('newSessionLink can prefill the prompt', () => {
   assert.equal(newSessionLink('', '[zarvis: role=manager]'), 'claude://code/new?q=%5Bzarvis%3A+role%3Dmanager%5D')
   assert.equal(newSessionLink('/r', 'hi'), 'claude://code/new?folder=%2Fr&q=hi')
+  assert.equal(newSessionLink('/r', 'hi', 'antigravity'), 'antigravity://new?path=%2Fr&q=hi')
 })
 
 test('initiativeOf finds a ticket id in the branch, else the worktree name', () => {

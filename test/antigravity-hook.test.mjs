@@ -190,3 +190,13 @@ test('buildQueue surfaces Antigravity session with runtime tag and antigravity:/
   assert.equal(rows[0].command, 'git status')
 })
 
+test('newSessionLink builds correct deep link for Antigravity vs Claude', async () => {
+  const { newSessionLink } = await import('../lib/queue.mjs')
+  assert.equal(newSessionLink('', '', 'antigravity'), 'antigravity://new')
+  assert.equal(newSessionLink('/Users/zachaustin/repo', '', 'antigravity'), 'antigravity://new?path=%2FUsers%2Fzachaustin%2Frepo')
+  assert.equal(newSessionLink('/Users/zachaustin/repo', '[zarvis: role=worker parent=123]', 'antigravity'), 'antigravity://new?path=%2FUsers%2Fzachaustin%2Frepo&q=%5Bzarvis%3A+role%3Dworker+parent%3D123%5D')
+  assert.equal(newSessionLink('', '', 'claude'), 'claude://code/new')
+  assert.equal(newSessionLink('/Users/zachaustin/repo', 'prompt', 'claude'), 'claude://code/new?folder=%2FUsers%2Fzachaustin%2Frepo&q=prompt')
+})
+
+

@@ -230,6 +230,41 @@ function openUrl(url) {
   return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 10000 }, (err) => (err ? reject(err) : resolve())))
 }
 
+function copyToClipboard(text) {
+  if (!text || DRY_OPEN) return Promise.resolve()
+  return new Promise((resolve) => {
+    if (process.platform === 'darwin') {
+      const p = execFile('pbcopy', [], () => resolve())
+      p.stdin.end(text)
+    } else {
+      resolve()
+    }
+  })
+}
+
+function openAntigravity(folder) {
+  if (DRY_OPEN) return Promise.resolve()
+  const [cmd, args] =
+    process.platform === 'darwin'
+      ? ['open', folder ? ['-a', 'Antigravity', folder] : ['-a', 'Antigravity']]
+      : process.platform === 'win32'
+      ? ['cmd.exe', ['/c', 'start', 'antigravity', ...(folder ? [folder] : [])]]
+      : ['antigravity', folder ? [folder] : []]
+  return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 10000 }, (err) => (err ? reject(err) : resolve())))
+}
+
+async function openNewSession(link, runtime, folder, prompt) {
+  if (DRY_OPEN) return
+  if (runtime === 'antigravity') {
+    await Promise.all([
+      openUrl(link).catch(() => openAntigravity(folder)),
+      copyToClipboard(prompt),
+    ])
+    return
+  }
+  await openUrl(link)
+}
+
 /** Open a file with its default app, or show it in the file manager (`reveal`). */
 function openPath(file, mode) {
   const [cmd, args] =
@@ -378,8 +413,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, mode, dryRun: DRY_OPEN })
     }
     if (req.method === 'POST' && url.pathname === '/api/new') {
-      const { sessionId, role, parent } = await readJson(req)
+      const { sessionId, role, parent, runtime = 'claude' } = await readJson(req)
       if (!isNewSessionRole(role)) return send(res, 400, { error: 'unknown role' })
+      const rt = runtime === 'antigravity' ? 'antigravity' : 'claude'
       // A new session in the selected row's repo, or a plain new session with nothing selected.
       // As with open, the folder comes from the queue on this side; the client never sends a path,
       // and the prompt is only ever a role tag built here from a validated role.
@@ -388,9 +424,9 @@ const server = http.createServer(async (req, res) => {
       const marker = roleMarker(role, parent)
       // Managers and the interface also get one line saying where to learn the job; only the tag is parsed.
       const prompt = rolePrompt(role, parent, ROSTER_FILE)
-      const link = newSessionLink(folder, prompt)
-      await openUrl(link)
-      return send(res, 200, { ok: true, url: link, folder, marker, prompt, dryRun: DRY_OPEN })
+      const link = newSessionLink(folder, prompt, rt)
+      await openNewSession(link, rt, folder, prompt)
+      return send(res, 200, { ok: true, url: link, folder, marker, prompt, runtime: rt, dryRun: DRY_OPEN })
     }
     if (req.method === 'GET' && url.pathname === '/api/costs') return send(res, 200, await costs(normalizeRange(url.searchParams.get('range')), url.searchParams.get('project') || ''))
     if (req.method === 'GET' && url.pathname === '/api/version') return send(res, 200, { version: await appVersion(PUBLIC) })

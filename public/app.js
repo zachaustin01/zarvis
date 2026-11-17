@@ -16,6 +16,8 @@ let parkedList = [] // parked sessions, newest first: the Parked view
 let palette = null // the command palette while open: { q, key, idx, sig, back }
 let pick = null // the attach picker: { mgr, rows, checked, idx } for a manager, or { target, rows, idx } to choose a manager for one session
 let awaitingNew = false // after `n`: the next key picks the new session's role
+let awaitingNewRuntime = false // after `n` + role: the next key picks the runtime (a antigravity · c/space claude)
+let pendingNewRole = ''
 let awaitingRole = false // after `c`: the next key picks the role
 let sel = null // sessionId of the selected row
 let renaming = null // sessionId being renamed
@@ -929,17 +931,24 @@ async function openSel() {
   // A manager with a blocked worker: the leaf-only rule says go to the worker that is blocked.
   const target = r.ck ? r.ck.holder.sessionId : r.blockedChildren?.[0]?.sessionId || r.sessionId
   const { ok, data } = await post('/api/open', { sessionId: target })
-  toast(ok ? `Opening “${r.name}” in Claude…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'Open failed')
+  const rt = r.runtime === 'antigravity' ? 'Antigravity' : 'Claude'
+  toast(ok ? `Opening “${r.name}” in ${rt}…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'Open failed')
 }
 
-async function newSession(role) {
+async function newSession(role, runtime = 'claude') {
   const r = selRow()
   // A worker started with a manager selected is attached to it; the server builds the tag.
   const parent = role === 'worker' && r?.role === 'manager' ? r.sessionId : ''
-  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId, role, parent })
-  const where = data.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
-  const tag = data.marker ? ` with ${data.marker} in the prompt box (not sent)` : ''
-  toast(ok ? `Opening a new Claude Code session${where}${tag}…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'New session failed', data.marker ? 7000 : 2600)
+  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId, role, parent, runtime })
+  if (data?.prompt && navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(data.prompt) } catch {}
+  }
+  const where = data?.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
+  const rtLabel = runtime === 'antigravity' ? 'Antigravity' : 'Claude Code'
+  const tag = data?.marker
+    ? (runtime === 'antigravity' ? ` with ${data.marker} copied to clipboard` : ` with ${data.marker} in the prompt box (not sent)`)
+    : ''
+  toast(ok ? `Opening a new ${rtLabel} session${where}${tag}…${data?.dryRun ? ' (dry run)' : ''}` : data?.error || 'New session failed', data?.marker ? 7000 : 2600)
 }
 
 async function lifecycle(path, body, label, back) {
@@ -1167,7 +1176,12 @@ const startClassify = () => {
   const hint = r.suggested ? `c confirm (${r.suggested}) · ` : ''
   toast(`Classify: ${hint}i interface · m manager · w worker · x clear`)
 }
-const startNew = () => { awaitingNew = true; toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000) }
+const startNew = () => {
+  awaitingNew = true
+  awaitingNewRuntime = false
+  pendingNewRole = ''
+  toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000)
+}
 
 /** `i`: select the interface session; with several, each press goes to the next one. */
 function jumpToInterface() {
@@ -1220,10 +1234,14 @@ const RUN = {
   done: () => (items().length ? doneSel() : toast('Nothing to mark done')),
   undo: undoLast,
   attach: openPick,
-  'new-interface': () => newSession('interface'),
-  'new-manager': () => newSession('manager'),
-  'new-worker': () => newSession('worker'),
-  'new-plain': () => newSession(''),
+  'new-interface': () => newSession('interface', 'claude'),
+  'new-interface-agy': () => newSession('interface', 'antigravity'),
+  'new-manager': () => newSession('manager', 'claude'),
+  'new-manager-agy': () => newSession('manager', 'antigravity'),
+  'new-worker': () => newSession('worker', 'claude'),
+  'new-worker-agy': () => newSession('worker', 'antigravity'),
+  'new-plain': () => newSession('', 'claude'),
+  'new-plain-agy': () => newSession('', 'antigravity'),
   'classify-interface': () => classifySel('interface'),
   'classify-manager': () => classifySel('manager'),
   'classify-worker': () => classifySel('worker'),
@@ -1397,6 +1415,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input,textarea,select,[contenteditable]') || pick || parking || $('#ovHelp').classList.contains('on')) return
   e.preventDefault()
   awaitingNew = false
+  awaitingNewRuntime = false
   awaitingRole = false
   setView(nextView(view, e.shiftKey ? -1 : 1))
 }, true)
@@ -1416,9 +1435,32 @@ document.addEventListener('keydown', (e) => {
   }
   if (awaitingNew) {
     awaitingNew = false
-    $('#toast').classList.remove('on')
+    if (e.key === 'Escape') {
+      $('#toast').classList.remove('on')
+      return
+    }
     const role = { i: 'interface', m: 'manager', w: 'worker', p: '', Enter: '' }[e.key]
-    if (role !== undefined) { e.preventDefault(); newSession(role) }
+    if (role !== undefined) {
+      e.preventDefault()
+      pendingNewRole = role
+      awaitingNewRuntime = true
+      const roleName = role ? role : 'plain session'
+      toast(`New ${roleName}: a antigravity · c claude (or Space/Enter) · Esc cancels`, 60000)
+      return
+    }
+    $('#toast').classList.remove('on')
+    return
+  }
+  if (awaitingNewRuntime) {
+    awaitingNewRuntime = false
+    $('#toast').classList.remove('on')
+    if (e.key === 'Escape') return
+    const runtime = { a: 'antigravity', A: 'antigravity', c: 'claude', C: 'claude', ' ': 'claude', Spacebar: 'claude', Enter: 'claude' }[e.key]
+    if (runtime !== undefined) {
+      e.preventDefault()
+      newSession(pendingNewRole, runtime)
+      return
+    }
     return
   }
   if (awaitingRole) {
