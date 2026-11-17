@@ -162,3 +162,25 @@ test('a fresher cwd (from the hook marker) beats the record\'s', () => {
   assert.equal(classify({ records: [r] }).get(r.cliSessionId).cwd, scratch)
   assert.equal(classify({ records: [r], cwds: { [r.cliSessionId]: '/r/proj' } }).get(r.cliSessionId).cwd, '/r/proj')
 })
+
+test('classify handles non-record sessions (Antigravity) and respects their roles', () => {
+  const agySession = { sessionId: id(5), title: 'Antigravity session', runtime: 'antigravity', cwd: '/r/5' }
+  const nodes = classify({
+    records: [rec(1)],
+    roles: { [id(5)]: { role: 'manager' } },
+    sessions: [agySession],
+  })
+  assert.equal(nodes.has(id(5)), true)
+  assert.equal(nodes.get(id(5)).role, 'manager')
+  assert.equal(nodes.get(id(5)).runtime, 'antigravity')
+
+  const agyWorker = { sessionId: id(6), title: 'Antigravity worker', runtime: 'antigravity', cwd: '/r/6' }
+  const nodes2 = classify({
+    records: [],
+    roles: { [id(5)]: { role: 'manager' }, [id(6)]: { role: 'worker', parent: id(5) } },
+    sessions: [agySession, agyWorker],
+  })
+  assert.equal(nodes2.get(id(6)).role, 'worker')
+  assert.equal(nodes2.get(id(6)).managerId, id(5))
+  assert.deepEqual(childrenOf(nodes2).get(id(5)).map((n) => n.sessionId), [id(6)])
+})

@@ -1036,6 +1036,10 @@ async function classifySel(role) {
   if (!r) return
   const { ok, data } = await post('/api/classify', { sessionId: r.sessionId, role })
   toast(ok ? (role ? `“${r.name}” is now ${/^[aeiou]/.test(role) ? 'an' : 'a'} ${role}` : `“${r.name}” unclassified`) : data.error || 'Classify failed')
+  if (ok && r) {
+    r.role = role || 'unclassified'
+    render()
+  }
   loadTree()
 }
 
@@ -1156,7 +1160,13 @@ function toggleRoleKey(k) {
 
 const stepProject = (d) => setProject(cycleProject(projectList().map((p) => p.project), activeProject(), d))
 const startRename = () => (selRow() ? ((renaming = sel), render()) : toast('Select a session to rename'))
-const startClassify = () => { awaitingRole = true; toast('Classify: i interface · m manager · w worker · x clear') }
+const startClassify = () => {
+  const r = selRow()
+  if (!r) return toast('Select a session to classify')
+  awaitingRole = true
+  const hint = r.suggested ? `c confirm (${r.suggested}) · ` : ''
+  toast(`Classify: ${hint}i interface · m manager · w worker · x clear`)
+}
 const startNew = () => { awaitingNew = true; toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000) }
 
 /** `i`: select the interface session; with several, each press goes to the next one. */
@@ -1413,7 +1423,10 @@ document.addEventListener('keydown', (e) => {
   }
   if (awaitingRole) {
     awaitingRole = false
-    const role = { i: 'interface', m: 'manager', w: 'worker', x: '' }[e.key]
+    $('#toast').classList.remove('on')
+    const r = selRow()
+    const roleMap = { i: 'interface', m: 'manager', w: 'worker', x: '', ...(r?.suggested ? { c: r.suggested, Enter: r.suggested, y: r.suggested } : {}) }
+    const role = roleMap[e.key]
     if (role !== undefined) { e.preventDefault(); classifySel(role) }
     return
   }

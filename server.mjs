@@ -103,7 +103,7 @@ const STATE_RANK = { blocked: 0, waiting_on_child: 1, working: 2, idle: 3 }
 /** The role tree: the interface pinned, managers with their workers, then everything unclassified. */
 async function currentTree() {
   const [{ records }, state, queue] = await Promise.all([scanDesktopRecords(), readState(), allRows()])
-  const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(queue) })
+  const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(queue), sessions: queue })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
   const links = await readAllLinks(ZARVIS_HOME)
   const projectTags = await readTags(ZARVIS_HOME)
@@ -130,8 +130,8 @@ async function currentTree() {
       branch,
       worktree,
       initiative: row?.initiative ?? initiativeOf(branch, worktree),
-      runtime: row?.runtime ?? (recOf.has(n.sessionId) ? 'claude' : (String(n.cwd || '').includes('antigravity') ? 'antigravity' : 'claude')),
-      link: row?.link ?? deepLinkFor(n.desktopSessionId),
+      runtime: row?.runtime ?? n.runtime ?? (recOf.has(n.sessionId) ? 'claude' : (String(n.cwd || '').includes('antigravity') ? 'antigravity' : 'claude')),
+      link: row?.link ?? (n.runtime === 'antigravity' ? `antigravity://conversation/${n.sessionId}` : deepLinkFor(n.desktopSessionId)),
       title: n.title,
       overlay,
       name: overlay || n.title,
@@ -139,7 +139,7 @@ async function currentTree() {
       suggested: n.suggested,
       warnings: n.warnings,
       state: row?.state ?? 'unknown', // no hook signal: never guess
-      lastActivityAt: recent.get(n.sessionId) || 0, // the app's last-activity time; shown on "no signal" rows and used to sort
+      lastActivityAt: row?.since || recent.get(n.sessionId) || 0, // the app's last-activity time; shown on "no signal" rows and used to sort
       kind: row?.kind ?? '',
       ctx: row?.ctx ?? null,
       links: links[n.sessionId] || [],
@@ -411,7 +411,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/classify') {
       const { sessionId, role, parent } = await readJson(req)
       await setRole(sessionId, role || NO_ROLE, parent || '') // empty = the `x` key: explicitly no role
-      await writeRoster().catch((e) => console.error('roster failed:', e.message))
+      await Promise.all([tick(), writeRoster().catch((e) => console.error('roster failed:', e.message))])
       return send(res, 200, { ok: true })
     }
     if (req.method === 'POST' && url.pathname === '/api/rename') {
