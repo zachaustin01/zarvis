@@ -130,6 +130,7 @@ async function currentTree() {
       branch,
       worktree,
       initiative: row?.initiative ?? initiativeOf(branch, worktree),
+      runtime: row?.runtime ?? (recOf.has(n.sessionId) ? 'claude' : (String(n.cwd || '').includes('antigravity') ? 'antigravity' : 'claude')),
       link: row?.link ?? deepLinkFor(n.desktopSessionId),
       title: n.title,
       overlay,

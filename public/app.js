@@ -136,6 +136,15 @@ function lifeTag(r) {
   return `<span class="pd" title="parked">○</span><span class="ap">${esc(r.parked.reason)}</span>${by}${wake}`
 }
 
+/** Origin runtime chip (Claude Code vs Antigravity). */
+function runtimeTag(r) {
+  const isAgy = r.runtime === 'antigravity' || (!r.desktopSessionId && Boolean(r.transcriptPath?.includes('antigravity') || r.transcript?.includes('antigravity')))
+  if (isAgy) {
+    return `<span class="rt rt-agy" title="Antigravity session"><svg class="rt-ico" viewBox="0 0 16 16" width="11" height="11"><path fill="currentColor" d="M8 0L9.8 6.2L16 8L9.8 9.8L8 16L6.2 9.8L0 8L6.2 6.2Z"/></svg>AGY</span>`
+  }
+  return `<span class="rt rt-claude" title="Claude Code session"><svg class="rt-ico" viewBox="0 0 16 16" width="11" height="11"><path fill="currentColor" d="M8 2.5a.75.75 0 0 1 .75.75v3.19l2.25-2.25a.75.75 0 1 1 1.06 1.06L9.81 7.5h3.19a.75.75 0 0 1 0 1.5H9.81l2.25 2.25a.75.75 0 1 1-1.06 1.06L8.75 10.06v3.19a.75.75 0 0 1-1.5 0v-3.19l-2.25 2.25a.75.75 0 0 1-1.06-1.06L6.19 9H3a.75.75 0 0 1 0-1.5h3.19L3.94 5.25a.75.75 0 0 1 1.06-1.06L7.25 6.44V3.25A.75.75 0 0 1 8 2.5z"/></svg>Claude</span>`
+}
+
 const bgName = (t) => ((t?.label || t?.kind || 'task').length > 28 ? `${(t.label || t.kind).slice(0, 27)}…` : t?.label || t?.kind || 'task')
 
 const openBg = new Set() // sessions whose background-task list is expanded (click the chip)
@@ -214,7 +223,7 @@ function treeRow(r, depth) {
   const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}"${nd(r)} style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}${ctxHtml(r)}` +
+    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}${runtimeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}${ctxHtml(r)}` +
     `<span class="wt">${esc(treeStatus(r))}</span></div>${linksHtml(r)}${bgList(r)}<span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
@@ -258,7 +267,7 @@ function renderParkedInner() {
         const by = p.parkedBy ? `by ${esc(p.parkedByName || p.parkedBy)}` : 'by hand'
         return (
           `<div class="q tr pkv${r.archived ? ' arch' : ''}${r.sessionId === sel ? ' sel' : ''}" data-id="${esc(r.sessionId)}">` +
-          `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span><span class="pd">○</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span><span class="nm">${esc(r.name)}</span>` +
+          `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span><span class="pd">○</span>${runtimeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span><span class="nm">${esc(r.name)}</span>` +
           `<span class="wt">${r.archived ? '<span class="ap">archived</span> ' : ''}parked ${esc(when(p.parkedAt))}</span></div>` +
           `<div class="prompt">${esc(p.reason)} · ${by}${wake}</div>` +
           (p.handoffNote ? `<div class="note">${esc(p.handoffNote)}</div>` : '') +
@@ -377,7 +386,7 @@ function rowHtml(r, now) {
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
     `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}${canBeOverdue(r) ? '' : ' data-nood="1"'}>` +
-    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
+    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span>${runtimeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
     linksHtml(r) +

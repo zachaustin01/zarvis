@@ -91,6 +91,11 @@ main.wrap{padding-bottom:50px}
 .pk .bx{color:var(--cy);font-family:ui-monospace,Menlo,monospace}
 .role{font-size:10px;letter-spacing:.1em;text-transform:uppercase;border:1px solid currentColor;padding:0 5px;margin-right:8px;color:var(--t3);white-space:nowrap}
 .role.interface{color:#c792ea}.role.manager{color:var(--cy)}.role.worker{color:#7fd99a}
+/* Runtime source badges */
+.rt{display:inline-flex;align-items:center;gap:3px;font-size:10px;letter-spacing:.06em;padding:0 5px;border-radius:3px;border:1px solid currentColor;margin-right:6px;white-space:nowrap;vertical-align:middle}
+.rt-ico{flex-shrink:0}
+.rt-claude{color:#e07a5f;border-color:rgba(224,122,95,.35);background:rgba(224,122,95,.08)}
+.rt-agy{color:#6ba4ff;border-color:rgba(107,164,255,.35);background:rgba(107,164,255,.08)}
 .ri{color:var(--cy);width:1.2em;text-align:center}
 .warn{color:var(--am);cursor:help;font-size:12px}
 .tr .wt{font-weight:400;letter-spacing:.04em;font-size:12px}

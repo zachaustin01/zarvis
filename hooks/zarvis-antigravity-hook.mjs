@@ -239,7 +239,7 @@ async function autoEventsAntigravity(payload, home = getHome()) {
 
 export async function handleHook(mode, payload) {
   const id = payload?.conversationId || payload?.session_id
-  if (typeof id !== 'string' || !SAFE_ID.test(id)) return {}
+  if (typeof id !== 'string' || !SAFE_ID.test(id)) return { decision: "allow" }
 
   const home = getHome()
   const dir = path.join(home, 'blocked')
@@ -252,7 +252,7 @@ export async function handleHook(mode, payload) {
   if (mode === 'session_start') {
     // Initial session life: write an idle marker until first prompt
     await writeAtomic(workFile, buildAntigravityWorking(payload, null, Date.now(), 'idle'))
-    return {}
+    return { decision: "allow" }
   }
 
   if (mode === 'pre_invocation') {
@@ -296,7 +296,7 @@ export async function handleHook(mode, payload) {
       return { decision: 'ask', reason }
     }
 
-    return {}
+    return { decision: 'allow' }
   }
 
   if (mode === 'post_tool_use') {
@@ -323,10 +323,10 @@ export async function handleHook(mode, payload) {
     }
 
     await writeAtomic(workFile, buildAntigravityWorking(payload, null, Date.now(), 'idle'))
-    return {}
+    return { decision: "allow" }
   }
 
-  return {}
+  return { decision: "allow" }
 }
 
 async function main() {
