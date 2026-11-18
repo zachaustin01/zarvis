@@ -185,9 +185,11 @@ const ROLE_TAG_RE =
   /(?:^|\n)\s*(?:@[A-Za-z0-9_.-]+\s+)*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i
 const SWARM_ASSIGNMENT_RE =
   /\bsender=([A-Za-z0-9_-]{8,80})\b[\s\S]*?You have just started\.\s*Your assignment \(recorded on the board as #\d+ for @([A-Za-z0-9_.-]+)\):/i
+const SUBAGENT_MESSAGE_RE =
+  /\[Message\][^\n]*\bsender=([A-Za-z0-9_-]{8,80})\b[^\n]*\scontent=([\s\S]*?)(?:<\/SYSTEM_MESSAGE>|$)/i
 const HEAD_BYTES = 32 * 1024
 
-/** Check role tag or native swarm worker assignment in prompt/message text. */
+/** Check role tag or native swarm/subagent worker assignment in prompt/message text. */
 export function buildAntigravityRoleTag(payload, now = Date.now()) {
   let prompt = typeof payload.lastUserInput === 'string' ? payload.lastUserInput : ''
   prompt = prompt
@@ -198,6 +200,9 @@ export function buildAntigravityRoleTag(payload, now = Date.now()) {
   if (m) return { sessionId: id, role: m[1].toLowerCase(), parent: m[2] || '', at: now }
   const sw = SWARM_ASSIGNMENT_RE.exec(prompt)
   if (sw) return { sessionId: id, role: 'worker', parent: sw[1], at: now }
+  if (prompt.includes('[swarm] new board message')) return null
+  const sub = SUBAGENT_MESSAGE_RE.exec(prompt)
+  if (sub) return { sessionId: id, role: 'worker', parent: sub[1], at: now }
   return null
 }
 

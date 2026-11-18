@@ -390,6 +390,52 @@ test('buildQueue + classify infer worker role from spawnedFrom on idle swarm wor
   }
 })
 
+test('Antigravity hook and transcriptMeta recognize direct subagent SYSTEM_MESSAGE sessions', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-direct-subagent-'))
+  const prevHome = process.env.ZARVIS_HOME
+  process.env.ZARVIS_HOME = home
+
+  try {
+    const trFile = path.join(home, 'transcript.jsonl')
+    const subagentMsg = `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-18T17:44:17Z sender=${PARENT} priority=MESSAGE_PRIORITY_HIGH content=You are the autonomous AI player representing Seat 1 (Player 2 - Agent-Blue) in the live match nnHEkZxoGHN of Settlers at War.\nServer is running locally at http://localhost:8000.\n</SYSTEM_MESSAGE>`
+    await fsp.writeFile(
+      trFile,
+      JSON.stringify({
+        step_index: 0,
+        source: 'SYSTEM',
+        type: 'SYSTEM_MESSAGE',
+        status: 'DONE',
+        content: subagentMsg,
+      }) + '\n',
+    )
+
+    // 1. transcriptMeta extracts spawnedFrom and initial instruction line as title
+    const meta = await transcriptMeta(trFile, ID)
+    assert.equal(meta.spawnedFrom, PARENT)
+    assert.equal(
+      meta.title,
+      'You are the autonomous AI player representing Seat 1 (Player 2 - Agent-Blue) in ',
+    )
+
+    // 2. buildAntigravityRoleTag parses the subagent SYSTEM_MESSAGE
+    const tag = buildAntigravityRoleTag({ conversationId: ID, lastUserInput: subagentMsg }, 100)
+    assert.deepEqual(tag, { sessionId: ID, role: 'worker', parent: PARENT, at: 100 })
+
+    // 3. handleHook registers worker role on stop or pre_tool_use
+    await handleHook('stop', {
+      conversationId: ID,
+      workspacePaths: [home],
+      transcriptPath: trFile,
+      cwd: home,
+    })
+    const roleData = JSON.parse(await fsp.readFile(path.join(home, 'roles', `${ID}.json`), 'utf8'))
+    assert.equal(roleData.role, 'worker')
+    assert.equal(roleData.parent, PARENT)
+  } finally {
+    process.env.ZARVIS_HOME = prevHome
+  }
+})
+
 import { buildQueue } from '../lib/queue.mjs'
 import {
   parsePbtxtTitle,
