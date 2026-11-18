@@ -405,11 +405,13 @@ export async function handleHook(mode, payload) {
   if (mode === 'post_tool_use') {
     let prev = await readJson(workFile)
     await writeAtomic(workFile, buildAntigravityWorking(payload, prev, Date.now(), 'working'))
+    await ensureRoleTag(payload, id, rolesDir)
     await autoEventsAntigravity(payload, home)
     return {}
   }
 
   if (mode === 'stop') {
+    await ensureRoleTag(payload, id, rolesDir)
     let q = null
     if (typeof payload.transcriptPath === 'string') {
       try {

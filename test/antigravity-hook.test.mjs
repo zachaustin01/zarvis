@@ -308,9 +308,83 @@ test('Antigravity hook auto-registers swarm worker from SYSTEM_MESSAGE transcrip
     assert.equal(roleData.role, 'worker')
     assert.equal(roleData.parent, PARENT)
 
-    // transcriptMeta derives @<worker-name>: <brief summary> instead of Untitled session
+    // transcriptMeta derives @<worker-name>: <brief summary> and spawnedFrom
     const meta = await transcriptMeta(trFile, ID)
     assert.equal(meta.title, '@packet-loa-1035-probe: You own the deep-dive verification of **ONYX-50676**...')
+    assert.equal(meta.spawnedFrom, PARENT)
+  } finally {
+    process.env.ZARVIS_HOME = prevHome
+  }
+})
+
+import { classify } from '../lib/roles.mjs'
+
+test('buildQueue + classify infer worker role from spawnedFrom on idle swarm worker and stop hook persists role', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-spawned-'))
+  const prevHome = process.env.ZARVIS_HOME
+  process.env.ZARVIS_HOME = home
+
+  try {
+    const trFile = path.join(home, 'transcript.jsonl')
+    const steps = [
+      {
+        step_index: 0,
+        source: 'SYSTEM',
+        type: 'SYSTEM_MESSAGE',
+        status: 'DONE',
+        content: '...\n<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-18T15:45:46Z sender=63528f3d-7f1f-4413-ba1b-458118da5dd0 priority=MESSAGE_PRIORITY_HIGH content=[swarm] new board message #4\n</SYSTEM_MESSAGE>',
+      },
+      {
+        step_index: 1,
+        source: 'SYSTEM',
+        type: 'SYSTEM_MESSAGE',
+        status: 'DONE',
+        content: `...\n<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-18T15:45:46Z sender=${PARENT} priority=MESSAGE_PRIORITY_HIGH content=You have just started. Your assignment (recorded on the board as #4 for @packet-loa-1035-probe):\n\nYou own the deep-dive verification of **ONYX-50676**...\n</SYSTEM_MESSAGE>`,
+      },
+    ]
+    await fsp.writeFile(trFile, steps.map((s) => JSON.stringify(s)).join('\n') + '\n')
+
+    // 1. Even with no roles/<ID>.json file yet, buildQueue + classify infer role=worker via spawnedFrom
+    const rows = await buildQueue({
+      markers: [],
+      working: [
+        {
+          sessionId: ID,
+          runtime: 'antigravity',
+          state: 'idle',
+          at: Date.now() - 5000,
+          seen: Date.now() - 1000,
+          cwd: home,
+          transcriptPath: trFile,
+          tool: '',
+          command: '',
+        },
+      ],
+      records: [],
+      now: Date.now(),
+    })
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].spawnedFrom, PARENT)
+
+    const nodes = classify({
+      records: [],
+      roles: { [PARENT]: { role: 'manager' } },
+      sessions: rows,
+    })
+    assert.equal(nodes.get(ID)?.role, 'worker')
+    assert.equal(nodes.get(ID)?.source, 'spawn')
+    assert.equal(nodes.get(ID)?.managerId, PARENT)
+
+    // 2. When stop hook fires on a short single-turn worker, ensureRoleTag persists roles/<ID>.json
+    await handleHook('stop', {
+      conversationId: ID,
+      workspacePaths: [home],
+      transcriptPath: trFile,
+      cwd: home,
+    })
+    const roleData = JSON.parse(await fsp.readFile(path.join(home, 'roles', `${ID}.json`), 'utf8'))
+    assert.equal(roleData.role, 'worker')
+    assert.equal(roleData.parent, PARENT)
   } finally {
     process.env.ZARVIS_HOME = prevHome
   }
