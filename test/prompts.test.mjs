@@ -41,6 +41,72 @@ test('promptsOf reads head and tail of a file, caches by mtime+size, and is empt
   await fsp.rm(dir, { recursive: true })
 })
 
+test('promptsOf extracts prompt and reply from Antigravity user and swarm worker transcripts', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zv-ag-prompts-'))
+  try {
+    const userTr = path.join(dir, 'user.jsonl')
+    await fsp.writeFile(
+      userTr,
+      jl(
+        {
+          step_index: 0,
+          source: 'USER_EXPLICIT',
+          type: 'USER_INPUT',
+          content: '<USER_REQUEST>\nInvestigate the   Dagster\nqueue latency\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\ntime\n</ADDITIONAL_METADATA>',
+        },
+        {
+          step_index: 1,
+          source: 'MODEL',
+          type: 'PLANNER_RESPONSE',
+          content: '',
+          tool_calls: [{ name: 'run_command', args: { CommandLine: 'npm test' } }],
+        },
+        {
+          step_index: 2,
+          source: 'MODEL',
+          type: 'PLANNER_RESPONSE',
+          content: 'Done: latency reduced\nby 40%',
+        },
+      ),
+    )
+    assert.deepEqual(await promptsOf(userTr), {
+      prompt: 'Investigate the Dagster queue latency',
+      reply: 'Done: latency reduced by 40%',
+    })
+
+    const swarmTr = path.join(dir, 'swarm.jsonl')
+    await fsp.writeFile(
+      swarmTr,
+      jl(
+        {
+          step_index: 0,
+          source: 'SYSTEM',
+          type: 'SYSTEM_MESSAGE',
+          content: '<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-18T15:45:46Z sender=63528f3d-7f1f-4413-ba1b-458118da5dd0 priority=MESSAGE_PRIORITY_HIGH content=[swarm] new board message #4\n</SYSTEM_MESSAGE>',
+        },
+        {
+          step_index: 1,
+          source: 'SYSTEM',
+          type: 'SYSTEM_MESSAGE',
+          content: '<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-18T15:45:46Z sender=a6705c08-76fd-4101-825e-748758a3028c priority=MESSAGE_PRIORITY_HIGH content=You have just started. Your assignment (recorded on the board as #4 for @packet-loa-1035-probe):\n\nYou own the deep-dive verification of **ONYX-50676**.\n</SYSTEM_MESSAGE>',
+        },
+        {
+          step_index: 2,
+          source: 'MODEL',
+          type: 'PLANNER_RESPONSE',
+          content: 'Verified ONYX-50676 packet alignment.',
+        },
+      ),
+    )
+    assert.deepEqual(await promptsOf(swarmTr), {
+      prompt: 'You own the deep-dive verification of **ONYX-50676**.',
+      reply: 'Verified ONYX-50676 packet alignment.',
+    })
+  } finally {
+    await fsp.rm(dir, { recursive: true })
+  }
+})
+
 test('palette scoring: prompt text matches contiguous words only, and 1-2 character tokens skip it', () => {
   const r = { sessionId: 'a', name: 'zebra', role: 'worker', state: 'idle', prompt: 'Fix the Dagster retry bug in the ingest job', reply: '' }
   assert.ok(scoreSession('dagster retry', r))

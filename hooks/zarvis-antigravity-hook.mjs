@@ -181,15 +181,99 @@ export function buildAntigravityBlockedMarker(payload, reason = 'Antigravity nee
   }
 }
 
-/** Check role tag at the start of the first user prompt (or after swarm board headers/@mentions). */
+const ROLE_TAG_RE =
+  /(?:^|\n)\s*(?:@[A-Za-z0-9_.-]+\s+)*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i
+const SWARM_ASSIGNMENT_RE =
+  /\bsender=([A-Za-z0-9_-]{8,80})\b[\s\S]*?You have just started\.\s*Your assignment \(recorded on the board as #\d+ for @([A-Za-z0-9_.-]+)\):/i
+const HEAD_BYTES = 32 * 1024
+
+/** Check role tag or native swarm worker assignment in prompt/message text. */
 export function buildAntigravityRoleTag(payload, now = Date.now()) {
   let prompt = typeof payload.lastUserInput === 'string' ? payload.lastUserInput : ''
   prompt = prompt
     .replace(/^\s*<USER_REQUEST>\s*/i, '')
     .replace(/^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)+/, '')
-  const m = /(?:^|\n)\s*(?:@[A-Za-z0-9_.-]+\s+)*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(prompt)
   const id = payload.conversationId || payload.session_id
-  return m ? { sessionId: id, role: m[1].toLowerCase(), parent: m[2] || '', at: now } : null
+  const m = ROLE_TAG_RE.exec(prompt)
+  if (m) return { sessionId: id, role: m[1].toLowerCase(), parent: m[2] || '', at: now }
+  const sw = SWARM_ASSIGNMENT_RE.exec(prompt)
+  if (sw) return { sessionId: id, role: 'worker', parent: sw[1], at: now }
+  return null
+}
+
+async function readHead(file, maxBytes = HEAD_BYTES) {
+  const fh = await fsp.open(file, 'r')
+  try {
+    const buf = Buffer.alloc(maxBytes)
+    const { bytesRead } = await fh.read(buf, 0, maxBytes, 0)
+    return buf.toString('utf8', 0, bytesRead)
+  } finally {
+    await fh.close()
+  }
+}
+
+/** Fallback: inspect the first 32 KB of transcriptPath for role tag or swarm worker assignment in initial steps. */
+export async function detectRoleTagFromTranscript(transcriptPath, id, now = Date.now()) {
+  if (typeof transcriptPath !== 'string' || !transcriptPath) return null
+  let head
+  try {
+    head = await readHead(transcriptPath)
+  } catch {
+    return null
+  }
+  let seenUserInput = false
+  for (const line of head.split('\n')) {
+    let r
+    try {
+      r = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!r || typeof r !== 'object' || typeof r.content !== 'string') continue
+    const isUser = r.type === 'USER_INPUT' || r.source === 'USER_EXPLICIT'
+    const isSystem = r.type === 'SYSTEM_MESSAGE' || r.source === 'SYSTEM'
+    if (isUser) {
+      if (seenUserInput) break
+      seenUserInput = true
+      const tag = buildAntigravityRoleTag({ conversationId: id, lastUserInput: r.content }, now)
+      if (tag) return tag
+    } else if (isSystem && !seenUserInput) {
+      const tag = buildAntigravityRoleTag({ conversationId: id, lastUserInput: r.content }, now)
+      if (tag) return tag
+    }
+  }
+  return null
+}
+
+async function ensureRoleTag(payload, id, rolesDir) {
+  const roleFile = path.join(rolesDir, `${id}.json`)
+  try {
+    await fsp.access(roleFile)
+    return
+  } catch {
+    /* not tagged yet */
+  }
+
+  await fsp.mkdir(rolesDir, { recursive: true })
+  let first = false
+  try {
+    await fsp.writeFile(path.join(rolesDir, `${id}.first`), '', { flag: 'wx' })
+    first = true
+  } catch {
+    /* subsequent prompt or tool call */
+  }
+
+  let tag = first ? buildAntigravityRoleTag(payload) : null
+  if (!tag && payload.transcriptPath) {
+    tag = await detectRoleTagFromTranscript(payload.transcriptPath, id)
+  }
+  if (tag) {
+    try {
+      await fsp.writeFile(roleFile, JSON.stringify(tag), { flag: 'wx' })
+    } catch {
+      /* already tagged */
+    }
+  }
 }
 
 async function writeAtomic(file, marker) {
@@ -276,25 +360,8 @@ export async function handleHook(mode, payload) {
     await fsp.rm(file, { force: true })
     let prev = await readJson(workFile)
 
-    // First prompt role registration
-    await fsp.mkdir(rolesDir, { recursive: true })
-    let first = false
-    try {
-      await fsp.writeFile(path.join(rolesDir, `${id}.first`), '', { flag: 'wx' })
-      first = true
-    } catch {
-      /* subsequent prompt */
-    }
-    if (first) {
-      const tag = buildAntigravityRoleTag(payload)
-      if (tag) {
-        try {
-          await fsp.writeFile(path.join(rolesDir, `${id}.json`), JSON.stringify(tag), { flag: 'wx' })
-        } catch {
-          /* already tagged */
-        }
-      }
-    }
+    // First prompt / swarm worker assignment role registration
+    await ensureRoleTag(payload, id, rolesDir)
 
     await writeAtomic(workFile, buildAntigravityWorking(payload, prev, Date.now(), 'working'))
     return {}
@@ -303,6 +370,9 @@ export async function handleHook(mode, payload) {
   if (mode === 'pre_tool_use') {
     let prev = await readJson(workFile)
     await writeAtomic(workFile, buildAntigravityWorking(payload, prev, Date.now(), 'working'))
+
+    // Fallback role registration if transcript only flushed by first tool call
+    await ensureRoleTag(payload, id, rolesDir)
 
     // Auto-promote untagged coordinator session to manager when spawning workers
     const tc = payload.toolCall

@@ -137,6 +137,14 @@ test('buildAntigravityRoleTag matches tags in Antigravity prompts with or withou
     { sessionId: ID, role: 'worker', parent: PARENT, at: 80 },
   )
 
+  assert.deepEqual(
+    buildAntigravityRoleTag({
+      conversationId: ID,
+      lastUserInput: `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-18T15:45:46Z sender=${PARENT} priority=MESSAGE_PRIORITY_HIGH content=You have just started. Your assignment (recorded on the board as #4 for @packet-loa-1035-probe):\n\nYou own the deep-dive verification of **ONYX-50676**...\n</SYSTEM_MESSAGE>`,
+    }, 90),
+    { sessionId: ID, role: 'worker', parent: PARENT, at: 90 },
+  )
+
   assert.equal(buildAntigravityRoleTag({ conversationId: ID, lastUserInput: 'Talk about [zarvis: role=interface]' }), null)
 })
 
@@ -244,6 +252,65 @@ test('Antigravity hook auto-promotes untagged session to manager on swarm add or
     })
     const parentRole = JSON.parse(await fsp.readFile(path.join(home, 'roles', `${PARENT}.json`), 'utf8'))
     assert.equal(parentRole.role, 'manager')
+  } finally {
+    process.env.ZARVIS_HOME = prevHome
+  }
+})
+
+test('Antigravity hook auto-registers swarm worker from SYSTEM_MESSAGE transcript without explicit zarvis tag', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-swarm-worker-'))
+  const prevHome = process.env.ZARVIS_HOME
+  process.env.ZARVIS_HOME = home
+
+  try {
+    const trFile = path.join(home, 'transcript.jsonl')
+    const basePayload = {
+      conversationId: ID,
+      workspacePaths: [home],
+      transcriptPath: trFile,
+      cwd: home,
+    }
+
+    // pre_invocation fires with empty lastUserInput before transcript is flushed
+    await handleHook('pre_invocation', {
+      ...basePayload,
+      lastUserInput: '',
+    })
+    await assert.rejects(fsp.readFile(path.join(home, 'roles', `${ID}.json`), 'utf8'))
+
+    // Transcript flushes with native swarm SYSTEM_MESSAGE steps (no USER_INPUT, no [zarvis: ...] tag)
+    const steps = [
+      {
+        step_index: 0,
+        source: 'SYSTEM',
+        type: 'SYSTEM_MESSAGE',
+        status: 'DONE',
+        content: '...\n<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-18T15:45:46Z sender=63528f3d-7f1f-4413-ba1b-458118da5dd0 priority=MESSAGE_PRIORITY_HIGH content=[swarm] new board message #4\n</SYSTEM_MESSAGE>',
+      },
+      {
+        step_index: 1,
+        source: 'SYSTEM',
+        type: 'SYSTEM_MESSAGE',
+        status: 'DONE',
+        content: `...\n<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-18T15:45:46Z sender=${PARENT} priority=MESSAGE_PRIORITY_HIGH content=You have just started. Your assignment (recorded on the board as #4 for @packet-loa-1035-probe):\n\nYou own the deep-dive verification of **ONYX-50676**...\n</SYSTEM_MESSAGE>`,
+      },
+    ]
+    await fsp.writeFile(trFile, steps.map((s) => JSON.stringify(s)).join('\n') + '\n')
+
+    // First tool call inspects transcript head and auto-registers worker attached to coordinator
+    await handleHook('pre_tool_use', {
+      ...basePayload,
+      toolCall: { name: 'run_command', args: { CommandLine: 'git status' } },
+    })
+
+    const roleData = JSON.parse(await fsp.readFile(path.join(home, 'roles', `${ID}.json`), 'utf8'))
+    assert.equal(roleData.sessionId, ID)
+    assert.equal(roleData.role, 'worker')
+    assert.equal(roleData.parent, PARENT)
+
+    // transcriptMeta derives @<worker-name>: <brief summary> instead of Untitled session
+    const meta = await transcriptMeta(trFile, ID)
+    assert.equal(meta.title, '@packet-loa-1035-probe: You own the deep-dive verification of **ONYX-50676**...')
   } finally {
     process.env.ZARVIS_HOME = prevHome
   }
