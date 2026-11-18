@@ -931,8 +931,16 @@ async function openSel() {
   // A manager with a blocked worker: the leaf-only rule says go to the worker that is blocked.
   const target = r.ck ? r.ck.holder.sessionId : r.blockedChildren?.[0]?.sessionId || r.sessionId
   const { ok, data } = await post('/api/open', { sessionId: target })
-  const rt = r.runtime === 'antigravity' ? 'Antigravity' : 'Claude'
-  toast(ok ? `Opening “${r.name}” in ${rt}…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'Open failed')
+  const rt = (data?.runtime || r.runtime) === 'antigravity' ? 'Antigravity' : 'Claude'
+  if (ok && rt === 'Antigravity') {
+    const textToCopy = data?.name || r.name || r.title || target
+    if (textToCopy && navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(textToCopy) } catch {}
+    }
+    toast(`Opening “${r.name}” in Antigravity… title copied to clipboard${data?.dryRun ? ' (dry run)' : ''}`, 5000)
+    return
+  }
+  toast(ok ? `Opening “${r.name}” in ${rt}…${data?.dryRun ? ' (dry run)' : ''}` : data?.error || 'Open failed')
 }
 
 async function newSession(role, runtime = 'claude') {
@@ -945,10 +953,13 @@ async function newSession(role, runtime = 'claude') {
   }
   const where = data?.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
   const rtLabel = runtime === 'antigravity' ? 'Antigravity' : 'Claude Code'
-  const tag = data?.marker
-    ? ` with ${data.marker} in the prompt box (not sent)`
-    : ''
-  toast(ok ? `Opening a new ${rtLabel} session${where}${tag}…${data?.dryRun ? ' (dry run)' : ''}` : data?.error || 'New session failed', data?.marker ? 7000 : 2600)
+  let msg = `Opening a new ${rtLabel} session${where}…${data?.dryRun ? ' (dry run)' : ''}`
+  if (data?.keystrokeFailed) {
+    msg = `Antigravity activated (prompt copied). Press ⌘N then ⌘V to start!`
+  } else if (data?.marker) {
+    msg = `Opening a new ${rtLabel} session${where} with ${data.marker} in the prompt box (not sent)…${data?.dryRun ? ' (dry run)' : ''}`
+  }
+  toast(ok ? msg : data?.error || 'New session failed', data?.keystrokeFailed ? 8000 : data?.marker ? 7000 : 2600)
 }
 
 async function lifecycle(path, body, label, back) {
@@ -2068,8 +2079,9 @@ function classifyHtml(s) {
 }
 
 function sessionRowHtml(s, i, max, classify = false) {
+  const rtLabel = s.runtime === 'antigravity' ? 'Antigravity' : 'Claude'
   return (
-    `<div class="cs-row ss${i === csSel ? ' sel' : ''}" data-i="${i}" data-id="${esc(s.sessionId)}" title="Enter opens this session in Claude">` +
+    `<div class="cs-row ss${i === csSel ? ' sel' : ''}" data-i="${i}" data-id="${esc(s.sessionId)}" title="Enter opens this session in ${rtLabel}">` +
     `<div class="cs-top">${s.sessionId === renaming ? `<input id="renIn" class="cs-rn" value="${esc(s.name)}" maxlength="120" aria-label="Rename session" placeholder="Name (empty restores the app title)">` : `<span class="cs-nm">${esc(s.name || s.sessionId)}</span>`}<span class="cs-tag">${esc(s.role === 'unclassified' ? 'session' : s.role === 'manager' && costGroup === 'manager' ? 'manager itself' : s.role)}</span>${s.parked ? '<span class="cs-tag">parked</span>' : ''}${costGroup === 'manager' ? `<span class="cs-tag">${esc(s.project)}</span>` : ''}${s.source === 'explicit' ? '<span class="cs-tag">tagged</span>' : s.source === 'manager' ? '<span class="cs-tag">manager\'s tag</span>' : ''}<span class="cs-usd">${esc(usd(s.cost))}</span></div>` +
     `<div class="cs-bar2"><i style="width:${share(s.cost, max).toFixed(1)}%"></i></div>` +
     `<div class="cs-meta"><span><b>${tok(s.totalTokens)}</b> tokens</span><span>${typeLine(s.tokens)}</span><span>${s.messages} message${s.messages === 1 ? '' : 's'}</span>${s.unpricedTokens ? `<span style="color:var(--am)">${tok(s.unpricedTokens)} unpriced</span>` : ''}</div>` +
@@ -2174,7 +2186,18 @@ function enterCost() {
     csPage = 0
     return renderCosts(true)
   }
-  post('/api/open', { sessionId: x.sessionId }).then(({ ok, data }) => toast(ok ? 'Opening in Claude…' + (data.dryRun ? ' (dry run)' : '') : data.error || 'That session is not listed (done, archived or gone)'))
+  post('/api/open', { sessionId: x.sessionId }).then(async ({ ok, data }) => {
+    if (!ok) return toast(data?.error || 'That session is not listed (done, archived or gone)')
+    const rt = (data?.runtime || x.runtime) === 'antigravity' ? 'Antigravity' : 'Claude'
+    if (rt === 'Antigravity') {
+      const textToCopy = data?.name || x.name || x.title || x.sessionId
+      if (textToCopy && navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(textToCopy) } catch {}
+      }
+      return toast(`Opening “${x.name || 'session'}” in Antigravity… title copied to clipboard${data?.dryRun ? ' (dry run)' : ''}`, 5000)
+    }
+    toast(`Opening in ${rt}…${data?.dryRun ? ' (dry run)' : ''}`)
+  })
 }
 function leaveCost() {
   if (!csDrill) return setView('queue')
