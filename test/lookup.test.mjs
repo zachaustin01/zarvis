@@ -124,7 +124,7 @@ test('CLI list filters by role, manager and running; text says unknown honestly'
 })
 
 test('CLI with no records at all lists nothing, and bad options exit 1', async () => {
-  assert.match((await cli(['list'], world({ records: [] }))).out, /no matching sessions/)
+  assert.match((await cli(['list'], world({ records: [], roles: {} }))).out, /no matching sessions/)
   assert.equal((await cli(['list', '--bogus'])).code, 1)
   assert.equal((await cli(['nope'])).code, 1)
   assert.throws(() => parseArgs(['list', '--role']), /needs a value/)
@@ -142,4 +142,12 @@ test('withHolderLinks: a claim\'s holder resolves to its desktop record and clau
   assert.equal(out[3].holder.link, `claude://claude.ai/epitaxy/local_${id(ARCH)}`, 'archived is still openable, as in the lookup')
   assert.equal(out[0].holder.name, 'H3', 'the rest of the view is untouched')
   assert.deepEqual(withHolderLinks([], records), [])
+})
+
+test('a classified worker with no record and an aged-out marker still resolves with role and manager', async () => {
+  const AGED = 9
+  const w = world({ roles: { ...world().roles, [id(AGED)]: { role: 'worker', parent: id(MGR) } } })
+  const e = by(await buildLookup({ ...w, all: true }), AGED)
+  assert.ok(e)
+  assert.deepEqual([e.role, e.managerId, e.managerName], ['worker', id(MGR), 'Hand name'])
 })
