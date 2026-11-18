@@ -254,24 +254,31 @@ function openAntigravity(folder) {
 }
 
 function openNewAntigravitySession(prompt, folder) {
-  if (DRY_OPEN) return Promise.resolve()
+  if (DRY_OPEN) return Promise.resolve({ ok: true })
   if (process.platform === 'darwin') {
     return new Promise((resolve) => {
       // 1. Copy prompt to macOS clipboard first
       const cp = execFile('pbcopy', [], () => {
-        // 2. Activate Antigravity, send Cmd+N to start a New Conversation, then Cmd+V to paste prompt
+        // 2. Activate Antigravity, send Cmd+N (key code 45) to start a New Conversation, then Cmd+V (key code 9) to paste prompt
         const script = `
 tell application "Antigravity" to activate
-delay 0.3
-tell application "System Events" to keystroke "n" using command down
-${prompt ? `delay 0.4\ntell application "System Events" to keystroke "v" using command down` : ''}
+delay 0.5
+tell application "System Events"
+  tell process "Antigravity"
+    key code 45 using {command down}
+${prompt ? `    delay 0.5\n    key code 9 using {command down}` : ''}
+  end tell
+end tell
 `
         execFile('osascript', ['-e', script], { timeout: 10000 }, (err) => {
           if (err) {
-            // Fallback to open -a Antigravity if AppleScript fails
-            openAntigravity(folder).then(resolve, resolve)
+            // Fallback to open -a Antigravity if AppleScript keystroke permission is not enabled
+            openAntigravity(folder).then(
+              () => resolve({ ok: true, keystrokeFailed: true }),
+              () => resolve({ ok: true, keystrokeFailed: true })
+            )
           } else {
-            resolve()
+            resolve({ ok: true, keystrokeFailed: false })
           }
         })
       })
@@ -282,16 +289,16 @@ ${prompt ? `delay 0.4\ntell application "System Events" to keystroke "v" using c
   return Promise.all([
     openAntigravity(folder),
     copyToClipboard(prompt),
-  ])
+  ]).then(() => ({ ok: true, keystrokeFailed: false }))
 }
 
 async function openNewSession(link, runtime, folder, prompt) {
-  if (DRY_OPEN) return
+  if (DRY_OPEN) return { ok: true }
   if (runtime === 'antigravity') {
-    await openNewAntigravitySession(prompt, folder)
-    return
+    return openNewAntigravitySession(prompt, folder)
   }
   await openUrl(link)
+  return { ok: true }
 }
 
 /** Open a file with its default app, or show it in the file manager (`reveal`). */
@@ -420,8 +427,22 @@ const server = http.createServer(async (req, res) => {
       const row = (await allRows()).find((r) => r.sessionId === sessionId) || (await findInTree(sessionId))
       if (!row) return send(res, 404, { error: 'not in queue' })
       if (!row.link) return send(res, 409, { error: 'terminal session: no desktop app session to open' })
-      await openUrl(row.link)
-      return send(res, 200, { ok: true, url: row.link, dryRun: DRY_OPEN })
+      const isAgy = row.runtime === 'antigravity'
+      if (isAgy) {
+        await Promise.all([
+          openUrl(row.link).catch(() => openAntigravity()),
+          copyToClipboard(row.name || row.title || row.sessionId),
+        ])
+      } else {
+        await openUrl(row.link)
+      }
+      return send(res, 200, {
+        ok: true,
+        url: row.link,
+        runtime: row.runtime || (isAgy ? 'antigravity' : 'claude'),
+        name: row.name || row.title || '',
+        dryRun: DRY_OPEN,
+      })
     }
     if (req.method === 'GET' && url.pathname === '/api/schedule') {
       const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
@@ -454,8 +475,17 @@ const server = http.createServer(async (req, res) => {
       // Managers and the interface also get one line saying where to learn the job; only the tag is parsed.
       const prompt = rolePrompt(role, parent, ROSTER_FILE)
       const link = newSessionLink(folder, prompt, rt)
-      await openNewSession(link, rt, folder, prompt)
-      return send(res, 200, { ok: true, url: link, folder, marker, prompt, runtime: rt, dryRun: DRY_OPEN })
+      const openResult = await openNewSession(link, rt, folder, prompt)
+      return send(res, 200, {
+        ok: true,
+        url: link,
+        folder,
+        marker,
+        prompt,
+        runtime: rt,
+        keystrokeFailed: openResult?.keystrokeFailed || false,
+        dryRun: DRY_OPEN,
+      })
     }
     if (req.method === 'GET' && url.pathname === '/api/costs') return send(res, 200, await costs(normalizeRange(url.searchParams.get('range')), url.searchParams.get('project') || ''))
     if (req.method === 'GET' && url.pathname === '/api/version') return send(res, 200, { version: await appVersion(PUBLIC) })
