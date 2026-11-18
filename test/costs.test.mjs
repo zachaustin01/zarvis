@@ -514,8 +514,8 @@ test('Costs view: a session can be renamed in a drill-down (r or the rename chip
   assert.match(app, /data-rename/)
 })
 
-test('Antigravity transcript parsing: parseLine extracts PLANNER_RESPONSE and carries lastModel across turns', () => {
-  const fileCtx = { lastModel: '' }
+test('Antigravity transcript parsing: parseLine extracts PLANNER_RESPONSE and CHECKPOINT, scoping keys by sessionId', () => {
+  const fileCtx = { lastModel: '', sessionId: 'session-xyz' }
   const line1 = JSON.stringify({
     step_index: 0,
     type: 'PLANNER_RESPONSE',
@@ -527,7 +527,7 @@ test('Antigravity transcript parsing: parseLine extracts PLANNER_RESPONSE and ca
   })
   const p1 = parseLine(line1, fileCtx)
   assert.ok(p1)
-  assert.equal(p1.key, 's:0')
+  assert.equal(p1.key, 'session-xyz:s:0')
   assert.equal(p1.entry[E.model], 'gemini-3.8-flash-medium')
   assert.equal(p1.entry[E.input], 1200)
   assert.equal(p1.entry[E.output], 300)
@@ -544,10 +544,28 @@ test('Antigravity transcript parsing: parseLine extracts PLANNER_RESPONSE and ca
   })
   const p2 = parseLine(line2, fileCtx)
   assert.ok(p2)
-  assert.equal(p2.key, 's:1')
+  assert.equal(p2.key, 'session-xyz:s:1')
   assert.equal(p2.entry[E.model], 'gemini-3.8-flash-medium')
   assert.equal(p2.entry[E.input], 800)
   assert.equal(p2.entry[E.output], 150)
+
+  // Step 3 is a context compaction CHECKPOINT
+  const line3 = JSON.stringify({
+    step_index: 2,
+    type: 'CHECKPOINT',
+    source: 'SYSTEM',
+    input_tokens: 4000,
+    output_tokens: 2500,
+    cache_read_tokens: 250000,
+    created_at: new Date(NOW + 2000).toISOString(),
+  })
+  const p3 = parseLine(line3, fileCtx)
+  assert.ok(p3)
+  assert.equal(p3.key, 'session-xyz:s:2')
+  assert.equal(p3.entry[E.model], 'gemini-3.8-flash-medium')
+  assert.equal(p3.entry[E.input], 4000)
+  assert.equal(p3.entry[E.output], 2500)
+  assert.equal(p3.entry[E.cacheRead], 250000)
 })
 
 test('pricing: Gemini models, suffix stripping, dated rate steps, and no silent family matching', () => {
