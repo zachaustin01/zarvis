@@ -148,6 +148,12 @@ test('Antigravity hook lifecycle end-to-end writes and clears markers', async ()
 })
 
 import { buildQueue } from '../lib/queue.mjs'
+import {
+  parsePbtxtTitle,
+  findAntigravityTitle,
+  findAntigravityTitleSync,
+  transcriptMeta,
+} from '../lib/sessions.mjs'
 
 test('buildQueue surfaces Antigravity session with runtime tag and antigravity:// link', async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-q-ag-'))
@@ -197,6 +203,129 @@ test('newSessionLink builds correct deep link for Antigravity vs Claude', async 
   assert.equal(newSessionLink('/Users/zachaustin/repo', '[zarvis: role=worker parent=123]', 'antigravity'), 'antigravity://new?path=%2FUsers%2Fzachaustin%2Frepo&q=%5Bzarvis%3A+role%3Dworker+parent%3D123%5D')
   assert.equal(newSessionLink('', '', 'claude'), 'claude://code/new')
   assert.equal(newSessionLink('/Users/zachaustin/repo', 'prompt', 'claude'), 'claude://code/new?folder=%2FUsers%2Fzachaustin%2Frepo&q=prompt')
+})
+
+test('parsePbtxtTitle extracts and unescapes Antigravity session titles', () => {
+  assert.equal(
+    parsePbtxtTitle('title:"Tracking NFL Ticket And Money Percentages" last_user_view_time:{seconds:123}'),
+    'Tracking NFL Ticket And Money Percentages',
+  )
+  assert.equal(
+    parsePbtxtTitle('title: "Renamed \\"Special\\" Session"\nlast_view: 123'),
+    'Renamed "Special" Session',
+  )
+  assert.equal(parsePbtxtTitle('title: ""'), '')
+  assert.equal(parsePbtxtTitle('last_user_view_time: { seconds: 123 }'), '')
+  assert.equal(parsePbtxtTitle(null), '')
+})
+
+test('findAntigravityTitle reads title from annotations directory', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-agy-root-'))
+  const annotDir = path.join(root, 'annotations')
+  await fsp.mkdir(annotDir, { recursive: true })
+  await fsp.writeFile(
+    path.join(annotDir, `${ID}.pbtxt`),
+    'title:"Tracking NFL Ticket And Money Percentages" last_user_view_time:{seconds:123}',
+  )
+
+  const candidatePath = path.join(root, 'brain', ID, '.system_generated', 'logs', 'transcript.jsonl')
+  const titleAsync = await findAntigravityTitle(ID, candidatePath)
+  assert.equal(titleAsync, 'Tracking NFL Ticket And Money Percentages')
+
+  const titleSync = findAntigravityTitleSync(ID, candidatePath)
+  assert.equal(titleSync, 'Tracking NFL Ticket And Money Percentages')
+
+  const nonExistent = await findAntigravityTitle('00000000-0000-0000-0000-000000000000', candidatePath)
+  assert.equal(nonExistent, '')
+})
+
+test('transcriptMeta prioritizes Antigravity annotation title over initial transcript prompt', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-agy-meta-'))
+  const trDir = path.join(root, 'brain', ID, '.system_generated', 'logs')
+  const annotDir = path.join(root, 'annotations')
+  await fsp.mkdir(trDir, { recursive: true })
+  await fsp.mkdir(annotDir, { recursive: true })
+
+  const trFile = path.join(trDir, 'transcript.jsonl')
+  await fsp.writeFile(
+    trFile,
+    JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      content: '<USER_REQUEST>\ni\'m interested in seeing if we can track % of tickets and % of money placed on NFL sides for this upcoming weekend\n</USER_REQUEST>',
+    }) + '\n',
+  )
+  await fsp.writeFile(
+    path.join(annotDir, `${ID}.pbtxt`),
+    'title:"Tracking NFL Ticket And Money Percentages" last_user_view_time:{seconds:123}',
+  )
+
+  // With annotation file present: annotation title wins
+  const metaWithAnnot = await transcriptMeta(trFile, ID)
+  assert.equal(metaWithAnnot.title, 'Tracking NFL Ticket And Money Percentages')
+
+  // Without annotation file: fallback to first line of prompt
+  const otherId = '00000000-1111-2222-3333-444444444444'
+  const otherTrDir = path.join(root, 'brain', otherId, '.system_generated', 'logs')
+  await fsp.mkdir(otherTrDir, { recursive: true })
+  const otherTrFile = path.join(otherTrDir, 'transcript.jsonl')
+  await fsp.writeFile(
+    otherTrFile,
+    JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      content: '<USER_REQUEST>\nFallback prompt title\n</USER_REQUEST>',
+    }) + '\n',
+  )
+  const metaFallback = await transcriptMeta(otherTrFile, otherId)
+  assert.equal(metaFallback.title, 'Fallback prompt title')
+})
+
+test('buildQueue reflects renamed Antigravity title from annotations', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-agy-queue-'))
+  const trDir = path.join(root, 'brain', ID, '.system_generated', 'logs')
+  const annotDir = path.join(root, 'annotations')
+  await fsp.mkdir(trDir, { recursive: true })
+  await fsp.mkdir(annotDir, { recursive: true })
+
+  const trFile = path.join(trDir, 'transcript.jsonl')
+  await fsp.writeFile(
+    trFile,
+    JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      content: '<USER_REQUEST>\ni\'m interested in seeing if we can track % of tickets\n</USER_REQUEST>',
+    }) + '\n',
+  )
+  await fsp.writeFile(
+    path.join(annotDir, `${ID}.pbtxt`),
+    'title:"Tracking NFL Ticket And Money Percentages" last_user_view_time:{seconds:123}',
+  )
+
+  const m = {
+    sessionId: ID,
+    runtime: 'antigravity',
+    state: 'idle',
+    at: Date.now() - 5000,
+    seen: Date.now() - 1000,
+    cwd: root,
+    transcriptPath: trFile,
+    tool: '',
+    command: '',
+  }
+
+  const rows = await buildQueue({
+    markers: [],
+    working: [m],
+    records: [],
+    now: Date.now(),
+  })
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].title, 'Tracking NFL Ticket And Money Percentages')
 })
 
 
