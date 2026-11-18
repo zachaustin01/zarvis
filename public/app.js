@@ -2,7 +2,7 @@
 import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, isOverdue, canBeOverdue, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
-import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel, PROVIDERS as COST_PROVIDERS, DEFAULT_PROVIDER, providerOfChoice } from '/costs.js'
+import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel, PROVIDERS as COST_PROVIDERS, DEFAULT_PROVIDER, providerOfChoice, pricingAttribution } from '/costs.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -2168,7 +2168,8 @@ function renderCosts(force) {
   setHtml('list', $('#csList'), items.map((x, i) => (proj ? sessionRowHtml(x, i, max, proj.kind === 'unclassified' || proj.kind === 'unmanaged') : groupRowHtml(x, i, max, dayMax))).join(''))
   $('#csEmpty').hidden = items.length > 0
   const pr = costs.pricing
-  setHtml('foot', $('#csFoot'), `Cost = tokens x per-model API list price (${esc(pr.source.replace(/^https:\/\//, ''))}, checked ${esc(pr.checked)}${pr.overridden.length ? `; overridden in ~/.zarvis/pricing.json: ${esc(pr.overridden.join(', '))}` : ''}). It is not what a subscription bills. Subagent tokens count for their session; repeated transcript lines count once.`)
+  const attr = pricingAttribution(pr, costProvider)
+  setHtml('foot', $('#csFoot'), `Cost = tokens x per-model API list price: ${esc(attr)}${pr.overridden?.length ? `; overridden in ~/.zarvis/pricing.json: ${esc(pr.overridden.join(', '))}` : ''}. It is not what a subscription bills. Subagent tokens count for their session; repeated transcript lines count once.`)
   paginateCosts()
 }
 

@@ -84,5 +84,23 @@ export function dayLabel(key) {
   return new Date(y, m - 1, d).toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
+/** Pricing source and check date attribution per active provider ('all' | 'anthropic' | 'gcp'). */
+export function pricingAttribution(pricing, provider = 'all') {
+  if (!pricing) return ''
+  const provs = pricing.providers || {}
+  const list = []
+  if (provider === 'anthropic' || provider === 'all') {
+    const a = provs.anthropic || { source: pricing.source, checked: pricing.checked }
+    const src = a.source ? a.source.replace(/^https:\/\//, '') : 'platform.claude.com'
+    list.push(`Anthropic (${src}, checked ${a.checked || '2026-10-29'})`)
+  }
+  if (provider === 'gcp' || provider === 'all') {
+    const g = provs.gcp || { source: 'https://ai.google.dev/pricing', checked: '2026-11-18' }
+    const src = g.source ? g.source.replace(/^https:\/\//, '') : 'ai.google.dev/pricing'
+    list.push(`Google Cloud (${src}, checked ${g.checked || '2026-11-18'})`)
+  }
+  return list.join('; ')
+}
+
 /** Move a selection index through `n` rows, stopping at the ends. */
 export const stepIndex = (i, n, d) => (n ? Math.min(n - 1, Math.max(0, i + d)) : 0)

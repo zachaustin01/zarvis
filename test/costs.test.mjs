@@ -6,7 +6,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { parseLine, createUsageScanner, E } from '../lib/usage.mjs'
-import { DEFAULT_PRICES, priceFor, costOf, tierFor, parseOverrides, loadPricing, baseModelId } from '../lib/pricing.mjs'
+import { DEFAULT_PRICES, priceFor, costOf, tierFor, parseOverrides, loadPricing, baseModelId, PROVIDER_PRICING, providerOf } from '../lib/pricing.mjs'
 import { buildCosts, rangeStart, dayOf, daysIn, normalizeRange } from '../lib/costs.mjs'
 import { readTags, setTag, clearTag, resolveProject, cleanProject } from '../lib/project-tags.mjs'
 import { runCosts, formatReport, parseArgs } from '../lib/costs-cli.mjs'
@@ -550,7 +550,7 @@ test('Antigravity transcript parsing: parseLine extracts PLANNER_RESPONSE and ca
   assert.equal(p2.entry[E.output], 150)
 })
 
-test('pricing: Gemini models and baseModelId thinking suffix stripping', () => {
+test('pricing: Gemini models, suffix stripping, dated rate steps, and no silent family matching', () => {
   assert.equal(baseModelId('gemini-4-argon-high'), 'gemini-4-argon')
   assert.equal(baseModelId('gemini-3.8-flash-medium'), 'gemini-3.8-flash')
   assert.equal(baseModelId('gemini-3.5-flash-lite-low'), 'gemini-3.5-flash-lite')
@@ -562,11 +562,35 @@ test('pricing: Gemini models and baseModelId thinking suffix stripping', () => {
   assert.equal(argon.price.input, 2.5)
   assert.equal(argon.price.output, 15)
 
-  const flash = priceFor('gemini-3.8-flash-medium', DEFAULT_PRICES)
-  assert.ok(flash)
-  assert.equal(flash.key, 'gemini-3.8-flash')
-  assert.equal(flash.price.input, 0.3)
-  assert.equal(flash.price.output, 2.5)
+  // In 2026: intro promo rate
+  const flash2026 = priceFor('gemini-3.8-flash-medium', DEFAULT_PRICES, Date.parse('2026-11-18T12:00:00Z'))
+  assert.ok(flash2026)
+  assert.equal(flash2026.key, 'gemini-3.8-flash')
+  assert.equal(flash2026.price.input, 0.75)
+  assert.equal(flash2026.price.output, 3.75)
+  assert.equal(flash2026.price.cacheRead, 0.075)
+
+  // From 2027-01-01: standard rate
+  const flash2027 = priceFor('gemini-3.8-flash-medium', DEFAULT_PRICES, Date.parse('2027-01-02T00:00:00Z'))
+  assert.ok(flash2027)
+  assert.equal(flash2027.price.input, 1.5)
+  assert.equal(flash2027.price.output, 7.5)
+  assert.equal(flash2027.price.cacheRead, 0.15)
+
+  // Unknown Gemini model is unpriced (null), never silently family-matched
+  assert.equal(priceFor('gemini-nonexistent-future-model', DEFAULT_PRICES), null)
+  assert.equal(priceFor('gemini-unknown', DEFAULT_PRICES), null)
+})
+
+test('pricing: every table entry belongs to a provider with a cited source and check date', () => {
+  for (const model of Object.keys(DEFAULT_PRICES)) {
+    const prov = providerOf(model)
+    assert.ok(['anthropic', 'gcp'].includes(prov), `model ${model} must map to a recognized provider`)
+    const info = PROVIDER_PRICING[prov]
+    assert.ok(info, `provider ${prov} must have citation info`)
+    assert.ok(typeof info.source === 'string' && info.source.startsWith('https://'), `source for ${prov} must be a valid https URL`)
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(info.checked), `checked date for ${prov} must be YYYY-MM-DD`)
+  }
 })
 
 test('buildCosts: provider filtering (all, anthropic, gcp) and totals.providers rollups', () => {
@@ -575,14 +599,14 @@ test('buildCosts: provider filtering (all, anthropic, gcp) and totals.providers 
       sessionId: id(1),
       cwd: '/work/claude-proj',
       entries: [
-        [NOW, 'claude-sonnet-5-5', 1_000_000, 100_000, 0, 0, 0], // $3 + $1.50 = $4.50
+        [NOW, 'claude-sonnet-5-5', 1_000_000, 100_000, 0, 0, 0], // $2 in + $1 out = $3.00
       ],
     },
     {
       sessionId: id(2),
       cwd: '/work/gemini-proj',
       entries: [
-        [NOW, 'gemini-3.8-flash', 10_000_000, 1_000_000, 0, 0, 0], // $3 + $2.50 = $5.50
+        [NOW, 'gemini-3.8-flash', 10_000_000, 1_000_000, 0, 0, 0], // 10M * 0.75 = $7.50, 1M * 3.75 = $3.75 => $11.25
       ],
     },
   ]
@@ -591,12 +615,12 @@ test('buildCosts: provider filtering (all, anthropic, gcp) and totals.providers 
     [id(2), { name: 'g1', role: 'worker', runtime: 'antigravity' }],
   ])
 
-  // All providers
+  // All providers (NOW is in 2030, so Gemini Flash standard rates apply: 10M * 1.50 = $15, 1M * 7.50 = $7.50 => $22.50)
   const allCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'all' })
   assert.equal(allCosts.totals.sessions, 2)
-  assert.equal(allCosts.totals.cost, 8.5)
+  assert.equal(allCosts.totals.cost, 25.5)
   assert.equal(allCosts.totals.providers.anthropic, 3)
-  assert.equal(allCosts.totals.providers.gcp, 5.5)
+  assert.equal(allCosts.totals.providers.gcp, 22.5)
 
   // Anthropic only
   const anthropicCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'anthropic' })
@@ -608,31 +632,37 @@ test('buildCosts: provider filtering (all, anthropic, gcp) and totals.providers 
   // GCP only
   const gcpCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'gcp' })
   assert.equal(gcpCosts.totals.sessions, 1)
-  assert.equal(gcpCosts.totals.cost, 5.5)
+  assert.equal(gcpCosts.totals.cost, 22.5)
   assert.equal(gcpCosts.projects.length, 1)
   assert.equal(gcpCosts.projects[0].project, 'gemini-proj')
 })
 
-test('costs-cli: --provider option validation and formatReport', () => {
+test('costs-cli: --provider option validation and formatReport attribution', () => {
   assert.equal(parseArgs(['--provider', 'gcp']).provider, 'gcp')
   assert.equal(parseArgs(['--provider', 'anthropic']).provider, 'anthropic')
   assert.throws(() => parseArgs(['--provider', 'azure']), /--provider must be one of/)
 
-  const report = {
+  const reportGcp = {
     range: '7d',
     provider: 'gcp',
     totals: { cost: 5.5, totalTokens: 11_000_000, tokens: { input: 10_000_000, output: 1_000_000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 }, sessions: 1, roles: { manager: 0, worker: 5.5, other: 0 }, unpricedTokens: 0 },
     projects: [],
     unpriced: [],
     approx: [],
-    pricing: { source: 's', checked: 'd', overridden: [] },
+    pricing: { source: 'https://platform.claude.com', checked: '2026-10-29', providers: PROVIDER_PRICING, overridden: [] },
   }
-  const formatted = formatReport(report)
-  assert.match(formatted, /\[GCP\]/)
+  const formattedGcp = formatReport(reportGcp)
+  assert.match(formattedGcp, /\[GCP\]/)
+  assert.match(formattedGcp, /Prices: GCP: https:\/\/ai\.google\.dev\/pricing/)
+
+  const reportAll = { ...reportGcp, provider: 'all' }
+  const formattedAll = formatReport(reportAll)
+  assert.match(formattedAll, /Anthropic: https:\/\/platform\.claude\.com/)
+  assert.match(formattedAll, /GCP: https:\/\/ai\.google\.dev\/pricing/)
 })
 
-test('public/costs.js: familyOf, modelLabel, and PROVIDERS', async () => {
-  const { familyOf, modelLabel, PROVIDERS } = await import('../public/costs.js')
+test('public/costs.js: familyOf, modelLabel, PROVIDERS, and pricingAttribution', async () => {
+  const { familyOf, modelLabel, PROVIDERS, pricingAttribution } = await import('../public/costs.js')
   assert.equal(familyOf('gemini-4-argon-high'), 'argon')
   assert.equal(familyOf('gemini-3.8-flash-medium'), 'flash')
   assert.equal(familyOf('gemini-3.5-flash-lite'), 'flash-lite')
@@ -646,4 +676,11 @@ test('public/costs.js: familyOf, modelLabel, and PROVIDERS', async () => {
   assert.equal(modelLabel('claude-sonnet-4-5'), 'sonnet 4.5')
 
   assert.deepEqual(PROVIDERS.map((p) => p.id), ['all', 'anthropic', 'gcp'])
+
+  const pr = { source: 'https://platform.claude.com/docs/en/about-claude/pricing', checked: '2026-10-29', providers: PROVIDER_PRICING }
+  assert.match(pricingAttribution(pr, 'anthropic'), /Anthropic \(platform\.claude\.com/)
+  assert.match(pricingAttribution(pr, 'gcp'), /Google Cloud \(ai\.google\.dev\/pricing/)
+  const allAttr = pricingAttribution(pr, 'all')
+  assert.match(allAttr, /Anthropic/)
+  assert.match(allAttr, /Google Cloud/)
 })
