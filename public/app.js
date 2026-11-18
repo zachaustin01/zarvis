@@ -35,6 +35,8 @@ let roleFilter = '' // queue role filter: '' | 'manager' | 'worker' (persisted)
 try { project = localStorage.getItem('zarvis.project') || '' } catch { /* storage blocked */ }
 try { showParked = localStorage.getItem('zarvis.showParked') === '1' } catch { /* storage blocked */ }
 try { roleFilter = resolveRole(localStorage.getItem('zarvis.role')) } catch { /* storage blocked */ }
+let agyKeystrokes = false
+try { agyKeystrokes = localStorage.getItem('zarvis.antigravityKeystrokes') === '1' } catch { /* storage blocked */ }
 
 const ICON = { interface: '◆', manager: '▣', worker: '●', unclassified: '?' }
 const STATE_LABEL = { blocked: 'needs you', waiting_on_child: 'waiting on worker', working: 'working', idle: 'idle', unknown: 'no signal' }
@@ -930,14 +932,17 @@ async function openSel() {
   if (r.ck && !r.ck.holder.link) return toast('terminal session: no desktop app session to open')
   // A manager with a blocked worker: the leaf-only rule says go to the worker that is blocked.
   const target = r.ck ? r.ck.holder.sessionId : r.blockedChildren?.[0]?.sessionId || r.sessionId
-  const { ok, data } = await post('/api/open', { sessionId: target })
+  const { ok, data } = await post('/api/open', { sessionId: target, keystrokes: agyKeystrokes })
   const rt = (data?.runtime || r.runtime) === 'antigravity' ? 'Antigravity' : 'Claude'
   if (ok && rt === 'Antigravity') {
     const textToCopy = data?.name || r.name || r.title || target
     if (textToCopy && navigator.clipboard?.writeText) {
       try { await navigator.clipboard.writeText(textToCopy) } catch {}
     }
-    toast(`Opening “${r.name}” in Antigravity… title copied to clipboard${data?.dryRun ? ' (dry run)' : ''}`, 5000)
+    const tip = data?.keystrokesUsed && !data?.keystrokeFailed
+      ? `opened “${r.name}”`
+      : `title copied to clipboard (press ⌘K + ⌘V)`
+    toast(`Opening in Antigravity… ${tip}${data?.dryRun ? ' (dry run)' : ''}`, 5000)
     return
   }
   toast(ok ? `Opening “${r.name}” in ${rt}…${data?.dryRun ? ' (dry run)' : ''}` : data?.error || 'Open failed')
@@ -947,19 +952,23 @@ async function newSession(role, runtime = 'claude') {
   const r = selRow()
   // A worker started with a manager selected is attached to it; the server builds the tag.
   const parent = role === 'worker' && r?.role === 'manager' ? r.sessionId : ''
-  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId, role, parent, runtime })
+  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId, role, parent, runtime, keystrokes: agyKeystrokes })
   if (data?.prompt && navigator.clipboard?.writeText) {
     try { await navigator.clipboard.writeText(data.prompt) } catch {}
   }
   const where = data?.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
   const rtLabel = runtime === 'antigravity' ? 'Antigravity' : 'Claude Code'
   let msg = `Opening a new ${rtLabel} session${where}…${data?.dryRun ? ' (dry run)' : ''}`
-  if (data?.keystrokeFailed) {
-    msg = `Antigravity activated (prompt copied). Press ⌘N then ⌘V to start!`
+  if (runtime === 'antigravity') {
+    if (data?.keystrokesUsed && !data?.keystrokeFailed) {
+      msg = `Opening a new Antigravity session${where}…${data?.dryRun ? ' (dry run)' : ''}`
+    } else {
+      msg = `Antigravity activated (prompt copied). Press ⌘N then ⌘V to start!`
+    }
   } else if (data?.marker) {
     msg = `Opening a new ${rtLabel} session${where} with ${data.marker} in the prompt box (not sent)…${data?.dryRun ? ' (dry run)' : ''}`
   }
-  toast(ok ? msg : data?.error || 'New session failed', data?.keystrokeFailed ? 8000 : data?.marker ? 7000 : 2600)
+  toast(ok ? msg : data?.error || 'New session failed', data?.keystrokeFailed ? 8000 : data?.marker ? 7000 : 3500)
 }
 
 async function lifecycle(path, body, label, back) {
@@ -1261,8 +1270,19 @@ const RUN = {
   rail: () => setRail(!railOpen),
   ticker: () => setTicker(!tickerOpen),
   events: () => setList(!listOpen),
+  'toggle-keystrokes': toggleAgyKeystrokes,
   help: toggleHelp,
   update: openUpdate,
+}
+
+function toggleAgyKeystrokes() {
+  agyKeystrokes = !agyKeystrokes
+  try { localStorage.setItem('zarvis.antigravityKeystrokes', agyKeystrokes ? '1' : '0') } catch { /* storage blocked */ }
+  toast(
+    agyKeystrokes
+      ? 'Antigravity auto-search keystrokes enabled (opt-in macOS automation)'
+      : 'Antigravity auto-search keystrokes disabled (title will be copied to clipboard)'
+  )
 }
 
 /** Every live session once: queue rows first, then tree-only ones (done sessions stay out; / finds those). */
@@ -2186,7 +2206,7 @@ function enterCost() {
     csPage = 0
     return renderCosts(true)
   }
-  post('/api/open', { sessionId: x.sessionId }).then(async ({ ok, data }) => {
+  post('/api/open', { sessionId: x.sessionId, keystrokes: agyKeystrokes }).then(async ({ ok, data }) => {
     if (!ok) return toast(data?.error || 'That session is not listed (done, archived or gone)')
     const rt = (data?.runtime || x.runtime) === 'antigravity' ? 'Antigravity' : 'Claude'
     if (rt === 'Antigravity') {
@@ -2194,7 +2214,10 @@ function enterCost() {
       if (textToCopy && navigator.clipboard?.writeText) {
         try { await navigator.clipboard.writeText(textToCopy) } catch {}
       }
-      return toast(`Opening “${x.name || 'session'}” in Antigravity… title copied to clipboard${data?.dryRun ? ' (dry run)' : ''}`, 5000)
+      const tip = data?.keystrokesUsed && !data?.keystrokeFailed
+        ? `opened “${x.name || 'session'}”`
+        : `title copied to clipboard (press ⌘K + ⌘V)`
+      return toast(`Opening in Antigravity… ${tip}${data?.dryRun ? ' (dry run)' : ''}`, 5000)
     }
     toast(`Opening in ${rt}…${data?.dryRun ? ' (dry run)' : ''}`)
   })

@@ -175,6 +175,7 @@ export const COMMANDS = [
   { id: 'rail', group: 'Screen', label: 'Toggle project rail', key: 'b' },
   { id: 'ticker', group: 'Screen', label: 'Toggle event ticker', key: 'e' },
   { id: 'events', group: 'Screen', label: 'Open event list', key: 'E', words: 'events recent history' },
+  { id: 'toggle-keystrokes', group: 'Screen', label: 'Antigravity: toggle auto-open keystrokes (macOS)', key: '', words: 'antigravity keystrokes automation mac applescript opt-in' },
   { id: 'help', group: 'Screen', label: 'Key sheet', key: '?', words: 'help keys' },
   { id: 'update', group: 'Screen', label: 'Update app: check for a new version, hard refresh', key: '', words: 'update refresh reload version upgrade' },
 ]

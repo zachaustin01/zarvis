@@ -3,7 +3,11 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { parseMarker, readMarkers } from '../lib/markers.mjs'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 import {
   summarizeAntigravityInput,
   askedQuestionAntigravity,
@@ -327,5 +331,162 @@ test('buildQueue reflects renamed Antigravity title from annotations', async () 
   assert.equal(rows.length, 1)
   assert.equal(rows[0].title, 'Tracking NFL Ticket And Money Percentages')
 })
+
+test('server: POST /api/open triggers Antigravity search flow and returns title', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-open-ag-'))
+  const trDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-tr-ag-'))
+  const trFile = path.join(trDir, 'transcript.jsonl')
+  await fsp.writeFile(
+    trFile,
+    JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      content: '<USER_REQUEST>\nFix Antigravity open handling\n</USER_REQUEST>',
+    }) + '\n',
+  )
+  await fsp.mkdir(path.join(home, 'working'), { recursive: true })
+  await fsp.writeFile(
+    path.join(home, 'working', `${ID}.json`),
+    JSON.stringify({
+      sessionId: ID,
+      runtime: 'antigravity',
+      state: 'working',
+      at: Date.now() - 5000,
+      seen: Date.now() - 1000,
+      cwd: trDir,
+      transcriptPath: trFile,
+      tool: 'run_command',
+      command: 'git status',
+    }),
+  )
+
+  const port = 20000 + Math.floor(Math.random() * 20000)
+  const p = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], {
+    env: {
+      ...process.env,
+      ZARVIS_HOME: home,
+      ZARVIS_PORT: String(port),
+      ZARVIS_DESKTOP_SESSIONS: await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ds-')),
+      ZARVIS_DRY_OPEN: '1',
+    },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+
+  try {
+    await new Promise((res, rej) => {
+      p.stdout.on('data', (d) => /Zarvis →/.test(String(d)) && res())
+      p.on('exit', () => rej(new Error('server exited')))
+    })
+    const base = `http://127.0.0.1:${port}`
+    // Test 1: By default without opt-in, keystrokesUsed is false
+    const resDefault = await fetch(`${base}/api/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ sessionId: ID }),
+    })
+    const dataDefault = await resDefault.json()
+    assert.equal(resDefault.status, 200)
+    assert.equal(dataDefault.ok, true)
+    assert.equal(dataDefault.runtime, 'antigravity')
+    assert.equal(dataDefault.name, 'Fix Antigravity open handling')
+    assert.equal(dataDefault.keystrokesUsed, false)
+    assert.equal(dataDefault.dryRun, true)
+
+    // Test 2: With client opt-in ({ keystrokes: true }), keystrokesUsed is true
+    const resOptIn = await fetch(`${base}/api/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ sessionId: ID, keystrokes: true }),
+    })
+    const dataOptIn = await resOptIn.json()
+    assert.equal(resOptIn.status, 200)
+    assert.equal(dataOptIn.ok, true)
+    assert.equal(dataOptIn.keystrokesUsed, true)
+    assert.equal(dataOptIn.dryRun, true)
+
+    // Test 3: /api/new with runtime: 'antigravity' respects opt-in
+    const resNewDefault = await fetch(`${base}/api/new`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ role: 'worker', runtime: 'antigravity' }),
+    })
+    const dataNewDefault = await resNewDefault.json()
+    assert.equal(dataNewDefault.ok, true)
+    assert.equal(dataNewDefault.keystrokesUsed, false)
+
+    const resNewOptIn = await fetch(`${base}/api/new`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ role: 'worker', runtime: 'antigravity', keystrokes: true }),
+    })
+    const dataNewOptIn = await resNewOptIn.json()
+    assert.equal(dataNewOptIn.ok, true)
+    assert.equal(dataNewOptIn.keystrokesUsed, true)
+  } finally {
+    p.kill()
+  }
+})
+
+test('server: ZARVIS_KEYSTROKES=0 forbids keystrokes even when requested', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-test-'))
+  const trDir = path.join(home, 'projects', 'p1')
+  await fsp.mkdir(trDir, { recursive: true })
+  const trFile = path.join(trDir, 'transcript.jsonl')
+  await fsp.writeFile(
+    trFile,
+    JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      content: '<USER_REQUEST>\nForbid test\n</USER_REQUEST>',
+    }) + '\n',
+  )
+  await fsp.mkdir(path.join(home, 'working'), { recursive: true })
+  await fsp.writeFile(
+    path.join(home, 'working', `${ID}.json`),
+    JSON.stringify({
+      sessionId: ID,
+      runtime: 'antigravity',
+      state: 'working',
+      at: Date.now() - 5000,
+      seen: Date.now() - 1000,
+      cwd: trDir,
+      transcriptPath: trFile,
+    }),
+  )
+
+  const port = 20000 + Math.floor(Math.random() * 20000)
+  const p = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], {
+    env: {
+      ...process.env,
+      ZARVIS_HOME: home,
+      ZARVIS_PORT: String(port),
+      ZARVIS_DESKTOP_SESSIONS: await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ds-')),
+      ZARVIS_DRY_OPEN: '1',
+      ZARVIS_KEYSTROKES: '0',
+    },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+
+  try {
+    await new Promise((res, rej) => {
+      p.stdout.on('data', (d) => /Zarvis →/.test(String(d)) && res())
+      p.on('exit', () => rej(new Error('server exited')))
+    })
+    const base = `http://127.0.0.1:${port}`
+    const res = await fetch(`${base}/api/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ sessionId: ID, keystrokes: true }),
+    })
+    const data = await res.json()
+    assert.equal(data.ok, true)
+    assert.equal(data.keystrokesUsed, false)
+  } finally {
+    p.kill()
+  }
+})
+
 
 
