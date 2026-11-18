@@ -513,3 +513,137 @@ test('Costs view: a session can be renamed in a drill-down (r or the rename chip
   assert.match(app, /document\.activeElement\?\.id === 'renIn'\) return/) // a live redraw keeps a half-typed name
   assert.match(app, /data-rename/)
 })
+
+test('Antigravity transcript parsing: parseLine extracts PLANNER_RESPONSE and carries lastModel across turns', () => {
+  const fileCtx = { lastModel: '' }
+  const line1 = JSON.stringify({
+    step_index: 0,
+    type: 'PLANNER_RESPONSE',
+    model: 'gemini-3.8-flash-medium',
+    input_tokens: 1200,
+    output_tokens: 300,
+    cache_read_tokens: 500,
+    created_at: new Date(NOW).toISOString(),
+  })
+  const p1 = parseLine(line1, fileCtx)
+  assert.ok(p1)
+  assert.equal(p1.key, 's:0')
+  assert.equal(p1.entry[E.model], 'gemini-3.8-flash-medium')
+  assert.equal(p1.entry[E.input], 1200)
+  assert.equal(p1.entry[E.output], 300)
+  assert.equal(p1.entry[E.cacheRead], 500)
+  assert.equal(fileCtx.lastModel, 'gemini-3.8-flash-medium')
+
+  // Step 2 omits model - inherits lastModel
+  const line2 = JSON.stringify({
+    step_index: 1,
+    type: 'PLANNER_RESPONSE',
+    input_tokens: 800,
+    output_tokens: 150,
+    created_at: new Date(NOW + 1000).toISOString(),
+  })
+  const p2 = parseLine(line2, fileCtx)
+  assert.ok(p2)
+  assert.equal(p2.key, 's:1')
+  assert.equal(p2.entry[E.model], 'gemini-3.8-flash-medium')
+  assert.equal(p2.entry[E.input], 800)
+  assert.equal(p2.entry[E.output], 150)
+})
+
+test('pricing: Gemini models and baseModelId thinking suffix stripping', () => {
+  assert.equal(baseModelId('gemini-4-argon-high'), 'gemini-4-argon')
+  assert.equal(baseModelId('gemini-3.8-flash-medium'), 'gemini-3.8-flash')
+  assert.equal(baseModelId('gemini-3.5-flash-lite-low'), 'gemini-3.5-flash-lite')
+  assert.equal(baseModelId('gemini-3.1-pro-extra-low'), 'gemini-3.1-pro')
+
+  const argon = priceFor('gemini-4-argon-high', DEFAULT_PRICES)
+  assert.ok(argon)
+  assert.equal(argon.key, 'gemini-4-argon')
+  assert.equal(argon.price.input, 2.5)
+  assert.equal(argon.price.output, 15)
+
+  const flash = priceFor('gemini-3.8-flash-medium', DEFAULT_PRICES)
+  assert.ok(flash)
+  assert.equal(flash.key, 'gemini-3.8-flash')
+  assert.equal(flash.price.input, 0.3)
+  assert.equal(flash.price.output, 2.5)
+})
+
+test('buildCosts: provider filtering (all, anthropic, gcp) and totals.providers rollups', () => {
+  const usage = [
+    {
+      sessionId: id(1),
+      cwd: '/work/claude-proj',
+      entries: [
+        [NOW, 'claude-sonnet-5-5', 1_000_000, 100_000, 0, 0, 0], // $3 + $1.50 = $4.50
+      ],
+    },
+    {
+      sessionId: id(2),
+      cwd: '/work/gemini-proj',
+      entries: [
+        [NOW, 'gemini-3.8-flash', 10_000_000, 1_000_000, 0, 0, 0], // $3 + $2.50 = $5.50
+      ],
+    },
+  ]
+  const sess = new Map([
+    [id(1), { name: 'c1', role: 'worker', runtime: 'claude' }],
+    [id(2), { name: 'g1', role: 'worker', runtime: 'antigravity' }],
+  ])
+
+  // All providers
+  const allCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'all' })
+  assert.equal(allCosts.totals.sessions, 2)
+  assert.equal(allCosts.totals.cost, 8.5)
+  assert.equal(allCosts.totals.providers.anthropic, 3)
+  assert.equal(allCosts.totals.providers.gcp, 5.5)
+
+  // Anthropic only
+  const anthropicCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'anthropic' })
+  assert.equal(anthropicCosts.totals.sessions, 1)
+  assert.equal(anthropicCosts.totals.cost, 3)
+  assert.equal(anthropicCosts.projects.length, 1)
+  assert.equal(anthropicCosts.projects[0].project, 'claude-proj')
+
+  // GCP only
+  const gcpCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'gcp' })
+  assert.equal(gcpCosts.totals.sessions, 1)
+  assert.equal(gcpCosts.totals.cost, 5.5)
+  assert.equal(gcpCosts.projects.length, 1)
+  assert.equal(gcpCosts.projects[0].project, 'gemini-proj')
+})
+
+test('costs-cli: --provider option validation and formatReport', () => {
+  assert.equal(parseArgs(['--provider', 'gcp']).provider, 'gcp')
+  assert.equal(parseArgs(['--provider', 'anthropic']).provider, 'anthropic')
+  assert.throws(() => parseArgs(['--provider', 'azure']), /--provider must be one of/)
+
+  const report = {
+    range: '7d',
+    provider: 'gcp',
+    totals: { cost: 5.5, totalTokens: 11_000_000, tokens: { input: 10_000_000, output: 1_000_000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 }, sessions: 1, roles: { manager: 0, worker: 5.5, other: 0 }, unpricedTokens: 0 },
+    projects: [],
+    unpriced: [],
+    approx: [],
+    pricing: { source: 's', checked: 'd', overridden: [] },
+  }
+  const formatted = formatReport(report)
+  assert.match(formatted, /\[GCP\]/)
+})
+
+test('public/costs.js: familyOf, modelLabel, and PROVIDERS', async () => {
+  const { familyOf, modelLabel, PROVIDERS } = await import('../public/costs.js')
+  assert.equal(familyOf('gemini-4-argon-high'), 'argon')
+  assert.equal(familyOf('gemini-3.8-flash-medium'), 'flash')
+  assert.equal(familyOf('gemini-3.5-flash-lite'), 'flash-lite')
+  assert.equal(familyOf('gemini-3.1-pro'), 'pro')
+  assert.equal(familyOf('gemini-3.1-ultra'), 'ultra')
+  assert.equal(familyOf('claude-opus-5-5'), 'opus')
+
+  assert.equal(modelLabel('gemini-4-argon-high'), 'argon 4')
+  assert.equal(modelLabel('gemini-3.8-flash-medium'), 'flash 3.8')
+  assert.equal(modelLabel('gemini-3.5-flash-lite'), 'flash-lite 3.5')
+  assert.equal(modelLabel('claude-sonnet-4-5'), 'sonnet 4.5')
+
+  assert.deepEqual(PROVIDERS.map((p) => p.id), ['all', 'anthropic', 'gcp'])
+})

@@ -27,7 +27,7 @@ import { readTags, resolveProject } from './lib/project-tags.mjs'
 import { createUsageScanner } from './lib/usage.mjs'
 import { costsReport } from './lib/costs-cli.mjs'
 import { liveDeps } from './lib/roster-cli.mjs'
-import { normalizeRange } from './lib/costs.mjs'
+import { normalizeRange, normalizeProvider } from './lib/costs.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
 const HOST = '127.0.0.1' // loopback only, by design
@@ -407,10 +407,10 @@ async function findInTree(sessionId) {
 // the background at boot and a request that arrives mid-scan gets the partial numbers (`scanning`) after a short wait.
 const usageScanner = createUsageScanner()
 const COSTS_WAIT_MS = 1500
-async function costs(range, project) {
+async function costs(range, project, provider = 'all') {
   const pass = usageScanner.refresh().catch((e) => console.error('costs scan failed:', e.message))
   await Promise.race([pass, new Promise((r) => setTimeout(r, COSTS_WAIT_MS))])
-  return costsReport({ scanner: usageScanner, world: await liveDeps(), home: ZARVIS_HOME, range, project, wait: false })
+  return costsReport({ scanner: usageScanner, world: await liveDeps(), home: ZARVIS_HOME, range, project, provider, wait: false })
 }
 
 const send = (res, code, body, type = 'application/json') => {
@@ -533,7 +533,7 @@ const server = http.createServer(async (req, res) => {
         dryRun: DRY_OPEN,
       })
     }
-    if (req.method === 'GET' && url.pathname === '/api/costs') return send(res, 200, await costs(normalizeRange(url.searchParams.get('range')), url.searchParams.get('project') || ''))
+    if (req.method === 'GET' && url.pathname === '/api/costs') return send(res, 200, await costs(normalizeRange(url.searchParams.get('range')), url.searchParams.get('project') || '', normalizeProvider(url.searchParams.get('provider'))))
     if (req.method === 'GET' && url.pathname === '/api/version') return send(res, 200, { version: await appVersion(PUBLIC) })
     if (req.method === 'GET' && url.pathname === '/api/claims') return send(res, 200, { now: Date.now(), claims: await currentClaims() })
     // What each listed session was asked and last said, for the palette's content search. Fetched when the palette opens, not pushed live.

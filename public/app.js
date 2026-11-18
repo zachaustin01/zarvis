@@ -2,7 +2,7 @@
 import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, isOverdue, canBeOverdue, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
-import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel } from '/costs.js'
+import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel, PROVIDERS as COST_PROVIDERS, DEFAULT_PROVIDER, providerOfChoice } from '/costs.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -1235,6 +1235,9 @@ const RUN = {
   'costs-7d': () => setCostRange('7d'),
   'costs-30d': () => setCostRange('30d'),
   'costs-all': () => setCostRange('all'),
+  'costs-provider-all': () => setCostProvider('all'),
+  'costs-provider-anthropic': () => setCostProvider('anthropic'),
+  'costs-provider-gcp': () => setCostProvider('gcp'),
   'schedule-wider': () => zoomSched(1),
   'schedule-narrower': () => zoomSched(-1),
   'view-next': () => nextViewCmd(1),
@@ -1974,6 +1977,8 @@ $('#scLanes').addEventListener('click', (e) => {
 // history is still running. Every dollar is an estimate at API list prices, not a bill. ----
 let costRange = DEFAULT_RANGE
 try { costRange = rangeOf(localStorage.getItem('zarvis.costRange')).id } catch { /* storage blocked */ }
+let costProvider = DEFAULT_PROVIDER
+try { costProvider = providerOfChoice(localStorage.getItem('zarvis.costProvider')).id } catch { /* storage blocked */ }
 let mgrCostSig = ''
 async function loadMgrCosts() {
   if (document.hidden) return
@@ -2016,10 +2021,11 @@ let csHtml = { sum: '', list: '', foot: '' }
 async function loadCosts(force) {
   if (view !== 'costs' || (document.hidden && !force)) return
   clearTimeout(csTimer)
-  const want = costRange
+  const wantRange = costRange
+  const wantProvider = costProvider
   try {
-    const d = await (await fetch(`/api/costs?range=${want}`)).json()
-    if (view !== 'costs' || want !== costRange || !Array.isArray(d?.projects)) return
+    const d = await (await fetch(`/api/costs?range=${wantRange}&provider=${wantProvider}`)).json()
+    if (view !== 'costs' || wantRange !== costRange || wantProvider !== costProvider || !Array.isArray(d?.projects)) return
     costs = d
     renderCosts(false)
   } catch { /* next poll */ }
@@ -2040,6 +2046,21 @@ function setCostRange(r, dir = 0) {
 $('#csRange').addEventListener('click', (e) => {
   const b = e.target.closest('[data-r]')
   if (b && b.dataset.r !== costRange) setCostRange(b.dataset.r)
+})
+
+function setCostProvider(p) {
+  if (p === costProvider && view === 'costs') return
+  costProvider = p
+  try { localStorage.setItem('zarvis.costProvider', p) } catch { /* storage blocked */ }
+  csSel = 0
+  csPage = 0
+  csSig = ''
+  if (view !== 'costs') return setView('costs')
+  loadCosts(true)
+}
+$('#csProvider').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-p]')
+  if (b && b.dataset.p !== costProvider) setCostProvider(b.dataset.p)
 })
 
 const csGroups = () => (costGroup === 'manager' ? costs?.managers.filter((g) => g.kind !== 'unmanaged') : costs?.projects) || []
@@ -2100,9 +2121,10 @@ function classifyHtml(s) {
 
 function sessionRowHtml(s, i, max, classify = false) {
   const rtLabel = s.runtime === 'antigravity' ? 'Antigravity' : 'Claude'
+  const rtTag = s.runtime === 'antigravity' || s.provider === 'gcp' ? '<span class="cs-tag" style="color:var(--cy)">antigravity</span>' : ''
   return (
     `<div class="cs-row ss${i === csSel ? ' sel' : ''}" data-i="${i}" data-id="${esc(s.sessionId)}" title="Enter opens this session in ${rtLabel}">` +
-    `<div class="cs-top">${s.sessionId === renaming ? `<input id="renIn" class="cs-rn" value="${esc(s.name)}" maxlength="120" aria-label="Rename session" placeholder="Name (empty restores the app title)">` : `<span class="cs-nm">${esc(s.name || s.sessionId)}</span>`}<span class="cs-tag">${esc(s.role === 'unclassified' ? 'session' : s.role === 'manager' && costGroup === 'manager' ? 'manager itself' : s.role)}</span>${s.parked ? '<span class="cs-tag">parked</span>' : ''}${costGroup === 'manager' ? `<span class="cs-tag">${esc(s.project)}</span>` : ''}${s.source === 'explicit' ? '<span class="cs-tag">tagged</span>' : s.source === 'manager' ? '<span class="cs-tag">manager\'s tag</span>' : ''}<span class="cs-usd">${esc(usd(s.cost))}</span></div>` +
+    `<div class="cs-top">${s.sessionId === renaming ? `<input id="renIn" class="cs-rn" value="${esc(s.name)}" maxlength="120" aria-label="Rename session" placeholder="Name (empty restores the app title)">` : `<span class="cs-nm">${esc(s.name || s.sessionId)}</span>`}<span class="cs-tag">${esc(s.role === 'unclassified' ? 'session' : s.role === 'manager' && costGroup === 'manager' ? 'manager itself' : s.role)}</span>${rtTag}${s.parked ? '<span class="cs-tag">parked</span>' : ''}${costGroup === 'manager' ? `<span class="cs-tag">${esc(s.project)}</span>` : ''}${s.source === 'explicit' ? '<span class="cs-tag">tagged</span>' : s.source === 'manager' ? '<span class="cs-tag">manager\'s tag</span>' : ''}<span class="cs-usd">${esc(usd(s.cost))}</span></div>` +
     `<div class="cs-bar2"><i style="width:${share(s.cost, max).toFixed(1)}%"></i></div>` +
     `<div class="cs-meta"><span><b>${tok(s.totalTokens)}</b> tokens</span><span>${typeLine(s.tokens)}</span><span>${s.messages} message${s.messages === 1 ? '' : 's'}</span>${s.unpricedTokens ? `<span style="color:var(--am)">${tok(s.unpricedTokens)} unpriced</span>` : ''}</div>` +
     `<div class="cs-act">${classify ? classifyHtml(s) : ''}<span class="lk" role="button" tabindex="-1" data-rename title="Rename this session (r). Empty restores its app title">rename <kbd>r</kbd></span></div>` +
@@ -2116,19 +2138,24 @@ function renderCosts(force) {
   const root = $('#costs')
   root.setAttribute('aria-busy', costs ? 'false' : 'true')
   $('#csGroup').innerHTML = ['project', 'manager'].map((g) => `<button type="button" data-g="${g}" class="${g === costGroup ? 'on' : ''}" aria-pressed="${g === costGroup}">${g}</button>`).join('')
+  $('#csProvider').innerHTML = COST_PROVIDERS.map((p) => `<button type="button" data-p="${p.id}" class="${p.id === costProvider ? 'on' : ''}" aria-pressed="${p.id === costProvider}">${p.label}</button>`).join('')
   $('#csRange').innerHTML = COST_RANGES.map((r) => `<button type="button" data-r="${r.id}" class="${r.id === costRange ? 'on' : ''}" aria-pressed="${r.id === costRange}">${r.label}</button>`).join('')
   if (!costs) { setHtml('sum', $('#csSum'), '<span class="cs-kv">reading transcripts…</span>'); return }
   if (csDrill && !csGroups().some((p) => p.key === csDrill) && !csBuckets().some((p) => p.key === csDrill)) csDrill = ''
   const items = csItems()
   csSel = stepIndex(csSel, items.length, 0)
-  const sig = JSON.stringify([costRange, costGroup, csDrill, csSel, innerWidth, innerHeight, costs, csPage], (k, v) => (k === 'now' ? undefined : v))
+  const sig = JSON.stringify([costRange, costGroup, costProvider, csDrill, csSel, innerWidth, innerHeight, costs, csPage], (k, v) => (k === 'now' ? undefined : v))
   if (!force && sig === csSig) return renderCostPager()
   csSig = sig
   const t = costs.totals
   const proj = csDrill ? [...csGroups(), ...csBuckets()].find((p) => p.key === csDrill) : null
+  const provSplit = t.providers && costProvider === 'all' && (t.providers.anthropic || t.providers.gcp)
+    ? ` · Anthropic <b>${esc(usd(t.providers.anthropic))}</b> · GCP <b>${esc(usd(t.providers.gcp))}</b>`
+    : ''
+  const provLabel = costProvider !== 'all' ? ` · ${costProvider === 'gcp' ? 'GCP' : 'Anthropic'}` : ''
   const head = proj
-    ? `<span class="cs-big">${esc(usd(proj.cost))}<small>${esc(proj.name)}${proj.kind === 'manager' ? ` · total of the manager + ${proj.roles.worker.sessions} worker${proj.roles.worker.sessions === 1 ? '' : 's'}` : ''} · ${rangeOf(costRange).label} · sessions by cost · Esc back</small></span><span class="cs-kv"><b>${tok(proj.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(proj.tokens)}</span>`
-    : `<span class="cs-big">${esc(usd(t.cost))}<small>API-equivalent estimate · ${rangeOf(costRange).label} · by ${costGroup}</small></span><span class="cs-kv"><b>${tok(t.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(t.tokens)}</span><span class="cs-kv">managers <b>${esc(usd(t.roles.manager))}</b> · workers <b>${esc(usd(t.roles.worker))}</b>${t.roles.other ? ` · other <b>${esc(usd(t.roles.other))}</b>` : ''}</span><span class="cs-kv"><b>${t.sessions}</b> sessions</span>`
+    ? `<span class="cs-big">${esc(usd(proj.cost))}<small>${esc(proj.name)}${proj.kind === 'manager' ? ` · total of the manager + ${proj.roles.worker.sessions} worker${proj.roles.worker.sessions === 1 ? '' : 's'}` : ''} · ${rangeOf(costRange).label}${provLabel} · sessions by cost · Esc back</small></span><span class="cs-kv"><b>${tok(proj.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(proj.tokens)}</span>`
+    : `<span class="cs-big">${esc(usd(t.cost))}<small>API-equivalent estimate · ${rangeOf(costRange).label}${provLabel} · by ${costGroup}</small></span><span class="cs-kv"><b>${tok(t.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(t.tokens)}</span><span class="cs-kv">managers <b>${esc(usd(t.roles.manager))}</b> · workers <b>${esc(usd(t.roles.worker))}</b>${t.roles.other ? ` · other <b>${esc(usd(t.roles.other))}</b>` : ''}${provSplit}</span><span class="cs-kv"><b>${t.sessions}</b> sessions</span>`
   const unTok = proj ? proj.unpricedTokens : t.unpricedTokens
   const unModels = proj ? proj.models.filter((m) => !m.priced).map((m) => m.model) : costs.unpriced.map((u) => u.model)
   const warn = unTok ? `<span class="cs-warn">${tok(unTok)} tokens on ${esc(unModels.join(', '))} have no price: counted as tokens, left out of the dollars.</span>` : ''
