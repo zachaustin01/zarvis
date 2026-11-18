@@ -55,6 +55,11 @@ above your workers (one layer down).
 - The app wakes you when a session you started ends its turn, whatever `wake_when_done` says. Each wake-up
   is a turn at your full context size, so end it at once when there is nothing to coordinate (see Closing the loop).
 
+### Antigravity `swarm` and `invoke_subagent` workers
+
+- Include `[zarvis: role=worker parent=<your session id>]` on its own line at the top of every `swarm` `brief` or `invoke_subagent` `Prompt`.
+- Always keep `workspace: "inherit"` when calling `swarm` `add`; never use `workspace: "branch"` or `"share"` for code changes because `swarm` `kill` permanently deletes those workspaces. Instead, create or reuse a persistent sibling worktree and register it with `node "{{ZARVIS_DIR}}/scripts/claims.mjs" claim <KEY> --by <worker session id>`.
+
 ## Closing the loop
 
 - Your job is to delegate cleanly, sequence work, keep workers from colliding (checkouts, shared files,

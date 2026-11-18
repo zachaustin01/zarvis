@@ -54,6 +54,20 @@ export function summarizeAntigravityInput(name, args) {
     const p = args.Prompt || ''
     return (role + p).slice(0, 1000)
   }
+  if (name === 'swarm') {
+    const action = args.action || 'status'
+    const target = args.name ? ` @${args.name}` : ''
+    const detail = args.brief ?? args.title ?? args.model ?? ''
+    return (`[swarm:${action}${target}] ${detail}`).trim().slice(0, 1000)
+  }
+  if (name === 'post' || name === 'post_message') {
+    const ch = args.channel ? `[#${args.channel}] ` : ''
+    return (ch + String(args.text ?? args.message ?? '')).trim().slice(0, 1000)
+  }
+  if (name === 'send_message') {
+    const to = args.Recipient ? `[to:${args.Recipient}] ` : ''
+    return (to + (args.Message || '')).slice(0, 1000)
+  }
   const pick = args.CommandLine ?? args.Path ?? args.command ?? args.file_path ?? args.path ?? args.url ?? args.pattern ?? args.description ?? args.query
   if (typeof pick === 'string') return pick.slice(0, 1000)
   try {
@@ -167,11 +181,13 @@ export function buildAntigravityBlockedMarker(payload, reason = 'Antigravity nee
   }
 }
 
-/** Check role tag at the start of the first user prompt. */
+/** Check role tag at the start of the first user prompt (or after swarm board headers/@mentions). */
 export function buildAntigravityRoleTag(payload, now = Date.now()) {
   let prompt = typeof payload.lastUserInput === 'string' ? payload.lastUserInput : ''
-  prompt = prompt.replace(/^\s*<USER_REQUEST>\s*/i, '').replace(/^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)+/, '')
-  const m = /^\s*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(prompt)
+  prompt = prompt
+    .replace(/^\s*<USER_REQUEST>\s*/i, '')
+    .replace(/^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)+/, '')
+  const m = /(?:^|\n)\s*(?:@[A-Za-z0-9_.-]+\s+)*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(prompt)
   const id = payload.conversationId || payload.session_id
   return m ? { sessionId: id, role: m[1].toLowerCase(), parent: m[2] || '', at: now } : null
 }
@@ -287,6 +303,23 @@ export async function handleHook(mode, payload) {
   if (mode === 'pre_tool_use') {
     let prev = await readJson(workFile)
     await writeAtomic(workFile, buildAntigravityWorking(payload, prev, Date.now(), 'working'))
+
+    // Auto-promote untagged coordinator session to manager when spawning workers
+    const tc = payload.toolCall
+    const isSwarmAdd = tc?.name === 'swarm' && tc.args?.action === 'add'
+    const isWorkerSubagent = tc?.name === 'invoke_subagent' && /\[zarvis:\s*role=worker\b/i.test(String(tc.args?.Prompt || ''))
+    if (isSwarmAdd || isWorkerSubagent) {
+      await fsp.mkdir(rolesDir, { recursive: true })
+      try {
+        await fsp.writeFile(
+          path.join(rolesDir, `${id}.json`),
+          JSON.stringify({ sessionId: id, role: 'manager', parent: '', at: Date.now() }),
+          { flag: 'wx' },
+        )
+      } catch {
+        /* already tagged */
+      }
+    }
 
     // Claims guard check
     const askGuard = await guardToolCall(payload, home)

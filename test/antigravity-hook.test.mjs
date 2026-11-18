@@ -30,6 +30,30 @@ test('summarizeAntigravityInput handles core Antigravity tool shapes', () => {
     summarizeAntigravityInput('invoke_subagent', { Role: 'Researcher', Prompt: 'Check the docs' }),
     '[Researcher] Check the docs',
   )
+  assert.equal(
+    summarizeAntigravityInput('swarm', { action: 'add', name: 's2-spike', brief: 'Run benchmark' }),
+    '[swarm:add @s2-spike] Run benchmark',
+  )
+  assert.equal(
+    summarizeAntigravityInput('swarm', { action: 'status' }),
+    '[swarm:status]',
+  )
+  assert.equal(
+    summarizeAntigravityInput('swarm', { action: 'title', title: 'SAW Bot Tournament' }),
+    '[swarm:title] SAW Bot Tournament',
+  )
+  assert.equal(
+    summarizeAntigravityInput('post', { message: '@s2-spike looks good' }),
+    '@s2-spike looks good',
+  )
+  assert.equal(
+    summarizeAntigravityInput('post_message', { channel: 'parser', text: '@parser ship it' }),
+    '[#parser] @parser ship it',
+  )
+  assert.equal(
+    summarizeAntigravityInput('send_message', { Recipient: PARENT, Message: 'Done with task' }),
+    `[to:${PARENT}] Done with task`,
+  )
 
   const qa = summarizeAntigravityInput('ask_question', {
     questions: [
@@ -97,6 +121,22 @@ test('buildAntigravityRoleTag matches tags in Antigravity prompts with or withou
     { sessionId: ID, role: 'worker', parent: PARENT, at: 60 },
   )
 
+  assert.deepEqual(
+    buildAntigravityRoleTag({
+      conversationId: ID,
+      lastUserInput: `@s2-spike [zarvis: role=worker parent=${PARENT}]\nBrief...`,
+    }, 70),
+    { sessionId: ID, role: 'worker', parent: PARENT, at: 70 },
+  )
+
+  assert.deepEqual(
+    buildAntigravityRoleTag({
+      conversationId: ID,
+      lastUserInput: `[Swarm Board #general]\nPosted by coordinator:\n[zarvis: role=worker parent=${PARENT}]\nWork through brief`,
+    }, 80),
+    { sessionId: ID, role: 'worker', parent: PARENT, at: 80 },
+  )
+
   assert.equal(buildAntigravityRoleTag({ conversationId: ID, lastUserInput: 'Talk about [zarvis: role=interface]' }), null)
 })
 
@@ -146,6 +186,64 @@ test('Antigravity hook lifecycle end-to-end writes and clears markers', async ()
     assert.equal(working[0].state, 'idle')
     const blocked = await readMarkers(path.join(home, 'blocked'))
     assert.equal(blocked.length, 0)
+  } finally {
+    process.env.ZARVIS_HOME = prevHome
+  }
+})
+
+test('Antigravity hook auto-promotes untagged session to manager on swarm add or worker subagent', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-swarm-'))
+  const prevHome = process.env.ZARVIS_HOME
+  process.env.ZARVIS_HOME = home
+
+  try {
+    const basePayload = {
+      conversationId: ID,
+      workspacePaths: [home],
+      transcriptPath: path.join(home, 'transcript.jsonl'),
+      cwd: home,
+    }
+
+    // Turn 1: untagged prompt creates .first marker but no role .json
+    await handleHook('pre_invocation', {
+      ...basePayload,
+      lastUserInput: 'Help me coordinate a swarm on this repo',
+    })
+    await assert.rejects(fsp.readFile(path.join(home, 'roles', `${ID}.json`), 'utf8'))
+
+    // Routine browser subagent does NOT auto-promote to manager
+    await handleHook('pre_tool_use', {
+      ...basePayload,
+      toolCall: { name: 'invoke_subagent', args: { TypeName: 'browser', Prompt: 'Open localhost:3000' } },
+    })
+    await assert.rejects(fsp.readFile(path.join(home, 'roles', `${ID}.json`), 'utf8'))
+
+    // Calling swarm add auto-promotes untagged session to manager
+    await handleHook('pre_tool_use', {
+      ...basePayload,
+      toolCall: { name: 'swarm', args: { action: 'add', name: 'w1', brief: '...' } },
+    })
+    const roleData = JSON.parse(await fsp.readFile(path.join(home, 'roles', `${ID}.json`), 'utf8'))
+    assert.equal(roleData.sessionId, ID)
+    assert.equal(roleData.role, 'manager')
+    assert.equal(roleData.parent, '')
+
+    // Another untagged session spawning a worker via invoke_subagent also auto-promotes
+    await handleHook('pre_invocation', {
+      ...basePayload,
+      conversationId: PARENT,
+      lastUserInput: 'Run a subagent worker',
+    })
+    await handleHook('pre_tool_use', {
+      ...basePayload,
+      conversationId: PARENT,
+      toolCall: {
+        name: 'invoke_subagent',
+        args: { Role: 'Worker 1', Prompt: `[zarvis: role=worker parent=${PARENT}]\nFix tests` },
+      },
+    })
+    const parentRole = JSON.parse(await fsp.readFile(path.join(home, 'roles', `${PARENT}.json`), 'utf8'))
+    assert.equal(parentRole.role, 'manager')
   } finally {
     process.env.ZARVIS_HOME = prevHome
   }
