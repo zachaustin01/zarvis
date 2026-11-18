@@ -570,15 +570,34 @@ test('Antigravity transcript parsing: parseLine extracts PLANNER_RESPONSE and CH
 
 test('pricing: Gemini models, suffix stripping, dated rate steps, and no silent family matching', () => {
   assert.equal(baseModelId('gemini-4-argon-high'), 'gemini-4-argon')
+  assert.equal(baseModelId('gemini-4-argon-trial'), 'gemini-4-argon')
   assert.equal(baseModelId('gemini-3.8-flash-medium'), 'gemini-3.8-flash')
+  assert.equal(baseModelId('gemini-3.8-flash-n'), 'gemini-3.8-flash')
+  assert.equal(baseModelId('gemini-4-hydrogen-tiered-xhigh'), 'gemini-4-hydrogen')
   assert.equal(baseModelId('gemini-3.5-flash-lite-low'), 'gemini-3.5-flash-lite')
   assert.equal(baseModelId('gemini-3.1-pro-extra-low'), 'gemini-3.1-pro')
+  assert.equal(baseModelId('gpt-oss-120b-medium'), 'gpt-oss-120b')
 
   const argon = priceFor('gemini-4-argon-high', DEFAULT_PRICES)
   assert.ok(argon)
   assert.equal(argon.key, 'gemini-4-argon')
   assert.equal(argon.price.input, 2.5)
   assert.equal(argon.price.output, 15)
+
+  // Hydrogen frontier model
+  const hydrogen = priceFor('gemini-4-hydrogen-tiered-xhigh', DEFAULT_PRICES)
+  assert.ok(hydrogen)
+  assert.equal(hydrogen.key, 'gemini-4-hydrogen')
+  assert.equal(hydrogen.price.input, 0.75)
+  assert.equal(hydrogen.price.output, 3.75)
+
+  // Orchestrator and GPT-OSS models
+  const orch = priceFor('gemini-orchestrator', DEFAULT_PRICES)
+  assert.ok(orch)
+  assert.equal(orch.key, 'gemini-orchestrator')
+  const gptOss = priceFor('gpt-oss-120b-medium', DEFAULT_PRICES)
+  assert.ok(gptOss)
+  assert.equal(gptOss.key, 'gpt-oss-120b')
 
   // In 2026: intro promo rate
   const flash2026 = priceFor('gemini-3.8-flash-medium', DEFAULT_PRICES, Date.parse('2026-11-18T12:00:00Z'))
@@ -598,6 +617,77 @@ test('pricing: Gemini models, suffix stripping, dated rate steps, and no silent 
   // Unknown Gemini model is unpriced (null), never silently family-matched
   assert.equal(priceFor('gemini-nonexistent-future-model', DEFAULT_PRICES), null)
   assert.equal(priceFor('gemini-unknown', DEFAULT_PRICES), null)
+})
+
+test('antigravity: usage lines without model are unattributed (gemini-unknown), not silently priced at Flash', () => {
+  // Fresh fileContext with no lastModel
+  const freshCtx = { sessionId: 'sid-unattributed', lastModel: '' }
+  const lineNoModel = JSON.stringify({
+    step_index: 0,
+    type: 'PLANNER_RESPONSE',
+    input_tokens: 1_000_000,
+    output_tokens: 100_000,
+    cache_read_tokens: 500_000,
+    created_at: new Date(NOW).toISOString(),
+  })
+  const parsed = parseLine(lineNoModel, freshCtx)
+  assert.ok(parsed)
+  assert.equal(parsed.entry[E.model], 'gemini-unknown', 'unspecified model must fall back to gemini-unknown, not gemini-auto')
+
+  // In buildCosts, gemini-unknown tokens are counted but unpriced (cost = 0, unpricedTokens = 1.6M)
+  const usage = [
+    {
+      sessionId: 'sid-unattributed',
+      cwd: '/work/unattributed-proj',
+      entries: [parsed.entry],
+    },
+  ]
+  const sess = new Map([['sid-unattributed', { name: 'g-anon', role: 'worker', runtime: 'antigravity' }]])
+  const costs = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW })
+
+  assert.equal(costs.totals.cost, 0, 'unattributed Gemini tokens must not be priced at Flash rates')
+  assert.equal(costs.totals.totalTokens, 1_600_000)
+  assert.equal(costs.totals.unpricedTokens, 1_600_000)
+  assert.equal(costs.unpriced.length, 1)
+  assert.equal(costs.unpriced[0].model, 'gemini-unknown')
+  assert.equal(costs.unpriced[0].tokens, 1_600_000)
+})
+
+test('antigravity: session model recovery from SQLite store and pricing as Pro tier', async () => {
+  const { extractModelFromGenMetadata, readAntigravitySessionModel } = await import('../lib/sessions.mjs')
+
+  // Test protobuf extractor directly with simulated field 19 (0x9a 0x01)
+  const simulatedProto = Buffer.concat([
+    Buffer.from([0x08, 0x01]), // some varint field 1
+    Buffer.from([0x9a, 0x01, 0x13]), // field 19, length 19
+    Buffer.from('gemini-4-argon-high'),
+  ])
+  assert.equal(extractModelFromGenMetadata(simulatedProto), 'gemini-4-argon-high')
+
+  // Live session ba9deaea used Gemini 4 Argon
+  const liveModel = readAntigravitySessionModel('ba9deaea-6f22-4dce-9b71-a2dcace39a9c')
+  if (liveModel) {
+    assert.equal(baseModelId(liveModel), 'gemini-4-argon')
+  }
+
+  // When session model is set on fileContext, lines without model inherit Argon, priced at Argon rates
+  const fileCtx = { sessionId: 'ba9deaea-6f22-4dce-9b71-a2dcace39a9c', lastModel: 'gemini-4-argon-high', runtime: 'antigravity' }
+  const line = JSON.stringify({
+    step_index: 0,
+    type: 'PLANNER_RESPONSE',
+    input_tokens: 1_000_000, // at Argon (>200k tier): 1M * $5.00 = $5.00
+    output_tokens: 100_000,  // at Argon (>200k tier): 0.1M * $22.50 = $2.25 => $7.25
+    cache_read_tokens: 0,
+    created_at: new Date(NOW).toISOString(),
+  })
+  const parsed = parseLine(line, fileCtx)
+  assert.equal(parsed.entry[E.model], 'gemini-4-argon-high')
+
+  const usage = [{ sessionId: fileCtx.sessionId, cwd: '/work/argon-proj', entries: [parsed.entry] }]
+  const sess = new Map([[fileCtx.sessionId, { name: 'g-argon', role: 'worker', runtime: 'antigravity' }]])
+  const costs = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW })
+  assert.equal(costs.totals.cost, 7.25, 'Argon session must price at $7.25 (>200k tier), not Flash rate ($1.125)')
+  assert.equal(costs.totals.unpricedTokens, 0)
 })
 
 test('pricing: every table entry belongs to a provider with a cited source and check date', () => {
@@ -686,11 +776,15 @@ test('public/costs.js: familyOf, modelLabel, PROVIDERS, and pricingAttribution',
   assert.equal(familyOf('gemini-3.5-flash-lite'), 'flash-lite')
   assert.equal(familyOf('gemini-3.1-pro'), 'pro')
   assert.equal(familyOf('gemini-3.1-ultra'), 'ultra')
+  assert.equal(familyOf('gemini-orchestrator'), 'orchestrator')
+  assert.equal(familyOf('gemini-unknown'), 'other')
   assert.equal(familyOf('claude-opus-5-5'), 'opus')
 
   assert.equal(modelLabel('gemini-4-argon-high'), 'argon 4')
   assert.equal(modelLabel('gemini-3.8-flash-medium'), 'flash 3.8')
   assert.equal(modelLabel('gemini-3.5-flash-lite'), 'flash-lite 3.5')
+  assert.equal(modelLabel('gemini-orchestrator'), 'orchestrator')
+  assert.equal(modelLabel('gemini-unknown'), 'unknown Gemini model')
   assert.equal(modelLabel('claude-sonnet-4-5'), 'sonnet 4.5')
 
   assert.deepEqual(PROVIDERS.map((p) => p.id), ['all', 'anthropic', 'gcp'])

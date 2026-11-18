@@ -39,13 +39,16 @@ export function tok(n) {
   return n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(Math.round(n))
 }
 
-/** The model family for colouring: fable | mythos | opus | sonnet | haiku | argon | carbon | hydrogen | ultra | pro | flash | flash-lite | other. */
+/** The model family for colouring: fable | mythos | opus | sonnet | haiku | argon | carbon | hydrogen | orchestrator | ultra | pro | flash | flash-lite | other. */
 export function familyOf(model) {
   const s = String(model ?? '').toLowerCase()
+  if (s === 'gemini-unknown' || s === 'unknown-gemini') return 'other'
   const m = /claude-(fable|mythos|opus|sonnet|haiku)/.exec(s)
   if (m) return m[1]
+  if (s.includes('orchestrator')) return 'orchestrator'
   const g = /gemini-(?:\d+(?:\.\d+)?-)?(argon|carbon|hydrogen|ultra|pro|flash-lite|flash)/.exec(s)
   if (g) return g[1]
+  if (s.startsWith('gpt-')) return 'other'
   if (s.startsWith('gemini-')) return 'flash'
   return 'other'
 }
@@ -53,9 +56,11 @@ export function familyOf(model) {
 /** A short label: claude-opus-5-5 -> "opus 5.5"; gemini-3.8-flash -> "flash 3.8"; an unknown id is kept as given. */
 export function modelLabel(model) {
   const s = String(model ?? '').toLowerCase()
+  if (s === 'gemini-unknown' || s === 'unknown-gemini') return 'unknown Gemini model'
+  if (s.includes('orchestrator')) return 'orchestrator'
   const m = /^claude-(fable|mythos|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(s)
   if (m) return `${m[1]} ${m[2]}${m[3] ? `.${m[3]}` : ''}`
-  const g = /^gemini-(\d+(?:\.\d+)?)-(argon|carbon|hydrogen|ultra|pro|flash-lite|flash)(?:-(?:low|medium|high|extra-low))?$/.exec(s)
+  const g = /^gemini-(\d+(?:\.\d+)?)-(argon|carbon|hydrogen|ultra|pro|flash-lite|flash)(?:-(?:low|medium|high|xhigh|extra-low))?$/.exec(s)
   if (g) return `${g[2]} ${g[1]}`
   if (s === 'gemini-auto') return 'gemini auto'
   return String(model ?? '')
