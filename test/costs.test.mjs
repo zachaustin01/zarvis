@@ -411,6 +411,93 @@ test('npm run costs --group manager / --manager: manager rows with their workers
   assert.equal((await go('--group', 'team')).code, 1)
 })
 
+test('aged-out Antigravity and CLI workers roll up under their manager in sessionFacts and costs (#9)', async () => {
+  const { sessionFacts } = await import('../lib/costs-cli.mjs')
+  const AGY = 8
+  const CLI = 9
+  const agyId = id(AGY)
+  const cliId = id(CLI)
+  const mgrId = id(1)
+
+  const prevAgyHome = process.env.ANTIGRAVITY_HOME
+  const tmpAgy = tmp()
+  process.env.ANTIGRAVITY_HOME = tmpAgy
+
+  try {
+    const trDir = path.join(tmpAgy, 'brain', agyId, '.system_generated', 'logs')
+    fs.mkdirSync(trDir, { recursive: true })
+    const swarmBrief = 'cluster indexing'
+    fs.writeFileSync(
+      path.join(trDir, 'transcript.jsonl'),
+      JSON.stringify({
+        step_index: 0,
+        type: 'SYSTEM_MESSAGE',
+        content: `sender=${mgrId} [swarm] You have just started. Your assignment (recorded on the board as #3 for @worker-3): ${swarmBrief}`,
+      }) + '\n',
+    )
+
+    const expiredTs = NOW - 24 * 3600_000
+    const w = world({
+      roles: {
+        ...world().roles,
+        [agyId]: { role: 'worker', parent: mgrId },
+        [cliId]: { role: 'worker', parent: mgrId },
+      },
+      markers: [
+        { sessionId: agyId, at: expiredTs, seen: expiredTs, state: 'idle', cwd: '/work/analytics', runtime: 'antigravity' },
+        { sessionId: cliId, at: expiredTs, seen: expiredTs, state: 'idle', cwd: '/work/cli-tool', runtime: 'claude' },
+      ],
+    })
+
+    // 1. Verify sessionFacts preserves runtime, role, managerId, and project
+    const factsMap = await sessionFacts(w, NOW)
+    const agyFact = factsMap.get(agyId)
+    const cliFact = factsMap.get(cliId)
+
+    assert.ok(agyFact, 'aged-out Antigravity worker in sessionFacts')
+    assert.equal(agyFact.runtime, 'antigravity')
+    assert.equal(agyFact.role, 'worker')
+    assert.equal(agyFact.managerId, mgrId)
+    assert.equal(agyFact.project, 'analytics')
+
+    assert.ok(cliFact, 'aged-out CLI worker in sessionFacts')
+    assert.equal(cliFact.runtime, 'claude')
+    assert.equal(cliFact.role, 'worker')
+    assert.equal(cliFact.managerId, mgrId)
+    assert.equal(cliFact.project, 'cli-tool')
+
+    // 2. Verify buildCosts / costsReport rolls both workers up under the manager
+    const root = transcripts({
+      [`${mgrId}.jsonl`]: [line({ msg: 'a', req: 'r1', input: 1_000_000, output: 0, ts: NOW })],
+      [`${agyId}.jsonl`]: [line({ msg: 'b', req: 'r2', input: 0, output: 1_000_000, ts: NOW })],
+      [`${cliId}.jsonl`]: [line({ msg: 'c', req: 'r3', input: 500_000, output: 500_000, ts: NOW })],
+    })
+
+    const c = capture()
+    const code = await runCosts(['--range', 'today', '--group', 'manager', '--json'], {
+      world: w,
+      scanner: createUsageScanner({ root }),
+      home: tmp(),
+      now: NOW,
+      log: c.log,
+      err: c.err,
+    })
+    assert.equal(code, 0)
+    const j = JSON.parse(c.out.join('\n'))
+    const mgrGroup = j.managers.find((g) => g.managerId === mgrId)
+    assert.ok(mgrGroup, 'The Manager group is present')
+    assert.equal(mgrGroup.name, 'The Manager')
+    assert.equal(mgrGroup.sessions, 3)
+    assert.equal(mgrGroup.roles.worker.sessions, 2)
+    const unclass = j.managers.find((g) => g.kind === 'unclassified')
+    assert.equal(unclass?.sessions || 0, 0)
+  } finally {
+    if (prevAgyHome === undefined) delete process.env.ANTIGRAVITY_HOME
+    else process.env.ANTIGRAVITY_HOME = prevAgyHome
+    fs.rmSync(tmpAgy, { recursive: true, force: true })
+  }
+})
+
 // ---- the page ----
 import { usd, tok, familyOf, modelLabel, mixSegments, dayBars, stepRange, rangeOf, share, stepIndex, RANGES, dayLabel } from '../public/costs.js'
 import { COMMANDS } from '../public/palette.js'

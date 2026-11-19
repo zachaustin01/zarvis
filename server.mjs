@@ -104,8 +104,9 @@ const STATE_RANK = { blocked: 0, waiting_on_child: 1, working: 2, idle: 3 }
 
 /** The role tree: the interface pinned, managers with their workers, then everything unclassified. */
 async function currentTree() {
-  const [{ records }, state, queue] = await Promise.all([scanDesktopRecords(), readState(), allRows()])
-  const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(queue), sessions: queue })
+  const [{ records }, state, queue, markers, working] = await Promise.all([scanDesktopRecords(), readState(), allRows(), readMarkers(), readMarkers(WORKING_DIR)])
+  const allCwds = { ...cwdsOf(markers), ...cwdsOf(working), ...cwdsOf(queue) }
+  const nodes = classify({ records, roles: await roleRegistry(state), cwds: allCwds, sessions: queue })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
   const links = await readAllLinks(ZARVIS_HOME)
   const projectTags = await readTags(ZARVIS_HOME)

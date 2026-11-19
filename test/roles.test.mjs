@@ -184,3 +184,69 @@ test('classify handles non-record sessions (Antigravity) and respects their role
   assert.equal(nodes2.get(id(6)).managerId, id(5))
   assert.deepEqual(childrenOf(nodes2).get(id(5)).map((n) => n.sessionId), [id(6)])
 })
+
+test('aged-out Antigravity swarm worker with only transcript retains runtime, title, cwd, and manager in classify and roster (#9)', async () => {
+  const prevAgyHome = process.env.ANTIGRAVITY_HOME
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-roles-agy-'))
+  process.env.ANTIGRAVITY_HOME = tmpDir
+  try {
+    const workerId = id(8)
+    const mgrId = id(2)
+    const trDir = path.join(tmpDir, 'brain', workerId, '.system_generated', 'logs')
+    await fsp.mkdir(trDir, { recursive: true })
+    const swarmBrief = 'optimize database queries for analytics'
+    const trLine = JSON.stringify({
+      step_index: 0,
+      type: 'SYSTEM_MESSAGE',
+      content: `sender=${mgrId} [swarm] You have just started. Your assignment (recorded on the board as #1 for @worker-1): ${swarmBrief}`,
+    })
+    await fsp.writeFile(path.join(trDir, 'transcript.jsonl'), trLine + '\n')
+
+    // Worker is not in live sessions (it aged out), but is registered in roles and has cwd passed in cwds
+    const nodes = classify({
+      records: [],
+      roles: {
+        [mgrId]: { role: 'manager' },
+        [workerId]: { role: 'worker', parent: mgrId },
+      },
+      cwds: { [workerId]: '/work/analytics' },
+      sessions: [], // empty: worker's live marker aged out
+    })
+
+    const node = nodes.get(workerId)
+    assert.ok(node, 'worker node exists in classified tree')
+    assert.equal(node.role, 'worker')
+    assert.equal(node.managerId, mgrId)
+    assert.equal(node.runtime, 'antigravity', 'runtime resolved from transcript when .pbtxt is absent')
+    assert.equal(node.title, '@worker-1: optimize database queries for analytics')
+    assert.equal(node.cwd, '/work/analytics')
+
+    // Verify roster rendering with + AGY badge, title, project, and branch
+    const workerNode = {
+      sessionId: workerId,
+      name: node.title,
+      state: 'idle',
+      runtime: node.runtime,
+      project: 'analytics',
+      branch: 'develop',
+      tasks: {},
+    }
+    const mgrNode = {
+      sessionId: mgrId,
+      name: 'Analytics Mgr',
+      state: 'idle',
+      runtime: 'antigravity',
+      project: 'analytics',
+      branch: 'main',
+      children: [workerNode],
+    }
+    const tree = { interface: [], managers: [mgrNode], orphans: [], unclassified: [] }
+    const roster = renderRoster(tree)
+    assert.match(roster, /- @worker-1: optimize database queries for analytics — idle — analytics › develop/)
+    assert.equal(workerNode.runtime, 'antigravity')
+  } finally {
+    if (prevAgyHome === undefined) delete process.env.ANTIGRAVITY_HOME
+    else process.env.ANTIGRAVITY_HOME = prevAgyHome
+    await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  }
+})
