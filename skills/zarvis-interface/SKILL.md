@@ -55,7 +55,7 @@ Do this once at the start, and again when the user asks. Do not re-read it every
   date, the session id and the first line of the handoff note). Look there before assuming a
   worker is gone. You may ask a manager to park or unpark its workers; you do not park sessions yourself.
 
-## Lookup: "which session worked on X?"
+### Lookup: "which session worked on X?"
 
 This is the most common request ("which session has ticket KEY / this MR / this topic?"). One source is
 never enough, so check all of these, and say which you did not.
@@ -95,13 +95,13 @@ source rather than leaving the user to ask about it.
 **Links:** copy a session id verbatim from roster output into `[title](#local_<id>)`. Never retype one
 from memory; a mistyped id points at a different session.
 
-## Routing: "which manager?"
+### Routing: "which manager?"
 
 Pick the manager by, in order: the repo or cwd it works in; the ticket's parent epic or sibling tickets
 already under a manager; then manager title. Name the manager, say why, and offer the brief. "Spawn a worker
 under that manager" means send the manager a handoff brief (see below); you do not start workers yourself.
 
-## After compaction
+### After compaction
 
 You may run for days and compact. After a compaction the roster summary is stale: re-run
 `roster.mjs list --role manager`. Session tools such as `search_session_transcripts` and `send_message` may
