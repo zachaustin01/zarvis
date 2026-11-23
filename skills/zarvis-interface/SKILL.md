@@ -88,9 +88,18 @@ the steps as best effort:
   conversation, not a Claude Code session; I can't message it") and offer to send the project's manager a
   brief to start a Claude worker instead.
 
-**Answer format** (not the three-group digest): **owner** (or "none found"), **confidence**, **evidence**
-(one line per source), **sources checked**, **sources not checked or not opened**. Name an unchecked
-source rather than leaving the user to ask about it.
+**Answer format** (not the three-group digest). Lead with the answer, then the comparison:
+
+1. **Recommendation:** the one session to use, its link, and a confidence level. If it is an Antigravity
+   conversation, say Zarvis cannot message it. If nothing owns the work, say "none found".
+2. **Table** of every related session, one row each: Session (linked), Role on the ticket (QA,
+   implementation, MR review, claim holder), Runtime (Claude Code or Antigravity), State (live, idle, no
+   signal, stale), Evidence (one short phrase). Bold the row that is the answer.
+3. **Before you act:** a short list of caveats found along the way (flags to set, merge state, open items).
+   Omit it when there are none.
+4. **Alternative:** one line for when the owner cannot be messaged, such as a handoff brief to the manager.
+5. **Checked / Not checked:** one line each. Name every unchecked or unopened source rather than leaving the
+   user to ask about it.
 
 **Links:** copy a session id verbatim from roster output into `[title](#local_<id>)`. Never retype one
 from memory; a mistyped id points at a different session.
