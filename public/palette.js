@@ -53,41 +53,54 @@ const hostOf = (url) => {
 }
 
 const SESSION_FIELDS = (r, stateLabel) => [
-  [r.name, 1],
-  [r.title && r.title !== r.name ? r.title : '', 0.8],
-  [r.project, 0.7],
-  [r.branch || r.worktree, 0.7],
-  [r.role, 0.6],
-  [stateLabel, 0.6],
+  [r.name, 1, false, 'name'],
+  [r.title && r.title !== r.name ? r.title : '', 0.8, false, 'title'],
+  [r.project, 0.7, false, 'project'],
+  [r.branch || r.worktree, 0.7, false, 'branch'],
+  [r.role, 0.6, false, 'role'],
+  [stateLabel, 0.6, false, 'state'],
   // a parked session is found by why it was parked and by its handoff note, so it can be brought back
-  [r.parked?.reason, 0.7],
-  [r.parked?.handoffNote, 0.5],
-  [r.parked?.parkedByName, 0.4],
+  [r.parked?.reason, 0.7, false, 'notes'],
+  [r.parked?.handoffNote, 0.5, false, 'notes'],
+  [r.parked?.parkedByName, 0.4, false, 'notes'],
   // a session is found by the dashboard / page / PR it linked
   // what it was asked to do and what it last said: whole-word-ish substring matches only, and tokens under 3 characters skip them
-  [r.prompt, 0.35, true],
-  [r.reply, 0.25, true],
-  ...(Array.isArray(r.links) ? r.links.flatMap((l) => [[l?.label, 0.6], [hostOf(l?.url), 0.5]]) : []),
+  [r.prompt, 0.35, true, 'prompt'],
+  [r.reply, 0.25, true, 'reply'],
+  ...(Array.isArray(r.links) ? r.links.flatMap((l) => [[l?.label, 0.6, false, 'links'], [hostOf(l?.url), 0.5, false, 'links']]) : []),
 ]
 
-/** Score a session row against the query: every token must hit some field. Returns { score, idx } (idx into the name) or null. */
-export function scoreSession(q, r, stateLabel = r.state) {
+/** Score a session row against the query: every token must hit some field. Returns { score, idx, branchOnly } (idx into the name) or null. */
+export function scoreSession(q, r, stateLabel = r.state, options = {}) {
   const ts = tokens(q)
-  if (!ts.length) return { score: 0, idx: [] }
-  const fields = SESSION_FIELDS(r, stateLabel)
+  if (!ts.length) return { score: 0, idx: [], branchOnly: false }
+  const allowed = options.fields ? new Set(options.fields) : null
+  const fields = SESSION_FIELDS(r, stateLabel).filter((f) => !allowed || allowed.has(f[3]))
   let score = 0
+  let branchMatched = false
+  let nonBranchMatched = false
   for (const t of ts) {
     let best = null
-    for (const [text, w, prose] of fields) {
+    let bestField = null
+    for (const [text, w, prose, fieldKey] of fields) {
       if (prose && t.length < 3) continue
       const m = text && fuzzy(t, text, prose ? { contiguous: true } : undefined)
-      if (m && (!best || m.score * w > best)) best = m.score * w
+      if (m && (!best || m.score * w > best)) {
+        best = m.score * w
+        bestField = fieldKey
+      }
     }
     if (best === null) return null
     score += best
+    if (bestField === 'branch') branchMatched = true
+    else if (bestField) nonBranchMatched = true
+  }
+  const branchOnly = branchMatched && !nonBranchMatched
+  if (branchOnly && options.penalizeBranch) {
+    score *= 0.15
   }
   const nm = fuzzy(ts.join(' '), r.name)
-  return { score, idx: nm ? nm.idx : [] }
+  return { score, idx: nm ? nm.idx : [], branchOnly }
 }
 
 /** Score a schedule ({ name, desc, cron, note, source, owner }) by name, cron words, owner session and note. */

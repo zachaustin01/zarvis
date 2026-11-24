@@ -27,6 +27,22 @@ test('scoreSession: every token must hit name, project, branch, role or state', 
   assert.equal(scoreSession('login zzz', r), null)
 })
 
+test('scoreSession: supports field filtering and penalizes branch-only matches', () => {
+  const branchOnly = S('b1', 'Worker 1', { branch: 'feat/ticket-1234' })
+  const contentMatch = S('c1', 'Worker 2', { prompt: 'fixing ticket-1234 in login', branch: 'main' })
+
+  // Field filtering: searching only prompt/title ignores branch
+  assert.equal(scoreSession('ticket-1234', branchOnly, 'idle', { fields: ['prompt', 'title'] }), null)
+  assert.ok(scoreSession('ticket-1234', contentMatch, 'idle', { fields: ['prompt', 'title'] }))
+
+  // Branch-only penalty: content match scores substantially higher than branch-only match
+  const sBranch = scoreSession('ticket-1234', branchOnly, 'idle', { penalizeBranch: true })
+  const sContent = scoreSession('ticket-1234', contentMatch, 'idle', { penalizeBranch: true })
+  assert.equal(sBranch.branchOnly, true)
+  assert.equal(sContent.branchOnly, false)
+  assert.ok(sContent.score > sBranch.score * 3, 'content match beats branch-only match')
+})
+
 test('search: ranks by score, modes filter, empty query lists sessions then commands', () => {
   const sessions = [S('a', 'park the build'), S('b', 'docs')]
   const cmds = buildCommands(['zarvis', 'webapp'])
