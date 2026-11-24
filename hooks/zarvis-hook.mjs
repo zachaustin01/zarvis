@@ -35,17 +35,24 @@
  * Notification payload only carries a sentence like "Claude needs your permission to use Bash".
  * Never throws and never prints: a hook must not disturb the session.
  */
-import fsp from 'node:fs/promises'
 import path from 'node:path'
-import os from 'node:os'
-
-const HOME = process.env.ZARVIS_HOME || path.join(os.homedir(), '.zarvis')
-const DIR = path.join(HOME, 'blocked')
-const WORKING_DIR = path.join(HOME, 'working')
-const ROLES_DIR = path.join(HOME, 'roles')
-const SAFE_ID = /^[A-Za-z0-9_-]{8,80}$/
-const TAIL_BYTES = 256 * 1024
-const GUARD_TIMEOUT_MS = 400 // the claim guard runs before every tool call: past this it gives up silently
+import {
+  GUARD_TIMEOUT_MS,
+  getHome,
+  isSafeId,
+  readTail,
+  readJson,
+  writeAtomic,
+  clearMarker,
+  readStdinJson,
+  stripLeadingSystemReminders,
+  parseRoleTag,
+  claimFirstPrompt,
+  writeRoleTag,
+  buildClaimsContext,
+  runAutoEvents,
+  runAutoLinks,
+} from '../lib/hook-common.mjs'
 
 /** One-line summary of a tool_use input. */
 export function summarizeInput(name, input) {
@@ -148,19 +155,6 @@ export function buildQuestionMarker(payload, q, now = Date.now()) {
   }
 }
 
-async function readTail(file) {
-  const fh = await fsp.open(file, 'r')
-  try {
-    const { size } = await fh.stat()
-    const len = Math.min(size, TAIL_BYTES)
-    const buf = Buffer.alloc(len)
-    await fh.read(buf, 0, len, size - len)
-    return buf.toString('utf8')
-  } finally {
-    await fh.close()
-  }
-}
-
 /** Build the marker for a Notification payload. Exported for tests. */
 export async function buildMarker(payload, now = Date.now()) {
   let tool = typeof payload.tool_name === 'string' ? payload.tool_name : ''
@@ -170,7 +164,7 @@ export async function buildMarker(payload, now = Date.now()) {
   if (!command && typeof payload.transcript_path === 'string') {
     try {
       // transcript_path is always the session's; a subagent's own tool calls live beside it.
-      const file = agentId && SAFE_ID.test(agentId.replace(/^agent-/, '')) ? agentTranscript(payload.transcript_path, agentId) : payload.transcript_path
+      const file = agentId && isSafeId(agentId.replace(/^agent-/, '')) ? agentTranscript(payload.transcript_path, agentId) : payload.transcript_path
       const p = pendingTool(await readTail(file))
       tool = tool || p.tool
       command = p.command
@@ -223,13 +217,6 @@ export function buildWorking(payload, prev, now = Date.now(), state = 'working')
   }
 }
 
-async function writeAtomic(file, marker) {
-  await fsp.mkdir(path.dirname(file), { recursive: true })
-  const tmp = `${file}.${process.pid}.tmp`
-  await fsp.writeFile(tmp, JSON.stringify(marker))
-  await fsp.rename(tmp, file)
-}
-
 /**
  * The role tag for a UserPromptSubmit payload, or null. Exported for tests. Only a tag at the very
  * start of the user's own text counts (leading whitespace allowed), as `rolePrompt` generates it; a
@@ -238,26 +225,17 @@ async function writeAtomic(file, marker) {
  * session started without a project folder. The caller also checks that this is the session's first prompt.
  */
 export function buildRoleTag(payload, now = Date.now()) {
-  const prompt = typeof payload.prompt === 'string' ? payload.prompt.replace(/^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)+/, '') : ''
-  const m = /^\s*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i.exec(prompt)
-  return m ? { sessionId: payload.session_id, role: m[1].toLowerCase(), parent: m[2] || '', at: now } : null
-}
-
-async function readJson(file) {
-  try {
-    return JSON.parse(await fsp.readFile(file, 'utf8'))
-  } catch {
-    return null
-  }
+  const prompt = stripLeadingSystemReminders(payload.prompt)
+  return parseRoleTag(prompt, payload.session_id, now)
 }
 
 /**
  * The claim guard: prints at most one `ask` decision, never a deny. Any error or the self-timeout prints
  * nothing and exits 0, which changes nothing about the tool call.
  */
-async function guardMode(mode, payload) {
+async function guardMode(mode, payload, home) {
   const claims = await import('../lib/claims.mjs')
-  const ctx = { home: HOME, now: Date.now(), deps: claims.realDeps, self: () => claims.sessionProcess({}), name: (sid) => claims.sessionName(sid) }
+  const ctx = buildClaimsContext(claims, home)
   if (mode === 'guardpost') return claims.guardPost(payload, ctx)
   const out = claims.guard(payload, ctx)
   if (out) process.stdout.write(JSON.stringify(out))
@@ -269,22 +247,18 @@ async function main() {
   const mode = process.argv[2]
   const guarding = mode === 'guard' || mode === 'guardpost'
   if (guarding) guardTimer = setTimeout(() => process.exit(0), GUARD_TIMEOUT_MS)
-  const chunks = []
-  for await (const c of process.stdin) chunks.push(c)
-  let payload
-  try {
-    payload = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-  } catch {
-    return
-  }
+  const payload = await readStdinJson()
+  if (!payload) return
   const id = payload?.session_id
-  if (typeof id !== 'string' || !SAFE_ID.test(id)) return
-  const file = path.join(DIR, `${id}.json`)
-  const workFile = path.join(WORKING_DIR, `${id}.json`)
+  if (!isSafeId(id)) return
+  const home = getHome()
+  const file = path.join(home, 'blocked', `${id}.json`)
+  const workFile = path.join(home, 'working', `${id}.json`)
+  const rolesDir = path.join(home, 'roles')
   const agentId = typeof payload.agent_id === 'string' ? payload.agent_id : ''
   if (guarding) {
     try {
-      await guardMode(mode, payload)
+      await guardMode(mode, payload, home)
     } catch {
       /* a failed guard must not disturb the session */
     }
@@ -296,13 +270,13 @@ async function main() {
     await writeAtomic(file, payload.hook_event_name === 'Notification' ? mergeNotification(prev, next) : next)
   } else if (mode === 'agentstop') {
     // A subagent finished: if its own prompt is the pending one, that prompt is gone.
-    if (agentId && (await readJson(file))?.agentId === agentId) await fsp.rm(file, { force: true })
+    if (agentId && (await readJson(file))?.agentId === agentId) await clearMarker(file)
   } else if (mode === 'clear') {
-    await fsp.rm(file, { force: true })
+    await clearMarker(file)
   } else if (mode === 'done') {
-    await Promise.all([fsp.rm(file, { force: true }), fsp.rm(workFile, { force: true }), fsp.rm(path.join(HOME, 'tasks', `${id}.json`), { force: true }), fsp.rm(path.join(HOME, 'links', `${id}.json`), { force: true })])
+    await Promise.all([clearMarker(file), clearMarker(workFile), clearMarker(path.join(home, 'tasks', `${id}.json`)), clearMarker(path.join(home, 'links', `${id}.json`))])
     try {
-      ;(await import('../lib/claims.mjs')).releaseSession(HOME, id)
+      ;(await import('../lib/claims.mjs')).releaseSession(home, id)
     } catch {
       /* the claims are best effort; they also expire */
     }
@@ -319,51 +293,31 @@ async function main() {
         }
       }
       if (q) await writeAtomic(file, buildQuestionMarker(payload, q))
-      else await fsp.rm(file, { force: true })
+      else await clearMarker(file)
     }
     await writeAtomic(workFile, buildWorking(payload, null, Date.now(), 'idle'))
-    await backgroundTasks('idle', payload)
+    await backgroundTasks('idle', payload, home)
   } else if (mode === 'start' || mode === 'resume' || mode === 'work') {
-    let prev = null
-    if (mode !== 'start') {
-      try {
-        prev = JSON.parse(await fsp.readFile(workFile, 'utf8'))
-      } catch {
-        /* first sign of life for this session */
-      }
-    }
+    const prev = mode !== 'start' ? await readJson(workFile) : null
     if (mode === 'start') {
       // "First prompt" = we are the first `start` to claim the `<id>.first` sentinel (wx write).
       // The working marker can't tell us: SessionStart's idle writes one before any prompt, and
       // idle/work/resume rewrite it. The sentinel is not .json, so the server's role reader skips it.
-      await fsp.mkdir(ROLES_DIR, { recursive: true })
-      let first = false
-      try {
-        await fsp.writeFile(path.join(ROLES_DIR, `${id}.first`), '', { flag: 'wx' })
-        first = true
-      } catch {
-        /* a later prompt */
-      }
+      const first = await claimFirstPrompt(rolesDir, id)
       const tag = first ? buildRoleTag(payload) : null
-      if (tag) {
-        try {
-          await fsp.writeFile(path.join(ROLES_DIR, `${id}.json`), JSON.stringify(tag), { flag: 'wx' })
-        } catch {
-          /* already tagged: the first marker wins */
-        }
-      }
+      await writeRoleTag(rolesDir, id, tag)
     }
     if (mode !== 'work') {
       // Another agent's tool call must not clear a prompt it did not raise; the raising agent's own
       // next event (it got its answer) does, and so does a new prompt.
       const blocked = await readJson(file)
-      if (mode === 'start' || !blocked || (blocked.agentId || '') === agentId) await fsp.rm(file, { force: true })
+      if (mode === 'start' || !blocked || (blocked.agentId || '') === agentId) await clearMarker(file)
     }
     await writeAtomic(workFile, buildWorking(payload, prev))
     if (mode === 'work') {
-      await autoEvents(payload)
-      await autoLinks(payload)
-      if (!agentId && /^(Bash|Monitor|Agent|Task|TaskStop|KillShell)$/.test(payload.tool_name || '')) await backgroundTasks('work', payload)
+      await runAutoEvents(payload, home)
+      await runAutoLinks(payload, home)
+      if (!agentId && /^(Bash|Monitor|Agent|Task|TaskStop|KillShell)$/.test(payload.tool_name || '')) await backgroundTasks('work', payload, home)
     }
   }
 }
@@ -372,42 +326,15 @@ async function main() {
  * Background tasks (lib/tasks.mjs): launches and TaskStop on PostToolUse, the authoritative `background_tasks` list on Stop.
  * Whatever just ended becomes one ticker event. Fail-silent: tasks are decoration, never worth disturbing the session.
  */
-async function backgroundTasks(mode, payload) {
+async function backgroundTasks(mode, payload, home) {
   try {
     const tasks = await import('../lib/tasks.mjs')
-    const finished = await tasks.trackTasks(mode, payload, HOME)
+    const finished = await tasks.trackTasks(mode, payload, home)
     const text = tasks.finishedText(finished)
     if (text) {
       const events = await import('../lib/events.mjs')
-      if (events.autoEventsEnabled(HOME)) await events.appendEvent(HOME, events.buildEvent({ kind: 'done', text, sessionId: payload.session_id }))
+      if (events.autoEventsEnabled(home)) await events.appendEvent(home, events.buildEvent({ kind: 'done', text, sessionId: payload.session_id }))
     }
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * A successful `git push` / `gh pr create` in a Bash call becomes a ticker event (lib/events.mjs). Off with
- * ZARVIS_AUTO_EVENTS=0 or `npm run event -- --auto off`. The module is only loaded when the command looks like one.
- */
-async function autoEvents(payload) {
-  const command = payload.tool_name === 'Bash' && typeof payload.tool_input?.command === 'string' ? payload.tool_input.command : ''
-  if (!/\bpush\b|\bpr\b/.test(command)) return
-  try {
-    await (await import('../lib/events.mjs')).logAutoEvents(payload, HOME)
-  } catch {
-    /* an event is only a log: never disturb the session */
-  }
-}
-
-/**
- * A file sent with SendUserFile or an Artifact publish is pinned to the session's card (lib/links.mjs). Off with
- * ZARVIS_AUTO_LINKS=0. The module is only loaded for those two tools.
- */
-async function autoLinks(payload) {
-  if (!/^(SendUserFile|Artifact)$/.test(payload.tool_name || '')) return
-  try {
-    await (await import('../lib/links.mjs')).logAutoLinks(payload, HOME)
   } catch {
     /* ignore */
   }

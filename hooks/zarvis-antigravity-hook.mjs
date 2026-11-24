@@ -16,12 +16,23 @@
  */
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import os from 'node:os'
-
-const getHome = () => process.env.ZARVIS_HOME || path.join(os.homedir(), '.zarvis')
-const SAFE_ID = /^[A-Za-z0-9_-]{8,80}$/
-const TAIL_BYTES = 256 * 1024
-const GUARD_TIMEOUT_MS = 400
+import {
+  GUARD_TIMEOUT_MS,
+  getHome,
+  isSafeId,
+  readTail,
+  readHead,
+  readJson,
+  writeAtomic,
+  clearMarker,
+  readStdinJson,
+  stripLeadingSystemReminders,
+  parseRoleTag,
+  claimFirstPrompt,
+  writeRoleTag,
+  buildClaimsContext,
+  runAutoEvents,
+} from '../lib/hook-common.mjs'
 
 /** One-line summary of Antigravity tool arguments. */
 export function summarizeAntigravityInput(name, args) {
@@ -105,19 +116,6 @@ export function askedQuestionAntigravity(tailText) {
   return null
 }
 
-async function readTail(file) {
-  const fh = await fsp.open(file, 'r')
-  try {
-    const { size } = await fh.stat()
-    const len = Math.min(size, TAIL_BYTES)
-    const buf = Buffer.alloc(len)
-    await fh.read(buf, 0, len, size - len)
-    return buf.toString('utf8')
-  } finally {
-    await fh.close()
-  }
-}
-
 /** Build working marker for Antigravity sessions. */
 export function buildAntigravityWorking(payload, prev, now = Date.now(), state = 'working') {
   const at = Number(prev?.at)
@@ -181,40 +179,24 @@ export function buildAntigravityBlockedMarker(payload, reason = 'Antigravity nee
   }
 }
 
-const ROLE_TAG_RE =
-  /(?:^|\n)\s*(?:@[A-Za-z0-9_.-]+\s+)*\[zarvis:\s*role=(interface|manager|worker)(?:\s+parent=([A-Za-z0-9_-]{8,80}))?\s*\]/i
 const SWARM_ASSIGNMENT_RE =
   /\bsender=([A-Za-z0-9_-]{8,80})\b[\s\S]*?You have just started\.\s*Your assignment \(recorded on the board as #\d+ for @([A-Za-z0-9_.-]+)\):/i
 const SUBAGENT_MESSAGE_RE =
   /\[Message\][^\n]*\bsender=([A-Za-z0-9_-]{8,80})\b[^\n]*\scontent=([\s\S]*?)(?:<\/SYSTEM_MESSAGE>|$)/i
-const HEAD_BYTES = 32 * 1024
 
 /** Check role tag or native swarm/subagent worker assignment in prompt/message text. */
 export function buildAntigravityRoleTag(payload, now = Date.now()) {
-  let prompt = typeof payload.lastUserInput === 'string' ? payload.lastUserInput : ''
-  prompt = prompt
-    .replace(/^\s*<USER_REQUEST>\s*/i, '')
-    .replace(/^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)+/, '')
+  const raw = typeof payload.lastUserInput === 'string' ? payload.lastUserInput : ''
+  const prompt = stripLeadingSystemReminders(raw.replace(/^\s*<USER_REQUEST>\s*/i, ''))
   const id = payload.conversationId || payload.session_id
-  const m = ROLE_TAG_RE.exec(prompt)
-  if (m) return { sessionId: id, role: m[1].toLowerCase(), parent: m[2] || '', at: now }
+  const tag = parseRoleTag(prompt, id, now, { multiline: true })
+  if (tag) return tag
   const sw = SWARM_ASSIGNMENT_RE.exec(prompt)
   if (sw) return { sessionId: id, role: 'worker', parent: sw[1], at: now }
   if (prompt.includes('[swarm] new board message')) return null
   const sub = SUBAGENT_MESSAGE_RE.exec(prompt)
   if (sub) return { sessionId: id, role: 'worker', parent: sub[1], at: now }
   return null
-}
-
-async function readHead(file, maxBytes = HEAD_BYTES) {
-  const fh = await fsp.open(file, 'r')
-  try {
-    const buf = Buffer.alloc(maxBytes)
-    const { bytesRead } = await fh.read(buf, 0, maxBytes, 0)
-    return buf.toString('utf8', 0, bytesRead)
-  } finally {
-    await fh.close()
-  }
 }
 
 /** Fallback: inspect the first 32 KB of transcriptPath for role tag or swarm worker assignment in initial steps. */
@@ -259,41 +241,12 @@ async function ensureRoleTag(payload, id, rolesDir) {
     /* not tagged yet */
   }
 
-  await fsp.mkdir(rolesDir, { recursive: true })
-  let first = false
-  try {
-    await fsp.writeFile(path.join(rolesDir, `${id}.first`), '', { flag: 'wx' })
-    first = true
-  } catch {
-    /* subsequent prompt or tool call */
-  }
-
+  const first = await claimFirstPrompt(rolesDir, id)
   let tag = first ? buildAntigravityRoleTag(payload) : null
   if (!tag && payload.transcriptPath) {
     tag = await detectRoleTagFromTranscript(payload.transcriptPath, id)
   }
-  if (tag) {
-    try {
-      await fsp.writeFile(roleFile, JSON.stringify(tag), { flag: 'wx' })
-    } catch {
-      /* already tagged */
-    }
-  }
-}
-
-async function writeAtomic(file, marker) {
-  await fsp.mkdir(path.dirname(file), { recursive: true })
-  const tmp = `${file}.${process.pid}.tmp`
-  await fsp.writeFile(tmp, JSON.stringify(marker))
-  await fsp.rename(tmp, file)
-}
-
-async function readJson(file) {
-  try {
-    return JSON.parse(await fsp.readFile(file, 'utf8'))
-  } catch {
-    return null
-  }
+  await writeRoleTag(rolesDir, id, tag)
 }
 
 /** Checkout claims guard for Antigravity run_command tool calls. */
@@ -305,13 +258,7 @@ async function guardToolCall(payload, home = getHome()) {
 
   try {
     const claims = await import('../lib/claims.mjs')
-    const ctx = {
-      home,
-      now: Date.now(),
-      deps: claims.realDeps,
-      self: () => claims.sessionProcess({}),
-      name: (sid) => claims.sessionName(sid),
-    }
+    const ctx = buildClaimsContext(claims, home)
     const claudePayload = {
       session_id: payload.conversationId,
       cwd: payload.cwd || (Array.isArray(payload.workspacePaths) ? payload.workspacePaths[0] || '' : ''),
@@ -329,22 +276,17 @@ async function autoEventsAntigravity(payload, home = getHome()) {
   const toolCall = payload.toolCall
   if (toolCall?.name !== 'run_command' || !toolCall.args) return
   const command = toolCall.args.CommandLine ?? toolCall.args.command
-  if (typeof command !== 'string' || !/\bpush\b|\bpr\b/.test(command)) return
-  try {
-    const events = await import('../lib/events.mjs')
-    await events.logAutoEvents({
-      session_id: payload.conversationId,
-      tool_name: 'Bash',
-      tool_input: { command },
-    }, home)
-  } catch {
-    /* non-blocking */
-  }
+  if (typeof command !== 'string') return
+  await runAutoEvents({
+    session_id: payload.conversationId,
+    tool_name: 'Bash',
+    tool_input: { command },
+  }, home)
 }
 
 export async function handleHook(mode, payload) {
   const id = payload?.conversationId || payload?.session_id
-  if (typeof id !== 'string' || !SAFE_ID.test(id)) return { decision: "allow" }
+  if (!isSafeId(id)) return { decision: "allow" }
 
   const home = getHome()
   const dir = path.join(home, 'blocked')
@@ -362,7 +304,7 @@ export async function handleHook(mode, payload) {
 
   if (mode === 'pre_invocation') {
     // Turn started: session is working, clear previous blocked markers
-    await fsp.rm(file, { force: true })
+    await clearMarker(file)
     let prev = await readJson(workFile)
 
     // First prompt / swarm worker assignment role registration
@@ -384,16 +326,7 @@ export async function handleHook(mode, payload) {
     const isSwarmAdd = tc?.name === 'swarm' && tc.args?.action === 'add'
     const isWorkerSubagent = tc?.name === 'invoke_subagent' && /\[zarvis:\s*role=worker\b/i.test(String(tc.args?.Prompt || ''))
     if (isSwarmAdd || isWorkerSubagent) {
-      await fsp.mkdir(rolesDir, { recursive: true })
-      try {
-        await fsp.writeFile(
-          path.join(rolesDir, `${id}.json`),
-          JSON.stringify({ sessionId: id, role: 'manager', parent: '', at: Date.now() }),
-          { flag: 'wx' },
-        )
-      } catch {
-        /* already tagged */
-      }
+      await writeRoleTag(rolesDir, id, { sessionId: id, role: 'manager', parent: '', at: Date.now() })
     }
 
     // Claims guard check
@@ -429,7 +362,7 @@ export async function handleHook(mode, payload) {
     if (q) {
       await writeAtomic(file, buildAntigravityQuestionMarker(payload, q))
     } else {
-      await fsp.rm(file, { force: true })
+      await clearMarker(file)
     }
 
     await writeAtomic(workFile, buildAntigravityWorking(payload, null, Date.now(), 'idle'))
@@ -446,14 +379,10 @@ async function main() {
     process.exit(0)
   }, GUARD_TIMEOUT_MS)
 
-  const chunks = []
-  for await (const c of process.stdin) chunks.push(c)
+  const payload = await readStdinJson()
   clearTimeout(guardTimer)
 
-  let payload = {}
-  try {
-    payload = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-  } catch {
+  if (!payload) {
     process.stdout.write('{}\n')
     return
   }
