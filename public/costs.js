@@ -16,6 +16,14 @@ export function stepRange(id, dir) {
   return RANGES[Math.min(RANGES.length - 1, Math.max(0, i + (dir > 0 ? 1 : -1)))].id
 }
 
+export const PROVIDERS = [
+  { id: 'all', label: 'all' },
+  { id: 'anthropic', label: 'Anthropic' },
+  { id: 'gcp', label: 'GCP' },
+]
+export const DEFAULT_PROVIDER = 'all'
+export const providerOfChoice = (id) => PROVIDERS.find((p) => p.id === id) || PROVIDERS[0]
+
 /** $1,234 / $12.34 / $0.123 — more precision the smaller it is. */
 export function usd(n) {
   n = Number(n) || 0
@@ -31,16 +39,31 @@ export function tok(n) {
   return n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(Math.round(n))
 }
 
-/** The model family for colouring: fable | mythos | opus | sonnet | haiku | other. */
+/** The model family for colouring: fable | mythos | opus | sonnet | haiku | argon | carbon | hydrogen | orchestrator | ultra | pro | flash | flash-lite | other. */
 export function familyOf(model) {
-  const m = /claude-(fable|mythos|opus|sonnet|haiku)/.exec(String(model ?? '').toLowerCase())
-  return m ? m[1] : 'other'
+  const s = String(model ?? '').toLowerCase()
+  if (s === 'gemini-unknown' || s === 'unknown-gemini') return 'other'
+  const m = /claude-(fable|mythos|opus|sonnet|haiku)/.exec(s)
+  if (m) return m[1]
+  if (s.includes('orchestrator')) return 'orchestrator'
+  const g = /gemini-(?:\d+(?:\.\d+)?-)?(argon|carbon|hydrogen|ultra|pro|flash-lite|flash)/.exec(s)
+  if (g) return g[1]
+  if (s.startsWith('gpt-')) return 'other'
+  if (s.startsWith('gemini-')) return 'flash'
+  return 'other'
 }
 
-/** A short label: claude-opus-5-5 -> "opus 5.5"; an unknown id is kept as given. */
+/** A short label: claude-opus-5-5 -> "opus 5.5"; gemini-3.8-flash -> "flash 3.8"; an unknown id is kept as given. */
 export function modelLabel(model) {
-  const m = /^claude-(fable|mythos|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(String(model ?? '').toLowerCase())
-  return m ? `${m[1]} ${m[2]}${m[3] ? `.${m[3]}` : ''}` : String(model ?? '')
+  const s = String(model ?? '').toLowerCase()
+  if (s === 'gemini-unknown' || s === 'unknown-gemini') return 'unknown Gemini model'
+  if (s.includes('orchestrator')) return 'orchestrator'
+  const m = /^claude-(fable|mythos|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(s)
+  if (m) return `${m[1]} ${m[2]}${m[3] ? `.${m[3]}` : ''}`
+  const g = /^gemini-(\d+(?:\.\d+)?)-(argon|carbon|hydrogen|ultra|pro|flash-lite|flash)(?:-(?:low|medium|high|xhigh|extra-low))?$/.exec(s)
+  if (g) return `${g[2]} ${g[1]}`
+  if (s === 'gemini-auto') return 'gemini auto'
+  return String(model ?? '')
 }
 
 /** A model mix as segments of a bar: [{ model, family, label, pct, priced }], by tokens-weighted dollars, falling back to tokens when nothing is priced. */
@@ -64,6 +87,24 @@ export const share = (part, whole) => (whole > 0 ? Math.min(100, (part / whole) 
 export function dayLabel(key) {
   const [y, m, d] = String(key).split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+/** Pricing source and check date attribution per active provider ('all' | 'anthropic' | 'gcp'). */
+export function pricingAttribution(pricing, provider = 'all') {
+  if (!pricing) return ''
+  const provs = pricing.providers || {}
+  const list = []
+  if (provider === 'anthropic' || provider === 'all') {
+    const a = provs.anthropic || { source: pricing.source, checked: pricing.checked }
+    const src = a.source ? a.source.replace(/^https:\/\//, '') : 'platform.claude.com'
+    list.push(`Anthropic (${src}, checked ${a.checked || '2026-10-29'})`)
+  }
+  if (provider === 'gcp' || provider === 'all') {
+    const g = provs.gcp || { source: 'https://ai.google.dev/pricing', checked: '2026-11-18' }
+    const src = g.source ? g.source.replace(/^https:\/\//, '') : 'ai.google.dev/pricing'
+    list.push(`Google Cloud (${src}, checked ${g.checked || '2026-11-18'})`)
+  }
+  return list.join('; ')
 }
 
 /** Move a selection index through `n` rows, stopping at the ends. */

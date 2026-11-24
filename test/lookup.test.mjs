@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildLookup, findEntry } from '../lib/lookup.mjs'
+import { buildLookup, findEntry, collectRows, cwdsOf } from '../lib/lookup.mjs'
+import fsp from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { runRoster, parseArgs } from '../lib/roster-cli.mjs'
 
 const id = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`
@@ -124,7 +127,7 @@ test('CLI list filters by role, manager and running; text says unknown honestly'
 })
 
 test('CLI with no records at all lists nothing, and bad options exit 1', async () => {
-  assert.match((await cli(['list'], world({ records: [] }))).out, /no matching sessions/)
+  assert.match((await cli(['list'], world({ records: [], roles: {} }))).out, /no matching sessions/)
   assert.equal((await cli(['list', '--bogus'])).code, 1)
   assert.equal((await cli(['nope'])).code, 1)
   assert.throws(() => parseArgs(['list', '--role']), /needs a value/)
@@ -142,4 +145,87 @@ test('withHolderLinks: a claim\'s holder resolves to its desktop record and clau
   assert.equal(out[3].holder.link, `claude://claude.ai/epitaxy/local_${id(ARCH)}`, 'archived is still openable, as in the lookup')
   assert.equal(out[0].holder.name, 'H3', 'the rest of the view is untouched')
   assert.deepEqual(withHolderLinks([], records), [])
+})
+
+test('a classified worker with no record and an aged-out marker still resolves with role and manager', async () => {
+  const AGED = 9
+  const w = world({ roles: { ...world().roles, [id(AGED)]: { role: 'worker', parent: id(MGR) } } })
+  const e = by(await buildLookup({ ...w, all: true }), AGED)
+  assert.ok(e)
+  assert.deepEqual([e.role, e.managerId, e.managerName], ['worker', id(MGR), 'Hand name'])
+})
+
+test('collectRows and buildLookup preserve runtime, project, branch, and manager for aged-out Antigravity and CLI workers (#9)', async () => {
+  const prevAgyHome = process.env.ANTIGRAVITY_HOME
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-lookup-agy-'))
+  process.env.ANTIGRAVITY_HOME = tmpDir
+  try {
+    const AGY_WORKER = 8
+    const CLI_WORKER = 9
+    const agyId = id(AGY_WORKER)
+    const cliId = id(CLI_WORKER)
+
+    // Write an Antigravity transcript for AGY_WORKER (subagent/swarm worker shape)
+    const trDir = path.join(tmpDir, 'brain', agyId, '.system_generated', 'logs')
+    await fsp.mkdir(trDir, { recursive: true })
+    const swarmBrief = 'run migrations on analytics db'
+    const trLine = JSON.stringify({
+      step_index: 0,
+      type: 'SYSTEM_MESSAGE',
+      content: `sender=${id(MGR)} [swarm] You have just started. Your assignment (recorded on the board as #2 for @worker-2): ${swarmBrief}`,
+    })
+    await fsp.writeFile(path.join(trDir, 'transcript.jsonl'), trLine + '\n')
+
+    // Both workers have aged-out working/markers (> 24h old)
+    const expiredTs = NOW - 24 * 3600_000
+    const expiredMarkers = [
+      { sessionId: agyId, at: expiredTs, seen: expiredTs, state: 'idle', cwd: '/work/analytics', runtime: 'antigravity' },
+      { sessionId: cliId, at: expiredTs, seen: expiredTs, state: 'idle', cwd: '/work/cli-tool', runtime: 'claude' },
+    ]
+
+    const w = world({
+      roles: {
+        ...world().roles,
+        [agyId]: { role: 'worker', parent: id(MGR) },
+        [cliId]: { role: 'worker', parent: id(MGR) },
+      },
+      markers: expiredMarkers,
+      branchOf: async (cwd) => (cwd.includes('analytics') ? 'develop' : 'feat/cli'),
+    })
+
+    // 1. collectRows preserves cwd from expired markers into nodes
+    const { nodes, rows } = await collectRows(w)
+    assert.equal(rows.some((r) => r.sessionId === agyId), false, 'aged-out marker is not in live queue rows')
+    assert.equal(rows.some((r) => r.sessionId === cliId), false)
+    assert.equal(nodes.get(agyId)?.cwd, '/work/analytics', 'cwd preserved from expired marker')
+    assert.equal(nodes.get(cliId)?.cwd, '/work/cli-tool', 'cwd preserved from expired marker')
+    assert.equal(nodes.get(agyId)?.runtime, 'antigravity', 'runtime resolved from transcript')
+    assert.equal(nodes.get(cliId)?.runtime, 'claude')
+
+    // 2. buildLookup with all: true includes both aged-out workers with runtime, project, branch, manager
+    const list = await buildLookup({ ...w, all: true })
+    const agyEntry = list.find((e) => e.sessionId === agyId)
+    const cliEntry = list.find((e) => e.sessionId === cliId)
+
+    assert.ok(agyEntry, 'aged-out Antigravity worker present in buildLookup')
+    assert.equal(agyEntry.runtime, 'antigravity')
+    assert.equal(agyEntry.role, 'worker')
+    assert.equal(agyEntry.managerId, id(MGR))
+    assert.equal(agyEntry.managerName, 'Hand name')
+    assert.equal(agyEntry.project, 'analytics')
+    assert.equal(agyEntry.branch, 'develop')
+    assert.equal(agyEntry.link, `antigravity://conversation/${agyId}`)
+
+    assert.ok(cliEntry, 'aged-out CLI worker present in buildLookup')
+    assert.equal(cliEntry.runtime, 'claude')
+    assert.equal(cliEntry.role, 'worker')
+    assert.equal(cliEntry.managerId, id(MGR))
+    assert.equal(cliEntry.managerName, 'Hand name')
+    assert.equal(cliEntry.project, 'cli-tool')
+    assert.equal(cliEntry.branch, 'feat/cli')
+  } finally {
+    if (prevAgyHome === undefined) delete process.env.ANTIGRAVITY_HOME
+    else process.env.ANTIGRAVITY_HOME = prevAgyHome
+    await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  }
 })

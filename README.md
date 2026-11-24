@@ -47,19 +47,20 @@ While running, Zarvis **never writes to Claude's files**. Its writes are all und
 (or `$ZARVIS_HOME`): hook markers (`blocked/`, `working/`), `claims/`, `links/`, `roles/`,
 `schedules.json`, `events.jsonl` and `state.json` (names, parked, done).
 
-The one exception is `npm run setup`, run by you: it adds the hook to `~/.claude/settings.json` and
-installs the `zarvis-interface`, `zarvis-manager` and `zarvis-worker` skills into `~/.claude/skills/`.
+The one exception is `npm run setup`, run by you: it adds the hooks to `~/.claude/settings.json`
+and `~/.gemini/config/hooks.json`, and installs the `zarvis-interface`, `zarvis-manager` and `zarvis-worker`
+skills into `~/.claude/skills/` and `~/.gemini/config/skills/`.
 
 ## Setup details
 
-Blocked state is not visible anywhere in Claude's files, so it comes from an opt-in hook. Without it
+Blocked and working states are surfaced through opt-in lifecycle hooks. Without them
 the queue is always empty.
 
-- Only Zarvis's own entries are added; your other hooks and settings are kept.
-- The previous settings file is backed up first, and an invalid one is never written.
-- Re-running `npm run setup` is safe, including after moving the clone or updating Zarvis (new hook events need it).
-- `--dry-run` prints the result without writing; `--settings <file>` targets another settings file.
-- `npm run uninstall-hook` removes the hook and skills again.
+- Only Zarvis's own entries are added; your other hooks and settings are kept intact.
+- Previous settings/hooks files are backed up first, and invalid JSON is never written.
+- Re-running `npm run setup` is safe, including after moving the clone or updating Zarvis.
+- `--dry-run` prints the result without writing; `--settings <file>` and `--antigravity-hooks <file>` target custom config files.
+- `npm run uninstall-hook` removes the hooks and skills again from both platforms.
 
 The hook entries, a manual install and a way to try it with a fake payload are in
 [docs/hook.md](docs/hook.md).

@@ -2,7 +2,7 @@
 import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, isOverdue, canBeOverdue, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
-import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel } from '/costs.js'
+import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel, PROVIDERS as COST_PROVIDERS, DEFAULT_PROVIDER, providerOfChoice, pricingAttribution } from '/costs.js'
 import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
@@ -16,6 +16,8 @@ let parkedList = [] // parked sessions, newest first: the Parked view
 let palette = null // the command palette while open: { q, key, idx, sig, back }
 let pick = null // the attach picker: { mgr, rows, checked, idx } for a manager, or { target, rows, idx } to choose a manager for one session
 let awaitingNew = false // after `n`: the next key picks the new session's role
+let awaitingNewRuntime = false // after `n` + role: the next key picks the runtime (a antigravity · c/space claude)
+let pendingNewRole = ''
 let awaitingRole = false // after `c`: the next key picks the role
 let sel = null // sessionId of the selected row
 let renaming = null // sessionId being renamed
@@ -33,6 +35,8 @@ let roleFilter = '' // queue role filter: '' | 'manager' | 'worker' (persisted)
 try { project = localStorage.getItem('zarvis.project') || '' } catch { /* storage blocked */ }
 try { showParked = localStorage.getItem('zarvis.showParked') === '1' } catch { /* storage blocked */ }
 try { roleFilter = resolveRole(localStorage.getItem('zarvis.role')) } catch { /* storage blocked */ }
+let agyKeystrokes = false
+try { agyKeystrokes = localStorage.getItem('zarvis.antigravityKeystrokes') === '1' } catch { /* storage blocked */ }
 
 const ICON = { interface: '◆', manager: '▣', worker: '●', unclassified: '?' }
 const STATE_LABEL = { blocked: 'needs you', waiting_on_child: 'waiting on worker', working: 'working', idle: 'idle', unknown: 'no signal' }
@@ -136,6 +140,15 @@ function lifeTag(r) {
   return `<span class="pd" title="parked">○</span><span class="ap">${esc(r.parked.reason)}</span>${by}${wake}`
 }
 
+/** Origin runtime chip (Claude Code vs Antigravity). */
+function runtimeTag(r) {
+  const isAgy = r.runtime === 'antigravity' || (!r.desktopSessionId && Boolean(r.transcriptPath?.includes('antigravity') || r.transcript?.includes('antigravity')))
+  if (isAgy) {
+    return `<span class="rt rt-agy" title="Antigravity session"><svg class="rt-ico" viewBox="0 0 16 16" width="11" height="11"><path fill="currentColor" d="M8 0L9.8 6.2L16 8L9.8 9.8L8 16L6.2 9.8L0 8L6.2 6.2Z"/></svg>AGY</span>`
+  }
+  return `<span class="rt rt-claude" title="Claude Code session"><svg class="rt-ico" viewBox="0 0 16 16" width="11" height="11"><path fill="currentColor" d="M8 2.5a.75.75 0 0 1 .75.75v3.19l2.25-2.25a.75.75 0 1 1 1.06 1.06L9.81 7.5h3.19a.75.75 0 0 1 0 1.5H9.81l2.25 2.25a.75.75 0 1 1-1.06 1.06L8.75 10.06v3.19a.75.75 0 0 1-1.5 0v-3.19l-2.25 2.25a.75.75 0 0 1-1.06-1.06L6.19 9H3a.75.75 0 0 1 0-1.5h3.19L3.94 5.25a.75.75 0 0 1 1.06-1.06L7.25 6.44V3.25A.75.75 0 0 1 8 2.5z"/></svg>Claude</span>`
+}
+
 const bgName = (t) => ((t?.label || t?.kind || 'task').length > 28 ? `${(t.label || t.kind).slice(0, 27)}…` : t?.label || t?.kind || 'task')
 
 const openBg = new Set() // sessions whose background-task list is expanded (click the chip)
@@ -214,7 +227,7 @@ function treeRow(r, depth) {
   const roll = r.blockedChildren?.length ? ` <span class="ap">${r.blockedChildren.length} blocked</span>` : ''
   return (
     `<div class="q tr s-${r.state}${r.parked ? ' pkd' : ''}${r.done ? ' dn' : ''}${r.sessionId === sel ? ' sel' : ''}"${nd(r)} style="margin-left:${depth * 22}px" data-id="${esc(r.sessionId)}">` +
-    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}${ctxHtml(r)}` +
+    `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span>${lifeTag(r)}${runtimeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${name}${warn(r)}${hint}${roll}${bgTag(r)}${ctxHtml(r)}` +
     `<span class="wt">${esc(treeStatus(r))}</span></div>${linksHtml(r)}${bgList(r)}<span class="go">ENTER ↵ OPEN</span></div>`
   )
 }
@@ -258,7 +271,7 @@ function renderParkedInner() {
         const by = p.parkedBy ? `by ${esc(p.parkedByName || p.parkedBy)}` : 'by hand'
         return (
           `<div class="q tr pkv${r.archived ? ' arch' : ''}${r.sessionId === sel ? ' sel' : ''}" data-id="${esc(r.sessionId)}">` +
-          `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span><span class="pd">○</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span><span class="nm">${esc(r.name)}</span>` +
+          `<div class="r1"><span class="ri" title="${esc(r.role)}">${ICON[r.role]}</span><span class="pd">○</span>${runtimeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span><span class="nm">${esc(r.name)}</span>` +
           `<span class="wt">${r.archived ? '<span class="ap">archived</span> ' : ''}parked ${esc(when(p.parkedAt))}</span></div>` +
           `<div class="prompt">${esc(p.reason)} · ${by}${wake}</div>` +
           (p.handoffNote ? `<div class="note">${esc(p.handoffNote)}</div>` : '') +
@@ -377,7 +390,7 @@ function rowHtml(r, now) {
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
     `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}${canBeOverdue(r) ? '' : ' data-nood="1"'}>` +
-    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span><span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
+    `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span>${runtimeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
     linksHtml(r) +
@@ -919,18 +932,43 @@ async function openSel() {
   if (r.ck && !r.ck.holder.link) return toast('terminal session: no desktop app session to open')
   // A manager with a blocked worker: the leaf-only rule says go to the worker that is blocked.
   const target = r.ck ? r.ck.holder.sessionId : r.blockedChildren?.[0]?.sessionId || r.sessionId
-  const { ok, data } = await post('/api/open', { sessionId: target })
-  toast(ok ? `Opening “${r.name}” in Claude…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'Open failed')
+  const { ok, data } = await post('/api/open', { sessionId: target, keystrokes: agyKeystrokes })
+  const rt = (data?.runtime || r.runtime) === 'antigravity' ? 'Antigravity' : 'Claude'
+  if (ok && rt === 'Antigravity') {
+    const textToCopy = data?.name || r.name || r.title || target
+    if (textToCopy && navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(textToCopy) } catch {}
+    }
+    const tip = data?.keystrokesUsed && !data?.keystrokeFailed
+      ? `opened “${r.name}”`
+      : `title copied to clipboard (press ⌘K + ⌘V)`
+    toast(`Opening in Antigravity… ${tip}${data?.dryRun ? ' (dry run)' : ''}`, 5000)
+    return
+  }
+  toast(ok ? `Opening “${r.name}” in ${rt}…${data?.dryRun ? ' (dry run)' : ''}` : data?.error || 'Open failed')
 }
 
-async function newSession(role) {
+async function newSession(role, runtime = 'claude') {
   const r = selRow()
   // A worker started with a manager selected is attached to it; the server builds the tag.
   const parent = role === 'worker' && r?.role === 'manager' ? r.sessionId : ''
-  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId, role, parent })
-  const where = data.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
-  const tag = data.marker ? ` with ${data.marker} in the prompt box (not sent)` : ''
-  toast(ok ? `Opening a new Claude Code session${where}${tag}…${data.dryRun ? ' (dry run)' : ''}` : data.error || 'New session failed', data.marker ? 7000 : 2600)
+  const { ok, data } = await post('/api/new', { sessionId: r?.sessionId, role, parent, runtime, keystrokes: agyKeystrokes })
+  if (data?.prompt && navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(data.prompt) } catch {}
+  }
+  const where = data?.folder ? ` in ${data.folder.split(/[\\/]/).pop()}` : ''
+  const rtLabel = runtime === 'antigravity' ? 'Antigravity' : 'Claude Code'
+  let msg = `Opening a new ${rtLabel} session${where}…${data?.dryRun ? ' (dry run)' : ''}`
+  if (runtime === 'antigravity') {
+    if (data?.keystrokesUsed && !data?.keystrokeFailed) {
+      msg = `Opening a new Antigravity session${where}…${data?.dryRun ? ' (dry run)' : ''}`
+    } else {
+      msg = `Antigravity activated (prompt copied). Press ⌘N then ⌘V to start!`
+    }
+  } else if (data?.marker) {
+    msg = `Opening a new ${rtLabel} session${where} with ${data.marker} in the prompt box (not sent)…${data?.dryRun ? ' (dry run)' : ''}`
+  }
+  toast(ok ? msg : data?.error || 'New session failed', data?.keystrokeFailed ? 8000 : data?.marker ? 7000 : 3500)
 }
 
 async function lifecycle(path, body, label, back) {
@@ -1027,6 +1065,10 @@ async function classifySel(role) {
   if (!r) return
   const { ok, data } = await post('/api/classify', { sessionId: r.sessionId, role })
   toast(ok ? (role ? `“${r.name}” is now ${/^[aeiou]/.test(role) ? 'an' : 'a'} ${role}` : `“${r.name}” unclassified`) : data.error || 'Classify failed')
+  if (ok && r) {
+    r.role = role || 'unclassified'
+    render()
+  }
   loadTree()
 }
 
@@ -1147,8 +1189,19 @@ function toggleRoleKey(k) {
 
 const stepProject = (d) => setProject(cycleProject(projectList().map((p) => p.project), activeProject(), d))
 const startRename = () => (selRow() ? ((renaming = sel), render()) : toast('Select a session to rename'))
-const startClassify = () => { awaitingRole = true; toast('Classify: i interface · m manager · w worker · x clear') }
-const startNew = () => { awaitingNew = true; toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000) }
+const startClassify = () => {
+  const r = selRow()
+  if (!r) return toast('Select a session to classify')
+  awaitingRole = true
+  const hint = r.suggested ? `c confirm (${r.suggested}) · ` : ''
+  toast(`Classify: ${hint}i interface · m manager · w worker · x clear`)
+}
+const startNew = () => {
+  awaitingNew = true
+  awaitingNewRuntime = false
+  pendingNewRole = ''
+  toast('New session as: i interface · m manager · w worker · p plain · Esc cancels', 60000)
+}
 
 /** `i`: select the interface session; with several, each press goes to the next one. */
 function jumpToInterface() {
@@ -1182,6 +1235,9 @@ const RUN = {
   'costs-7d': () => setCostRange('7d'),
   'costs-30d': () => setCostRange('30d'),
   'costs-all': () => setCostRange('all'),
+  'costs-provider-all': () => setCostProvider('all'),
+  'costs-provider-anthropic': () => setCostProvider('anthropic'),
+  'costs-provider-gcp': () => setCostProvider('gcp'),
   'schedule-wider': () => zoomSched(1),
   'schedule-narrower': () => zoomSched(-1),
   'view-next': () => nextViewCmd(1),
@@ -1201,10 +1257,14 @@ const RUN = {
   done: () => (items().length ? doneSel() : toast('Nothing to mark done')),
   undo: undoLast,
   attach: openPick,
-  'new-interface': () => newSession('interface'),
-  'new-manager': () => newSession('manager'),
-  'new-worker': () => newSession('worker'),
-  'new-plain': () => newSession(''),
+  'new-interface': () => newSession('interface', 'claude'),
+  'new-interface-agy': () => newSession('interface', 'antigravity'),
+  'new-manager': () => newSession('manager', 'claude'),
+  'new-manager-agy': () => newSession('manager', 'antigravity'),
+  'new-worker': () => newSession('worker', 'claude'),
+  'new-worker-agy': () => newSession('worker', 'antigravity'),
+  'new-plain': () => newSession('', 'claude'),
+  'new-plain-agy': () => newSession('', 'antigravity'),
   'classify-interface': () => classifySel('interface'),
   'classify-manager': () => classifySel('manager'),
   'classify-worker': () => classifySel('worker'),
@@ -1213,8 +1273,19 @@ const RUN = {
   rail: () => setRail(!railOpen),
   ticker: () => setTicker(!tickerOpen),
   events: () => setList(!listOpen),
+  'toggle-keystrokes': toggleAgyKeystrokes,
   help: toggleHelp,
   update: openUpdate,
+}
+
+function toggleAgyKeystrokes() {
+  agyKeystrokes = !agyKeystrokes
+  try { localStorage.setItem('zarvis.antigravityKeystrokes', agyKeystrokes ? '1' : '0') } catch { /* storage blocked */ }
+  toast(
+    agyKeystrokes
+      ? 'Antigravity auto-search keystrokes enabled (opt-in macOS automation)'
+      : 'Antigravity auto-search keystrokes disabled (title will be copied to clipboard)'
+  )
 }
 
 /** Every live session once: queue rows first, then tree-only ones (done sessions stay out; / finds those). */
@@ -1378,6 +1449,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input,textarea,select,[contenteditable]') || pick || parking || $('#ovHelp').classList.contains('on')) return
   e.preventDefault()
   awaitingNew = false
+  awaitingNewRuntime = false
   awaitingRole = false
   setView(nextView(view, e.shiftKey ? -1 : 1))
 }, true)
@@ -1397,14 +1469,40 @@ document.addEventListener('keydown', (e) => {
   }
   if (awaitingNew) {
     awaitingNew = false
-    $('#toast').classList.remove('on')
+    if (e.key === 'Escape') {
+      $('#toast').classList.remove('on')
+      return
+    }
     const role = { i: 'interface', m: 'manager', w: 'worker', p: '', Enter: '' }[e.key]
-    if (role !== undefined) { e.preventDefault(); newSession(role) }
+    if (role !== undefined) {
+      e.preventDefault()
+      pendingNewRole = role
+      awaitingNewRuntime = true
+      const roleName = role ? role : 'plain session'
+      toast(`New ${roleName}: a antigravity · c claude (or Space/Enter) · Esc cancels`, 60000)
+      return
+    }
+    $('#toast').classList.remove('on')
+    return
+  }
+  if (awaitingNewRuntime) {
+    awaitingNewRuntime = false
+    $('#toast').classList.remove('on')
+    if (e.key === 'Escape') return
+    const runtime = { a: 'antigravity', A: 'antigravity', c: 'claude', C: 'claude', ' ': 'claude', Spacebar: 'claude', Enter: 'claude' }[e.key]
+    if (runtime !== undefined) {
+      e.preventDefault()
+      newSession(pendingNewRole, runtime)
+      return
+    }
     return
   }
   if (awaitingRole) {
     awaitingRole = false
-    const role = { i: 'interface', m: 'manager', w: 'worker', x: '' }[e.key]
+    $('#toast').classList.remove('on')
+    const r = selRow()
+    const roleMap = { i: 'interface', m: 'manager', w: 'worker', x: '', ...(r?.suggested ? { c: r.suggested, Enter: r.suggested, y: r.suggested } : {}) }
+    const role = roleMap[e.key]
     if (role !== undefined) { e.preventDefault(); classifySel(role) }
     return
   }
@@ -1879,6 +1977,8 @@ $('#scLanes').addEventListener('click', (e) => {
 // history is still running. Every dollar is an estimate at API list prices, not a bill. ----
 let costRange = DEFAULT_RANGE
 try { costRange = rangeOf(localStorage.getItem('zarvis.costRange')).id } catch { /* storage blocked */ }
+let costProvider = DEFAULT_PROVIDER
+try { costProvider = providerOfChoice(localStorage.getItem('zarvis.costProvider')).id } catch { /* storage blocked */ }
 let mgrCostSig = ''
 async function loadMgrCosts() {
   if (document.hidden) return
@@ -1921,10 +2021,11 @@ let csHtml = { sum: '', list: '', foot: '' }
 async function loadCosts(force) {
   if (view !== 'costs' || (document.hidden && !force)) return
   clearTimeout(csTimer)
-  const want = costRange
+  const wantRange = costRange
+  const wantProvider = costProvider
   try {
-    const d = await (await fetch(`/api/costs?range=${want}`)).json()
-    if (view !== 'costs' || want !== costRange || !Array.isArray(d?.projects)) return
+    const d = await (await fetch(`/api/costs?range=${wantRange}&provider=${wantProvider}`)).json()
+    if (view !== 'costs' || wantRange !== costRange || wantProvider !== costProvider || !Array.isArray(d?.projects)) return
     costs = d
     renderCosts(false)
   } catch { /* next poll */ }
@@ -1945,6 +2046,21 @@ function setCostRange(r, dir = 0) {
 $('#csRange').addEventListener('click', (e) => {
   const b = e.target.closest('[data-r]')
   if (b && b.dataset.r !== costRange) setCostRange(b.dataset.r)
+})
+
+function setCostProvider(p) {
+  if (p === costProvider && view === 'costs') return
+  costProvider = p
+  try { localStorage.setItem('zarvis.costProvider', p) } catch { /* storage blocked */ }
+  csSel = 0
+  csPage = 0
+  csSig = ''
+  if (view !== 'costs') return setView('costs')
+  loadCosts(true)
+}
+$('#csProvider').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-p]')
+  if (b && b.dataset.p !== costProvider) setCostProvider(b.dataset.p)
 })
 
 const csGroups = () => (costGroup === 'manager' ? costs?.managers.filter((g) => g.kind !== 'unmanaged') : costs?.projects) || []
@@ -2004,9 +2120,11 @@ function classifyHtml(s) {
 }
 
 function sessionRowHtml(s, i, max, classify = false) {
+  const rtLabel = s.runtime === 'antigravity' ? 'Antigravity' : 'Claude'
+  const rtTag = s.runtime === 'antigravity' || s.provider === 'gcp' ? '<span class="cs-tag" style="color:var(--cy)">antigravity</span>' : ''
   return (
-    `<div class="cs-row ss${i === csSel ? ' sel' : ''}" data-i="${i}" data-id="${esc(s.sessionId)}" title="Enter opens this session in Claude">` +
-    `<div class="cs-top">${s.sessionId === renaming ? `<input id="renIn" class="cs-rn" value="${esc(s.name)}" maxlength="120" aria-label="Rename session" placeholder="Name (empty restores the app title)">` : `<span class="cs-nm">${esc(s.name || s.sessionId)}</span>`}<span class="cs-tag">${esc(s.role === 'unclassified' ? 'session' : s.role === 'manager' && costGroup === 'manager' ? 'manager itself' : s.role)}</span>${s.parked ? '<span class="cs-tag">parked</span>' : ''}${costGroup === 'manager' ? `<span class="cs-tag">${esc(s.project)}</span>` : ''}${s.source === 'explicit' ? '<span class="cs-tag">tagged</span>' : s.source === 'manager' ? '<span class="cs-tag">manager\'s tag</span>' : ''}<span class="cs-usd">${esc(usd(s.cost))}</span></div>` +
+    `<div class="cs-row ss${i === csSel ? ' sel' : ''}" data-i="${i}" data-id="${esc(s.sessionId)}" title="Enter opens this session in ${rtLabel}">` +
+    `<div class="cs-top">${s.sessionId === renaming ? `<input id="renIn" class="cs-rn" value="${esc(s.name)}" maxlength="120" aria-label="Rename session" placeholder="Name (empty restores the app title)">` : `<span class="cs-nm">${esc(s.name || s.sessionId)}</span>`}<span class="cs-tag">${esc(s.role === 'unclassified' ? 'session' : s.role === 'manager' && costGroup === 'manager' ? 'manager itself' : s.role)}</span>${rtTag}${s.parked ? '<span class="cs-tag">parked</span>' : ''}${costGroup === 'manager' ? `<span class="cs-tag">${esc(s.project)}</span>` : ''}${s.source === 'explicit' ? '<span class="cs-tag">tagged</span>' : s.source === 'manager' ? '<span class="cs-tag">manager\'s tag</span>' : ''}<span class="cs-usd">${esc(usd(s.cost))}</span></div>` +
     `<div class="cs-bar2"><i style="width:${share(s.cost, max).toFixed(1)}%"></i></div>` +
     `<div class="cs-meta"><span><b>${tok(s.totalTokens)}</b> tokens</span><span>${typeLine(s.tokens)}</span><span>${s.messages} message${s.messages === 1 ? '' : 's'}</span>${s.unpricedTokens ? `<span style="color:var(--am)">${tok(s.unpricedTokens)} unpriced</span>` : ''}</div>` +
     `<div class="cs-act">${classify ? classifyHtml(s) : ''}<span class="lk" role="button" tabindex="-1" data-rename title="Rename this session (r). Empty restores its app title">rename <kbd>r</kbd></span></div>` +
@@ -2020,19 +2138,24 @@ function renderCosts(force) {
   const root = $('#costs')
   root.setAttribute('aria-busy', costs ? 'false' : 'true')
   $('#csGroup').innerHTML = ['project', 'manager'].map((g) => `<button type="button" data-g="${g}" class="${g === costGroup ? 'on' : ''}" aria-pressed="${g === costGroup}">${g}</button>`).join('')
+  $('#csProvider').innerHTML = COST_PROVIDERS.map((p) => `<button type="button" data-p="${p.id}" class="${p.id === costProvider ? 'on' : ''}" aria-pressed="${p.id === costProvider}">${p.label}</button>`).join('')
   $('#csRange').innerHTML = COST_RANGES.map((r) => `<button type="button" data-r="${r.id}" class="${r.id === costRange ? 'on' : ''}" aria-pressed="${r.id === costRange}">${r.label}</button>`).join('')
   if (!costs) { setHtml('sum', $('#csSum'), '<span class="cs-kv">reading transcripts…</span>'); return }
   if (csDrill && !csGroups().some((p) => p.key === csDrill) && !csBuckets().some((p) => p.key === csDrill)) csDrill = ''
   const items = csItems()
   csSel = stepIndex(csSel, items.length, 0)
-  const sig = JSON.stringify([costRange, costGroup, csDrill, csSel, innerWidth, innerHeight, costs, csPage], (k, v) => (k === 'now' ? undefined : v))
+  const sig = JSON.stringify([costRange, costGroup, costProvider, csDrill, csSel, innerWidth, innerHeight, costs, csPage], (k, v) => (k === 'now' ? undefined : v))
   if (!force && sig === csSig) return renderCostPager()
   csSig = sig
   const t = costs.totals
   const proj = csDrill ? [...csGroups(), ...csBuckets()].find((p) => p.key === csDrill) : null
+  const provSplit = t.providers && costProvider === 'all' && (t.providers.anthropic || t.providers.gcp)
+    ? ` · Anthropic <b>${esc(usd(t.providers.anthropic))}</b> · GCP <b>${esc(usd(t.providers.gcp))}</b>`
+    : ''
+  const provLabel = costProvider !== 'all' ? ` · ${costProvider === 'gcp' ? 'GCP' : 'Anthropic'}` : ''
   const head = proj
-    ? `<span class="cs-big">${esc(usd(proj.cost))}<small>${esc(proj.name)}${proj.kind === 'manager' ? ` · total of the manager + ${proj.roles.worker.sessions} worker${proj.roles.worker.sessions === 1 ? '' : 's'}` : ''} · ${rangeOf(costRange).label} · sessions by cost · Esc back</small></span><span class="cs-kv"><b>${tok(proj.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(proj.tokens)}</span>`
-    : `<span class="cs-big">${esc(usd(t.cost))}<small>API-equivalent estimate · ${rangeOf(costRange).label} · by ${costGroup}</small></span><span class="cs-kv"><b>${tok(t.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(t.tokens)}</span><span class="cs-kv">managers <b>${esc(usd(t.roles.manager))}</b> · workers <b>${esc(usd(t.roles.worker))}</b>${t.roles.other ? ` · other <b>${esc(usd(t.roles.other))}</b>` : ''}</span><span class="cs-kv"><b>${t.sessions}</b> sessions</span>`
+    ? `<span class="cs-big">${esc(usd(proj.cost))}<small>${esc(proj.name)}${proj.kind === 'manager' ? ` · total of the manager + ${proj.roles.worker.sessions} worker${proj.roles.worker.sessions === 1 ? '' : 's'}` : ''} · ${rangeOf(costRange).label}${provLabel} · sessions by cost · Esc back</small></span><span class="cs-kv"><b>${tok(proj.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(proj.tokens)}</span>`
+    : `<span class="cs-big">${esc(usd(t.cost))}<small>API-equivalent estimate · ${rangeOf(costRange).label}${provLabel} · by ${costGroup}</small></span><span class="cs-kv"><b>${tok(t.totalTokens)}</b> tokens</span><span class="cs-kv">${typeLine(t.tokens)}</span><span class="cs-kv">managers <b>${esc(usd(t.roles.manager))}</b> · workers <b>${esc(usd(t.roles.worker))}</b>${t.roles.other ? ` · other <b>${esc(usd(t.roles.other))}</b>` : ''}${provSplit}</span><span class="cs-kv"><b>${t.sessions}</b> sessions</span>`
   const unTok = proj ? proj.unpricedTokens : t.unpricedTokens
   const unModels = proj ? proj.models.filter((m) => !m.priced).map((m) => m.model) : costs.unpriced.map((u) => u.model)
   const warn = unTok ? `<span class="cs-warn">${tok(unTok)} tokens on ${esc(unModels.join(', '))} have no price: counted as tokens, left out of the dollars.</span>` : ''
@@ -2045,7 +2168,8 @@ function renderCosts(force) {
   setHtml('list', $('#csList'), items.map((x, i) => (proj ? sessionRowHtml(x, i, max, proj.kind === 'unclassified' || proj.kind === 'unmanaged') : groupRowHtml(x, i, max, dayMax))).join(''))
   $('#csEmpty').hidden = items.length > 0
   const pr = costs.pricing
-  setHtml('foot', $('#csFoot'), `Cost = tokens x per-model API list price (${esc(pr.source.replace(/^https:\/\//, ''))}, checked ${esc(pr.checked)}${pr.overridden.length ? `; overridden in ~/.zarvis/pricing.json: ${esc(pr.overridden.join(', '))}` : ''}). It is not what a subscription bills. Subagent tokens count for their session; repeated transcript lines count once.`)
+  const attr = pricingAttribution(pr, costProvider)
+  setHtml('foot', $('#csFoot'), `Cost = tokens x per-model API list price: ${esc(attr)}${pr.overridden?.length ? `; overridden in ~/.zarvis/pricing.json: ${esc(pr.overridden.join(', '))}` : ''}. It is not what a subscription bills. Subagent tokens count for their session; repeated transcript lines count once.`)
   paginateCosts()
 }
 
@@ -2110,7 +2234,21 @@ function enterCost() {
     csPage = 0
     return renderCosts(true)
   }
-  post('/api/open', { sessionId: x.sessionId }).then(({ ok, data }) => toast(ok ? 'Opening in Claude…' + (data.dryRun ? ' (dry run)' : '') : data.error || 'That session is not listed (done, archived or gone)'))
+  post('/api/open', { sessionId: x.sessionId, keystrokes: agyKeystrokes }).then(async ({ ok, data }) => {
+    if (!ok) return toast(data?.error || 'That session is not listed (done, archived or gone)')
+    const rt = (data?.runtime || x.runtime) === 'antigravity' ? 'Antigravity' : 'Claude'
+    if (rt === 'Antigravity') {
+      const textToCopy = data?.name || x.name || x.title || x.sessionId
+      if (textToCopy && navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(textToCopy) } catch {}
+      }
+      const tip = data?.keystrokesUsed && !data?.keystrokeFailed
+        ? `opened “${x.name || 'session'}”`
+        : `title copied to clipboard (press ⌘K + ⌘V)`
+      return toast(`Opening in Antigravity… ${tip}${data?.dryRun ? ' (dry run)' : ''}`, 5000)
+    }
+    toast(`Opening in ${rt}…${data?.dryRun ? ' (dry run)' : ''}`)
+  })
 }
 function leaveCost() {
   if (!csDrill) return setView('queue')

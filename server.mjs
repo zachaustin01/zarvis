@@ -27,7 +27,7 @@ import { readTags, resolveProject } from './lib/project-tags.mjs'
 import { createUsageScanner } from './lib/usage.mjs'
 import { costsReport } from './lib/costs-cli.mjs'
 import { liveDeps } from './lib/roster-cli.mjs'
-import { normalizeRange } from './lib/costs.mjs'
+import { normalizeRange, normalizeProvider } from './lib/costs.mjs'
 
 const PORT = Number(process.env.ZARVIS_PORT) || 5274
 const HOST = '127.0.0.1' // loopback only, by design
@@ -35,6 +35,8 @@ const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public')
 const MAX_AGE_MS = (Number(process.env.ZARVIS_MAX_AGE_HOURS) || DEFAULT_MAX_AGE_MS / 3600000) * 3600000
 const WORKING_MAX_AGE_MS = (Number(process.env.ZARVIS_WORKING_MAX_AGE_MIN) || DEFAULT_WORKING_MAX_AGE_MS / 60000) * 60000
 const DRY_OPEN = process.env.ZARVIS_DRY_OPEN === '1' // report the URL instead of opening it
+const KEYSTROKES_ALLOWED = process.env.ZARVIS_KEYSTROKES === '1' || process.env.ZARVIS_MAC_AUTOMATION === '1' || process.argv.includes('--keystrokes')
+const KEYSTROKES_FORBIDDEN = process.env.ZARVIS_KEYSTROKES === '0' || process.env.ZARVIS_MAC_AUTOMATION === '0'
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' }
 
@@ -102,8 +104,9 @@ const STATE_RANK = { blocked: 0, waiting_on_child: 1, working: 2, idle: 3 }
 
 /** The role tree: the interface pinned, managers with their workers, then everything unclassified. */
 async function currentTree() {
-  const [{ records }, state, queue] = await Promise.all([scanDesktopRecords(), readState(), allRows()])
-  const nodes = classify({ records, roles: await roleRegistry(state), cwds: cwdsOf(queue) })
+  const [{ records }, state, queue, markers, working] = await Promise.all([scanDesktopRecords(), readState(), allRows(), readMarkers(), readMarkers(WORKING_DIR)])
+  const allCwds = { ...cwdsOf(markers), ...cwdsOf(working), ...cwdsOf(queue) }
+  const nodes = classify({ records, roles: await roleRegistry(state), cwds: allCwds, sessions: queue })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
   const links = await readAllLinks(ZARVIS_HOME)
   const projectTags = await readTags(ZARVIS_HOME)
@@ -130,7 +133,8 @@ async function currentTree() {
       branch,
       worktree,
       initiative: row?.initiative ?? initiativeOf(branch, worktree),
-      link: row?.link ?? deepLinkFor(n.desktopSessionId),
+      runtime: row?.runtime ?? n.runtime ?? (recOf.has(n.sessionId) ? 'claude' : (String(n.cwd || '').includes('antigravity') ? 'antigravity' : 'claude')),
+      link: row?.link ?? (n.runtime === 'antigravity' ? `antigravity://conversation/${n.sessionId}` : deepLinkFor(n.desktopSessionId)),
       title: n.title,
       overlay,
       name: overlay || n.title,
@@ -138,7 +142,7 @@ async function currentTree() {
       suggested: n.suggested,
       warnings: n.warnings,
       state: row?.state ?? 'unknown', // no hook signal: never guess
-      lastActivityAt: recent.get(n.sessionId) || 0, // the app's last-activity time; shown on "no signal" rows and used to sort
+      lastActivityAt: row?.since || recent.get(n.sessionId) || 0, // the app's last-activity time; shown on "no signal" rows and used to sort
       kind: row?.kind ?? '',
       ctx: row?.ctx ?? null,
       links: links[n.sessionId] || [],
@@ -229,6 +233,117 @@ function openUrl(url) {
   return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 10000 }, (err) => (err ? reject(err) : resolve())))
 }
 
+function copyToClipboard(text) {
+  if (!text || DRY_OPEN) return Promise.resolve()
+  return new Promise((resolve) => {
+    if (process.platform === 'darwin') {
+      const p = execFile('pbcopy', [], () => resolve())
+      p.stdin.end(text)
+    } else {
+      resolve()
+    }
+  })
+}
+
+function openAntigravity(folder) {
+  if (DRY_OPEN) return Promise.resolve()
+  const [cmd, args] =
+    process.platform === 'darwin'
+      ? ['open', folder ? ['-a', 'Antigravity', folder] : ['-a', 'Antigravity']]
+      : process.platform === 'win32'
+      ? ['cmd.exe', ['/c', 'start', 'antigravity', ...(folder ? [folder] : [])]]
+      : ['antigravity', folder ? [folder] : []]
+  return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 10000 }, (err) => (err ? reject(err) : resolve())))
+}
+
+function openNewAntigravitySession(prompt, folder, allowKeystrokes = false) {
+  if (DRY_OPEN) return Promise.resolve({ ok: true, keystrokesUsed: Boolean(allowKeystrokes), keystrokeFailed: false })
+  if (process.platform === 'darwin' && allowKeystrokes) {
+    return new Promise((resolve) => {
+      // 1. Copy prompt to macOS clipboard first
+      const cp = execFile('pbcopy', [], () => {
+        // 2. Activate Antigravity, send Cmd+N (key code 45) to start a New Conversation, then Cmd+V (key code 9) to paste prompt
+        const script = `
+tell application "Antigravity" to activate
+delay 0.5
+tell application "System Events"
+  tell process "Antigravity"
+    key code 45 using {command down}
+${prompt ? `    delay 0.5\n    key code 9 using {command down}` : ''}
+  end tell
+end tell
+`
+        execFile('osascript', ['-e', script], { timeout: 10000 }, (err) => {
+          if (err) {
+            // Fallback to open -a Antigravity if AppleScript keystroke permission is not enabled
+            openAntigravity(folder).then(
+              () => resolve({ ok: true, keystrokesUsed: true, keystrokeFailed: true }),
+              () => resolve({ ok: true, keystrokesUsed: true, keystrokeFailed: true })
+            )
+          } else {
+            resolve({ ok: true, keystrokesUsed: true, keystrokeFailed: false })
+          }
+        })
+      })
+      if (prompt) cp.stdin.end(prompt)
+      else cp.stdin.end()
+    })
+  }
+  return Promise.all([
+    openAntigravity(folder),
+    copyToClipboard(prompt),
+  ]).then(() => ({ ok: true, keystrokesUsed: false, keystrokeFailed: false }))
+}
+
+function openAndSearchAntigravitySession(title, folder, allowKeystrokes = false) {
+  if (DRY_OPEN) return Promise.resolve({ ok: true, keystrokesUsed: Boolean(allowKeystrokes), keystrokeFailed: false })
+  if (process.platform === 'darwin' && allowKeystrokes) {
+    return new Promise((resolve) => {
+      // 1. Copy search title to macOS clipboard
+      const cp = execFile('pbcopy', [], () => {
+        // 2. Activate Antigravity, send Cmd+K (key code 40) to open search,
+        //    Cmd+V (key code 9) to paste title, then Enter (key code 36) to select it
+        const script = `
+tell application "Antigravity" to activate
+delay 0.4
+tell application "System Events"
+  tell process "Antigravity"
+    key code 40 using {command down}
+${title ? `    delay 0.35\n    key code 9 using {command down}\n    delay 0.35\n    key code 36` : ''}
+  end tell
+end tell
+`
+        execFile('osascript', ['-e', script], { timeout: 10000 }, (err) => {
+          if (err) {
+            // Fallback to open -a Antigravity if AppleScript keystroke permission is not enabled
+            openAntigravity(folder).then(
+              () => resolve({ ok: true, keystrokesUsed: true, keystrokeFailed: true }),
+              () => resolve({ ok: true, keystrokesUsed: true, keystrokeFailed: true })
+            )
+          } else {
+            resolve({ ok: true, keystrokesUsed: true, keystrokeFailed: false })
+          }
+        })
+      })
+      if (title) cp.stdin.end(title)
+      else cp.stdin.end()
+    })
+  }
+  return Promise.all([
+    openAntigravity(folder),
+    copyToClipboard(title),
+  ]).then(() => ({ ok: true, keystrokesUsed: false, keystrokeFailed: false }))
+}
+
+async function openNewSession(link, runtime, folder, prompt, allowKeystrokes = false) {
+  if (DRY_OPEN) return { ok: true, keystrokesUsed: Boolean(allowKeystrokes), keystrokeFailed: false }
+  if (runtime === 'antigravity') {
+    return openNewAntigravitySession(prompt, folder, allowKeystrokes)
+  }
+  await openUrl(link)
+  return { ok: true, keystrokesUsed: false, keystrokeFailed: false }
+}
+
 /** Open a file with its default app, or show it in the file manager (`reveal`). */
 function openPath(file, mode) {
   const [cmd, args] =
@@ -293,10 +408,10 @@ async function findInTree(sessionId) {
 // the background at boot and a request that arrives mid-scan gets the partial numbers (`scanning`) after a short wait.
 const usageScanner = createUsageScanner()
 const COSTS_WAIT_MS = 1500
-async function costs(range, project) {
+async function costs(range, project, provider = 'all') {
   const pass = usageScanner.refresh().catch((e) => console.error('costs scan failed:', e.message))
   await Promise.race([pass, new Promise((r) => setTimeout(r, COSTS_WAIT_MS))])
-  return costsReport({ scanner: usageScanner, world: await liveDeps(), home: ZARVIS_HOME, range, project, wait: false })
+  return costsReport({ scanner: usageScanner, world: await liveDeps(), home: ZARVIS_HOME, range, project, provider, wait: false })
 }
 
 const send = (res, code, body, type = 'application/json') => {
@@ -350,13 +465,29 @@ const server = http.createServer(async (req, res) => {
       return
     }
     if (req.method === 'POST' && url.pathname === '/api/open') {
-      const { sessionId } = await readJson(req)
+      const { sessionId, keystrokes: clientKeystrokes } = await readJson(req)
       // The link is rebuilt server-side from the queue; the client never supplies a URL.
       const row = (await allRows()).find((r) => r.sessionId === sessionId) || (await findInTree(sessionId))
       if (!row) return send(res, 404, { error: 'not in queue' })
       if (!row.link) return send(res, 409, { error: 'terminal session: no desktop app session to open' })
-      await openUrl(row.link)
-      return send(res, 200, { ok: true, url: row.link, dryRun: DRY_OPEN })
+      const isAgy = row.runtime === 'antigravity'
+      const allowKeystrokes = !KEYSTROKES_FORBIDDEN && (KEYSTROKES_ALLOWED || Boolean(clientKeystrokes))
+      let searchRes = { ok: true, keystrokesUsed: false, keystrokeFailed: false }
+      if (isAgy) {
+        const title = (row.title || row.name || row.sessionId || '').replace(/\r?\n/g, ' ').trim()
+        searchRes = await openAndSearchAntigravitySession(title, row.folder, allowKeystrokes)
+      } else {
+        await openUrl(row.link)
+      }
+      return send(res, 200, {
+        ok: true,
+        url: row.link,
+        runtime: row.runtime || (isAgy ? 'antigravity' : 'claude'),
+        name: row.name || row.title || '',
+        keystrokesUsed: searchRes.keystrokesUsed,
+        keystrokeFailed: searchRes.keystrokeFailed,
+        dryRun: DRY_OPEN,
+      })
     }
     if (req.method === 'GET' && url.pathname === '/api/schedule') {
       const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
@@ -377,8 +508,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, mode, dryRun: DRY_OPEN })
     }
     if (req.method === 'POST' && url.pathname === '/api/new') {
-      const { sessionId, role, parent } = await readJson(req)
+      const { sessionId, role, parent, runtime = 'claude', keystrokes: clientKeystrokes } = await readJson(req)
       if (!isNewSessionRole(role)) return send(res, 400, { error: 'unknown role' })
+      const rt = runtime === 'antigravity' ? 'antigravity' : 'claude'
       // A new session in the selected row's repo, or a plain new session with nothing selected.
       // As with open, the folder comes from the queue on this side; the client never sends a path,
       // and the prompt is only ever a role tag built here from a validated role.
@@ -387,11 +519,22 @@ const server = http.createServer(async (req, res) => {
       const marker = roleMarker(role, parent)
       // Managers and the interface also get one line saying where to learn the job; only the tag is parsed.
       const prompt = rolePrompt(role, parent, ROSTER_FILE)
-      const link = newSessionLink(folder, prompt)
-      await openUrl(link)
-      return send(res, 200, { ok: true, url: link, folder, marker, prompt, dryRun: DRY_OPEN })
+      const link = newSessionLink(folder, prompt, rt)
+      const allowKeystrokes = !KEYSTROKES_FORBIDDEN && (KEYSTROKES_ALLOWED || Boolean(clientKeystrokes))
+      const openResult = await openNewSession(link, rt, folder, prompt, allowKeystrokes)
+      return send(res, 200, {
+        ok: true,
+        url: link,
+        folder,
+        marker,
+        prompt,
+        runtime: rt,
+        keystrokesUsed: openResult?.keystrokesUsed || false,
+        keystrokeFailed: openResult?.keystrokeFailed || false,
+        dryRun: DRY_OPEN,
+      })
     }
-    if (req.method === 'GET' && url.pathname === '/api/costs') return send(res, 200, await costs(normalizeRange(url.searchParams.get('range')), url.searchParams.get('project') || ''))
+    if (req.method === 'GET' && url.pathname === '/api/costs') return send(res, 200, await costs(normalizeRange(url.searchParams.get('range')), url.searchParams.get('project') || '', normalizeProvider(url.searchParams.get('provider'))))
     if (req.method === 'GET' && url.pathname === '/api/version') return send(res, 200, { version: await appVersion(PUBLIC) })
     if (req.method === 'GET' && url.pathname === '/api/claims') return send(res, 200, { now: Date.now(), claims: await currentClaims() })
     // What each listed session was asked and last said, for the palette's content search. Fetched when the palette opens, not pushed live.
@@ -410,7 +553,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/classify') {
       const { sessionId, role, parent } = await readJson(req)
       await setRole(sessionId, role || NO_ROLE, parent || '') // empty = the `x` key: explicitly no role
-      await writeRoster().catch((e) => console.error('roster failed:', e.message))
+      await Promise.all([tick(), writeRoster().catch((e) => console.error('roster failed:', e.message))])
       return send(res, 200, { ok: true })
     }
     if (req.method === 'POST' && url.pathname === '/api/rename') {
@@ -445,4 +588,4 @@ writeRoster().catch(() => {})
 if (process.env.ZARVIS_COSTS_WARM !== '0') usageScanner.refresh().catch(() => {}) // warm the cache so the first Costs view is quick
 setInterval(() => writeRoster().catch((e) => console.error('roster failed:', e.message)), 5000).unref?.()
 setInterval(() => { for (const c of clients) c.write(': hb\n\n') }, 15000).unref?.()
-server.listen(PORT, HOST, () => console.log(`Zarvis → http://${HOST}:${PORT}${DRY_OPEN ? '  (dry-open)' : ''}`))
+server.listen(PORT, HOST, () => console.log(`Zarvis → http://${HOST}:${PORT}${DRY_OPEN ? '  (dry-open)' : ''}${KEYSTROKES_ALLOWED ? '  (keystrokes-enabled)' : ''}`))

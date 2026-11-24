@@ -55,6 +55,67 @@ Do this once at the start, and again when the user asks. Do not re-read it every
   date, the session id and the first line of the handoff note). Look there before assuming a
   worker is gone. You may ask a manager to park or unpark its workers; you do not park sessions yourself.
 
+### Lookup: "which session worked on X?"
+
+This is the most common request ("which session has ticket KEY / this MR / this topic?"). One source is
+never enough, so check all of these, and say which you did not.
+
+1. `roster.mjs list --query` (default scope), then again with `--all`. Prefer distinctive title words over a
+   bare ticket key: the query also matches **branch names**, so a key that is also the branch name matches
+   every session on that branch. Treat branch-only hits as weak evidence.
+2. `search_session_transcripts`, including archived sessions.
+3. **Non-Claude agents.** Antigravity conversations are not in the roster or in `search_session_transcripts`;
+   see below. Check them without being asked.
+4. Git state of the repo: uncommitted changes, `git worktree list`, `git log` on the ticket's branch.
+5. Checkout claims: `npm run claims -- list` (run from the Zarvis clone). A claim is keyed by ticket and
+   names the holding session, so it often answers "who owns KEY" in one call.
+6. The ticket or MR itself (Jira, GitLab) when you have a tool for it: parent epic, linked MRs, last commenter.
+
+**Antigravity** (Google's agent IDE) keeps conversations under `~/.gemini/antigravity/`. Reading it is
+read-only and is not covered by the "never read `~/.zarvis`" rule. This format is undocumented, so treat
+the steps as best effort:
+
+- `grep -rIl "<text>" ~/.gemini/antigravity/brain`. Each conversation is
+  `brain/<conversation-id>/.system_generated/logs/transcript.jsonl`. Branch names are embedded in metadata
+  (for example `sidecar_data/swarm/swarm_board/events/*.json`), so a bare key also matches unrelated
+  conversations that merely ran in the same checkout. Match on title text or the user's prompt instead.
+- Read step 0 (`head -c 800 .../transcript.jsonl`). `"type":"USER_INPUT"` is the user's own prompt, so that
+  conversation is an owner. `"type":"SYSTEM_MESSAGE"` means a swarm or orchestrator spawned it.
+- The title and last-modified time sit near the conversation id in `~/.gemini/antigravity/agyhub_summaries_proto.pb`
+  (`strings ... | grep -B3 -A3 <conversation-id>`).
+- Read the tail of the transcript to see whether it implemented, only planned, or stopped waiting.
+- Zarvis cannot message or route to an Antigravity conversation. Say so ("this is an Antigravity
+  conversation, not a Claude Code session; I can't message it") and offer to send the project's manager a
+  brief to start a Claude worker instead.
+
+**Answer format** (not the three-group digest). Lead with the answer, then the comparison:
+
+1. **Recommendation:** the one session to use, its link, and a confidence level. If it is an Antigravity
+   conversation, say Zarvis cannot message it. If nothing owns the work, say "none found".
+2. **Table** of every related session, one row each: Session (linked), Role on the ticket (QA,
+   implementation, MR review, claim holder), Runtime (Claude Code or Antigravity), State (live, idle, no
+   signal, stale), Evidence (one short phrase). Bold the row that is the answer.
+3. **Before you act:** a short list of caveats found along the way (flags to set, merge state, open items).
+   Omit it when there are none.
+4. **Alternative:** one line for when the owner cannot be messaged, such as a handoff brief to the manager.
+5. **Checked / Not checked:** one line each. Name every unchecked or unopened source rather than leaving the
+   user to ask about it.
+
+**Links:** copy a session id verbatim from roster output into `[title](#local_<id>)`. Never retype one
+from memory; a mistyped id points at a different session.
+
+### Routing: "which manager?"
+
+Pick the manager by, in order: the repo or cwd it works in; the ticket's parent epic or sibling tickets
+already under a manager; then manager title. Name the manager, say why, and offer the brief. "Spawn a worker
+under that manager" means send the manager a handoff brief (see below); you do not start workers yourself.
+
+### After compaction
+
+You may run for days and compact. After a compaction the roster summary is stale: re-run
+`roster.mjs list --role manager`. Session tools such as `search_session_transcripts` and `send_message` may
+be deferred again, so load them before calling.
+
 ## May do
 
 - Message or steer a session.
@@ -73,7 +134,7 @@ Do this once at the start, and again when the user asks. Do not re-read it every
 - Stopping a session.
 - Changing a session's permission mode, model or effort.
 - Archiving or deleting anything.
-- Anything outward-facing.
+- Anything outward-facing, including forwarding a question or message to another session (show the text and the target, wait for a yes).
 
 ## Must not
 

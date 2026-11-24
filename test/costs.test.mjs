@@ -6,7 +6,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { parseLine, createUsageScanner, E } from '../lib/usage.mjs'
-import { DEFAULT_PRICES, priceFor, costOf, tierFor, parseOverrides, loadPricing, baseModelId } from '../lib/pricing.mjs'
+import { DEFAULT_PRICES, priceFor, costOf, tierFor, parseOverrides, loadPricing, baseModelId, PROVIDER_PRICING, providerOf } from '../lib/pricing.mjs'
 import { buildCosts, rangeStart, dayOf, daysIn, normalizeRange } from '../lib/costs.mjs'
 import { readTags, setTag, clearTag, resolveProject, cleanProject } from '../lib/project-tags.mjs'
 import { runCosts, formatReport, parseArgs } from '../lib/costs-cli.mjs'
@@ -411,6 +411,93 @@ test('npm run costs --group manager / --manager: manager rows with their workers
   assert.equal((await go('--group', 'team')).code, 1)
 })
 
+test('aged-out Antigravity and CLI workers roll up under their manager in sessionFacts and costs (#9)', async () => {
+  const { sessionFacts } = await import('../lib/costs-cli.mjs')
+  const AGY = 8
+  const CLI = 9
+  const agyId = id(AGY)
+  const cliId = id(CLI)
+  const mgrId = id(1)
+
+  const prevAgyHome = process.env.ANTIGRAVITY_HOME
+  const tmpAgy = tmp()
+  process.env.ANTIGRAVITY_HOME = tmpAgy
+
+  try {
+    const trDir = path.join(tmpAgy, 'brain', agyId, '.system_generated', 'logs')
+    fs.mkdirSync(trDir, { recursive: true })
+    const swarmBrief = 'cluster indexing'
+    fs.writeFileSync(
+      path.join(trDir, 'transcript.jsonl'),
+      JSON.stringify({
+        step_index: 0,
+        type: 'SYSTEM_MESSAGE',
+        content: `sender=${mgrId} [swarm] You have just started. Your assignment (recorded on the board as #3 for @worker-3): ${swarmBrief}`,
+      }) + '\n',
+    )
+
+    const expiredTs = NOW - 24 * 3600_000
+    const w = world({
+      roles: {
+        ...world().roles,
+        [agyId]: { role: 'worker', parent: mgrId },
+        [cliId]: { role: 'worker', parent: mgrId },
+      },
+      markers: [
+        { sessionId: agyId, at: expiredTs, seen: expiredTs, state: 'idle', cwd: '/work/analytics', runtime: 'antigravity' },
+        { sessionId: cliId, at: expiredTs, seen: expiredTs, state: 'idle', cwd: '/work/cli-tool', runtime: 'claude' },
+      ],
+    })
+
+    // 1. Verify sessionFacts preserves runtime, role, managerId, and project
+    const factsMap = await sessionFacts(w, NOW)
+    const agyFact = factsMap.get(agyId)
+    const cliFact = factsMap.get(cliId)
+
+    assert.ok(agyFact, 'aged-out Antigravity worker in sessionFacts')
+    assert.equal(agyFact.runtime, 'antigravity')
+    assert.equal(agyFact.role, 'worker')
+    assert.equal(agyFact.managerId, mgrId)
+    assert.equal(agyFact.project, 'analytics')
+
+    assert.ok(cliFact, 'aged-out CLI worker in sessionFacts')
+    assert.equal(cliFact.runtime, 'claude')
+    assert.equal(cliFact.role, 'worker')
+    assert.equal(cliFact.managerId, mgrId)
+    assert.equal(cliFact.project, 'cli-tool')
+
+    // 2. Verify buildCosts / costsReport rolls both workers up under the manager
+    const root = transcripts({
+      [`${mgrId}.jsonl`]: [line({ msg: 'a', req: 'r1', input: 1_000_000, output: 0, ts: NOW })],
+      [`${agyId}.jsonl`]: [line({ msg: 'b', req: 'r2', input: 0, output: 1_000_000, ts: NOW })],
+      [`${cliId}.jsonl`]: [line({ msg: 'c', req: 'r3', input: 500_000, output: 500_000, ts: NOW })],
+    })
+
+    const c = capture()
+    const code = await runCosts(['--range', 'today', '--group', 'manager', '--json'], {
+      world: w,
+      scanner: createUsageScanner({ root }),
+      home: tmp(),
+      now: NOW,
+      log: c.log,
+      err: c.err,
+    })
+    assert.equal(code, 0)
+    const j = JSON.parse(c.out.join('\n'))
+    const mgrGroup = j.managers.find((g) => g.managerId === mgrId)
+    assert.ok(mgrGroup, 'The Manager group is present')
+    assert.equal(mgrGroup.name, 'The Manager')
+    assert.equal(mgrGroup.sessions, 3)
+    assert.equal(mgrGroup.roles.worker.sessions, 2)
+    const unclass = j.managers.find((g) => g.kind === 'unclassified')
+    assert.equal(unclass?.sessions || 0, 0)
+  } finally {
+    if (prevAgyHome === undefined) delete process.env.ANTIGRAVITY_HOME
+    else process.env.ANTIGRAVITY_HOME = prevAgyHome
+    fs.rmSync(tmpAgy, { recursive: true, force: true })
+  }
+})
+
 // ---- the page ----
 import { usd, tok, familyOf, modelLabel, mixSegments, dayBars, stepRange, rangeOf, share, stepIndex, RANGES, dayLabel } from '../public/costs.js'
 import { COMMANDS } from '../public/palette.js'
@@ -512,4 +599,287 @@ test('Costs view: a session can be renamed in a drill-down (r or the rename chip
   assert.match(app, /post\('\/api\/rename', \{ sessionId: id, name: val \}\)/)
   assert.match(app, /document\.activeElement\?\.id === 'renIn'\) return/) // a live redraw keeps a half-typed name
   assert.match(app, /data-rename/)
+})
+
+test('Antigravity transcript parsing: parseLine extracts PLANNER_RESPONSE and CHECKPOINT, scoping keys by sessionId', () => {
+  const fileCtx = { lastModel: '', sessionId: 'session-xyz' }
+  const line1 = JSON.stringify({
+    step_index: 0,
+    type: 'PLANNER_RESPONSE',
+    model: 'gemini-3.8-flash-medium',
+    input_tokens: 1200,
+    output_tokens: 300,
+    cache_read_tokens: 500,
+    created_at: new Date(NOW).toISOString(),
+  })
+  const p1 = parseLine(line1, fileCtx)
+  assert.ok(p1)
+  assert.equal(p1.key, 'session-xyz:s:0')
+  assert.equal(p1.entry[E.model], 'gemini-3.8-flash-medium')
+  assert.equal(p1.entry[E.input], 1200)
+  assert.equal(p1.entry[E.output], 300)
+  assert.equal(p1.entry[E.cacheRead], 500)
+  assert.equal(fileCtx.lastModel, 'gemini-3.8-flash-medium')
+
+  // Step 2 omits model - inherits lastModel
+  const line2 = JSON.stringify({
+    step_index: 1,
+    type: 'PLANNER_RESPONSE',
+    input_tokens: 800,
+    output_tokens: 150,
+    created_at: new Date(NOW + 1000).toISOString(),
+  })
+  const p2 = parseLine(line2, fileCtx)
+  assert.ok(p2)
+  assert.equal(p2.key, 'session-xyz:s:1')
+  assert.equal(p2.entry[E.model], 'gemini-3.8-flash-medium')
+  assert.equal(p2.entry[E.input], 800)
+  assert.equal(p2.entry[E.output], 150)
+
+  // Step 3 is a context compaction CHECKPOINT
+  const line3 = JSON.stringify({
+    step_index: 2,
+    type: 'CHECKPOINT',
+    source: 'SYSTEM',
+    input_tokens: 4000,
+    output_tokens: 2500,
+    cache_read_tokens: 250000,
+    created_at: new Date(NOW + 2000).toISOString(),
+  })
+  const p3 = parseLine(line3, fileCtx)
+  assert.ok(p3)
+  assert.equal(p3.key, 'session-xyz:s:2')
+  assert.equal(p3.entry[E.model], 'gemini-3.8-flash-medium')
+  assert.equal(p3.entry[E.input], 4000)
+  assert.equal(p3.entry[E.output], 2500)
+  assert.equal(p3.entry[E.cacheRead], 250000)
+})
+
+test('pricing: Gemini models, suffix stripping, dated rate steps, and no silent family matching', () => {
+  assert.equal(baseModelId('gemini-4-argon-high'), 'gemini-4-argon')
+  assert.equal(baseModelId('gemini-4-argon-trial'), 'gemini-4-argon')
+  assert.equal(baseModelId('gemini-3.8-flash-medium'), 'gemini-3.8-flash')
+  assert.equal(baseModelId('gemini-3.8-flash-n'), 'gemini-3.8-flash')
+  assert.equal(baseModelId('gemini-4-hydrogen-tiered-xhigh'), 'gemini-4-hydrogen')
+  assert.equal(baseModelId('gemini-3.5-flash-lite-low'), 'gemini-3.5-flash-lite')
+  assert.equal(baseModelId('gemini-3.1-pro-extra-low'), 'gemini-3.1-pro')
+  assert.equal(baseModelId('gpt-oss-120b-medium'), 'gpt-oss-120b')
+
+  const argon = priceFor('gemini-4-argon-high', DEFAULT_PRICES)
+  assert.ok(argon)
+  assert.equal(argon.key, 'gemini-4-argon')
+  assert.equal(argon.price.input, 2.5)
+  assert.equal(argon.price.output, 15)
+
+  // Hydrogen frontier model
+  const hydrogen = priceFor('gemini-4-hydrogen-tiered-xhigh', DEFAULT_PRICES)
+  assert.ok(hydrogen)
+  assert.equal(hydrogen.key, 'gemini-4-hydrogen')
+  assert.equal(hydrogen.price.input, 0.75)
+  assert.equal(hydrogen.price.output, 3.75)
+
+  // Orchestrator and GPT-OSS models
+  const orch = priceFor('gemini-orchestrator', DEFAULT_PRICES)
+  assert.ok(orch)
+  assert.equal(orch.key, 'gemini-orchestrator')
+  const gptOss = priceFor('gpt-oss-120b-medium', DEFAULT_PRICES)
+  assert.ok(gptOss)
+  assert.equal(gptOss.key, 'gpt-oss-120b')
+
+  // In 2026: intro promo rate
+  const flash2026 = priceFor('gemini-3.8-flash-medium', DEFAULT_PRICES, Date.parse('2026-11-18T12:00:00Z'))
+  assert.ok(flash2026)
+  assert.equal(flash2026.key, 'gemini-3.8-flash')
+  assert.equal(flash2026.price.input, 0.75)
+  assert.equal(flash2026.price.output, 3.75)
+  assert.equal(flash2026.price.cacheRead, 0.075)
+
+  // From 2027-01-01: standard rate
+  const flash2027 = priceFor('gemini-3.8-flash-medium', DEFAULT_PRICES, Date.parse('2027-01-02T00:00:00Z'))
+  assert.ok(flash2027)
+  assert.equal(flash2027.price.input, 1.5)
+  assert.equal(flash2027.price.output, 7.5)
+  assert.equal(flash2027.price.cacheRead, 0.15)
+
+  // Unknown Gemini model is unpriced (null), never silently family-matched
+  assert.equal(priceFor('gemini-nonexistent-future-model', DEFAULT_PRICES), null)
+  assert.equal(priceFor('gemini-unknown', DEFAULT_PRICES), null)
+})
+
+test('antigravity: usage lines without model are unattributed (gemini-unknown), not silently priced at Flash', () => {
+  // Fresh fileContext with no lastModel
+  const freshCtx = { sessionId: 'sid-unattributed', lastModel: '' }
+  const lineNoModel = JSON.stringify({
+    step_index: 0,
+    type: 'PLANNER_RESPONSE',
+    input_tokens: 1_000_000,
+    output_tokens: 100_000,
+    cache_read_tokens: 500_000,
+    created_at: new Date(NOW).toISOString(),
+  })
+  const parsed = parseLine(lineNoModel, freshCtx)
+  assert.ok(parsed)
+  assert.equal(parsed.entry[E.model], 'gemini-unknown', 'unspecified model must fall back to gemini-unknown, not gemini-auto')
+
+  // In buildCosts, gemini-unknown tokens are counted but unpriced (cost = 0, unpricedTokens = 1.6M)
+  const usage = [
+    {
+      sessionId: 'sid-unattributed',
+      cwd: '/work/unattributed-proj',
+      entries: [parsed.entry],
+    },
+  ]
+  const sess = new Map([['sid-unattributed', { name: 'g-anon', role: 'worker', runtime: 'antigravity' }]])
+  const costs = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW })
+
+  assert.equal(costs.totals.cost, 0, 'unattributed Gemini tokens must not be priced at Flash rates')
+  assert.equal(costs.totals.totalTokens, 1_600_000)
+  assert.equal(costs.totals.unpricedTokens, 1_600_000)
+  assert.equal(costs.unpriced.length, 1)
+  assert.equal(costs.unpriced[0].model, 'gemini-unknown')
+  assert.equal(costs.unpriced[0].tokens, 1_600_000)
+})
+
+test('antigravity: session model recovery from SQLite store and pricing as Pro tier', async () => {
+  const { extractModelFromGenMetadata, readAntigravitySessionModel } = await import('../lib/sessions.mjs')
+
+  // Test protobuf extractor directly with simulated field 19 (0x9a 0x01)
+  const simulatedProto = Buffer.concat([
+    Buffer.from([0x08, 0x01]), // some varint field 1
+    Buffer.from([0x9a, 0x01, 0x13]), // field 19, length 19
+    Buffer.from('gemini-4-argon-high'),
+  ])
+  assert.equal(extractModelFromGenMetadata(simulatedProto), 'gemini-4-argon-high')
+
+  // Live session ba9deaea used Gemini 4 Argon
+  const liveModel = readAntigravitySessionModel('ba9deaea-6f22-4dce-9b71-a2dcace39a9c')
+  if (liveModel) {
+    assert.equal(baseModelId(liveModel), 'gemini-4-argon')
+  }
+
+  // When session model is set on fileContext, lines without model inherit Argon, priced at Argon rates
+  const fileCtx = { sessionId: 'ba9deaea-6f22-4dce-9b71-a2dcace39a9c', lastModel: 'gemini-4-argon-high', runtime: 'antigravity' }
+  const line = JSON.stringify({
+    step_index: 0,
+    type: 'PLANNER_RESPONSE',
+    input_tokens: 1_000_000, // at Argon (>200k tier): 1M * $5.00 = $5.00
+    output_tokens: 100_000,  // at Argon (>200k tier): 0.1M * $22.50 = $2.25 => $7.25
+    cache_read_tokens: 0,
+    created_at: new Date(NOW).toISOString(),
+  })
+  const parsed = parseLine(line, fileCtx)
+  assert.equal(parsed.entry[E.model], 'gemini-4-argon-high')
+
+  const usage = [{ sessionId: fileCtx.sessionId, cwd: '/work/argon-proj', entries: [parsed.entry] }]
+  const sess = new Map([[fileCtx.sessionId, { name: 'g-argon', role: 'worker', runtime: 'antigravity' }]])
+  const costs = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW })
+  assert.equal(costs.totals.cost, 7.25, 'Argon session must price at $7.25 (>200k tier), not Flash rate ($1.125)')
+  assert.equal(costs.totals.unpricedTokens, 0)
+})
+
+test('pricing: every table entry belongs to a provider with a cited source and check date', () => {
+  for (const model of Object.keys(DEFAULT_PRICES)) {
+    const prov = providerOf(model)
+    assert.ok(['anthropic', 'gcp'].includes(prov), `model ${model} must map to a recognized provider`)
+    const info = PROVIDER_PRICING[prov]
+    assert.ok(info, `provider ${prov} must have citation info`)
+    assert.ok(typeof info.source === 'string' && info.source.startsWith('https://'), `source for ${prov} must be a valid https URL`)
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(info.checked), `checked date for ${prov} must be YYYY-MM-DD`)
+  }
+})
+
+test('buildCosts: provider filtering (all, anthropic, gcp) and totals.providers rollups', () => {
+  const usage = [
+    {
+      sessionId: id(1),
+      cwd: '/work/claude-proj',
+      entries: [
+        [NOW, 'claude-sonnet-5-5', 1_000_000, 100_000, 0, 0, 0], // $2 in + $1 out = $3.00
+      ],
+    },
+    {
+      sessionId: id(2),
+      cwd: '/work/gemini-proj',
+      entries: [
+        [NOW, 'gemini-3.8-flash', 10_000_000, 1_000_000, 0, 0, 0], // 10M * 0.75 = $7.50, 1M * 3.75 = $3.75 => $11.25
+      ],
+    },
+  ]
+  const sess = new Map([
+    [id(1), { name: 'c1', role: 'worker', runtime: 'claude' }],
+    [id(2), { name: 'g1', role: 'worker', runtime: 'antigravity' }],
+  ])
+
+  // All providers (NOW is in 2030, so Gemini Flash standard rates apply: 10M * 1.50 = $15, 1M * 7.50 = $7.50 => $22.50)
+  const allCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'all' })
+  assert.equal(allCosts.totals.sessions, 2)
+  assert.equal(allCosts.totals.cost, 25.5)
+  assert.equal(allCosts.totals.providers.anthropic, 3)
+  assert.equal(allCosts.totals.providers.gcp, 22.5)
+
+  // Anthropic only
+  const anthropicCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'anthropic' })
+  assert.equal(anthropicCosts.totals.sessions, 1)
+  assert.equal(anthropicCosts.totals.cost, 3)
+  assert.equal(anthropicCosts.projects.length, 1)
+  assert.equal(anthropicCosts.projects[0].project, 'claude-proj')
+
+  // GCP only
+  const gcpCosts = buildCosts(usage, sess, { prices: DEFAULT_PRICES, range: 'today', now: NOW, provider: 'gcp' })
+  assert.equal(gcpCosts.totals.sessions, 1)
+  assert.equal(gcpCosts.totals.cost, 22.5)
+  assert.equal(gcpCosts.projects.length, 1)
+  assert.equal(gcpCosts.projects[0].project, 'gemini-proj')
+})
+
+test('costs-cli: --provider option validation and formatReport attribution', () => {
+  assert.equal(parseArgs(['--provider', 'gcp']).provider, 'gcp')
+  assert.equal(parseArgs(['--provider', 'anthropic']).provider, 'anthropic')
+  assert.throws(() => parseArgs(['--provider', 'azure']), /--provider must be one of/)
+
+  const reportGcp = {
+    range: '7d',
+    provider: 'gcp',
+    totals: { cost: 5.5, totalTokens: 11_000_000, tokens: { input: 10_000_000, output: 1_000_000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 }, sessions: 1, roles: { manager: 0, worker: 5.5, other: 0 }, unpricedTokens: 0 },
+    projects: [],
+    unpriced: [],
+    approx: [],
+    pricing: { source: 'https://platform.claude.com', checked: '2026-10-29', providers: PROVIDER_PRICING, overridden: [] },
+  }
+  const formattedGcp = formatReport(reportGcp)
+  assert.match(formattedGcp, /\[GCP\]/)
+  assert.match(formattedGcp, /Prices: GCP: https:\/\/ai\.google\.dev\/pricing/)
+
+  const reportAll = { ...reportGcp, provider: 'all' }
+  const formattedAll = formatReport(reportAll)
+  assert.match(formattedAll, /Anthropic: https:\/\/platform\.claude\.com/)
+  assert.match(formattedAll, /GCP: https:\/\/ai\.google\.dev\/pricing/)
+})
+
+test('public/costs.js: familyOf, modelLabel, PROVIDERS, and pricingAttribution', async () => {
+  const { familyOf, modelLabel, PROVIDERS, pricingAttribution } = await import('../public/costs.js')
+  assert.equal(familyOf('gemini-4-argon-high'), 'argon')
+  assert.equal(familyOf('gemini-3.8-flash-medium'), 'flash')
+  assert.equal(familyOf('gemini-3.5-flash-lite'), 'flash-lite')
+  assert.equal(familyOf('gemini-3.1-pro'), 'pro')
+  assert.equal(familyOf('gemini-3.1-ultra'), 'ultra')
+  assert.equal(familyOf('gemini-orchestrator'), 'orchestrator')
+  assert.equal(familyOf('gemini-unknown'), 'other')
+  assert.equal(familyOf('claude-opus-5-5'), 'opus')
+
+  assert.equal(modelLabel('gemini-4-argon-high'), 'argon 4')
+  assert.equal(modelLabel('gemini-3.8-flash-medium'), 'flash 3.8')
+  assert.equal(modelLabel('gemini-3.5-flash-lite'), 'flash-lite 3.5')
+  assert.equal(modelLabel('gemini-orchestrator'), 'orchestrator')
+  assert.equal(modelLabel('gemini-unknown'), 'unknown Gemini model')
+  assert.equal(modelLabel('claude-sonnet-4-5'), 'sonnet 4.5')
+
+  assert.deepEqual(PROVIDERS.map((p) => p.id), ['all', 'anthropic', 'gcp'])
+
+  const pr = { source: 'https://platform.claude.com/docs/en/about-claude/pricing', checked: '2026-10-29', providers: PROVIDER_PRICING }
+  assert.match(pricingAttribution(pr, 'anthropic'), /Anthropic \(platform\.claude\.com/)
+  assert.match(pricingAttribution(pr, 'gcp'), /Google Cloud \(ai\.google\.dev\/pricing/)
+  const allAttr = pricingAttribution(pr, 'all')
+  assert.match(allAttr, /Anthropic/)
+  assert.match(allAttr, /Google Cloud/)
 })

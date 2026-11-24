@@ -91,6 +91,11 @@ main.wrap{padding-bottom:50px}
 .pk .bx{color:var(--cy);font-family:ui-monospace,Menlo,monospace}
 .role{font-size:10px;letter-spacing:.1em;text-transform:uppercase;border:1px solid currentColor;padding:0 5px;margin-right:8px;color:var(--t3);white-space:nowrap}
 .role.interface{color:#c792ea}.role.manager{color:var(--cy)}.role.worker{color:#7fd99a}
+/* Runtime source badges */
+.rt{display:inline-flex;align-items:center;gap:3px;font-size:10px;letter-spacing:.06em;padding:0 5px;border-radius:3px;border:1px solid currentColor;margin-right:6px;white-space:nowrap;vertical-align:middle}
+.rt-ico{flex-shrink:0}
+.rt-claude{color:#e07a5f;border-color:rgba(224,122,95,.35);background:rgba(224,122,95,.08)}
+.rt-agy{color:#6ba4ff;border-color:rgba(107,164,255,.35);background:rgba(107,164,255,.08)}
 .ri{color:var(--cy);width:1.2em;text-align:center}
 .warn{color:var(--am);cursor:help;font-size:12px}
 .tr .wt{font-weight:400;letter-spacing:.04em;font-size:12px}
@@ -577,7 +582,7 @@ body.v-costs .wrap{max-width:1180px}
 .cs-bar2>i{position:absolute;left:0;top:0;bottom:0;background:var(--cy);display:block;opacity:.85}
 .cs-mix{display:flex;height:6px;grid-column:1;gap:1px;margin-top:2px}
 .cs-mix>i{display:block;min-width:2px}
-.f-fable{background:#c792ea}.f-mythos{background:#e0a8f0}.f-opus{background:var(--cy)}.f-sonnet{background:var(--gr)}.f-haiku{background:var(--am)}
+.f-fable{background:#c792ea}.f-mythos{background:#e0a8f0}.f-opus{background:var(--cy)}.f-sonnet{background:var(--gr)}.f-haiku{background:var(--am)}.f-argon{background:#4285f4}.f-carbon{background:#5c6bc0}.f-hydrogen{background:#26a69a}.f-orchestrator{background:#ff7043}.f-ultra{background:#9c27b0}.f-pro{background:#1a73e8}.f-flash{background:#00bcd4}.f-flash-lite{background:#80deea}
 .f-other{background:repeating-linear-gradient(45deg,#6a8498,#6a8498 3px,#33475a 3px,#33475a 6px)}
 .cs-leg{font-size:10px;color:var(--t2);grid-column:1;display:flex;gap:4px 12px;flex-wrap:wrap}
 .cs-leg s{display:inline-block;width:8px;height:8px;margin-right:4px;text-decoration:none;vertical-align:-1px}
