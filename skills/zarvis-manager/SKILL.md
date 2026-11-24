@@ -149,6 +149,25 @@ exits non-zero with one line why; do not work around a refusal.
 Parked workers appear under "Parked" beneath your entry in the roster. Unpark a worker when you
 reopen it or give it new work.
 
+### Parking yourself
+
+When your whole project is finished, park yourself too, so you leave the user's attention queue with a
+record of what you did. Only when **all** of these hold:
+
+- the user has said your work is finished (their review, not your own judgment),
+- every worker of yours is parked, done or archived (the CLI refuses otherwise),
+- nothing is pending on you: no open PR waiting on you, no question for the user.
+
+Pass your own session id as both the target and `--by`. `--note` is required: the branches or PRs,
+what was verified, and what to do if you are reopened. Run it as the last thing in your turn.
+
+```
+node "{{ZARVIS_DIR}}/scripts/park.mjs" park <your session id> --by <your session id> --reason "one line" --note "..."
+```
+
+You come back on your own: a new prompt to you (from the user or a worker) unparks you, and the ticker
+says so. You do not unpark yourself.
+
 Never archive or delete a session (ask the user first); parking is not archiving.
 
 ## Milestones

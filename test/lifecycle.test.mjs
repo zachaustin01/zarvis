@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { wakeTime, isWakeReady, lifecycleOf, annotateRows, visibleRows, hideDone } from '../lib/lifecycle.mjs'
+import { wakeTime, isWakeReady, lifecycleOf, annotateRows, visibleRows, hideDone, resumedParks } from '../lib/lifecycle.mjs'
 import { readState, parkSession, unparkSession, setDone, setOverlay } from '../lib/state.mjs'
 
 const id = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`
@@ -140,4 +140,36 @@ test('hideDone keeps archived parked sessions apart from done ones; the roster l
   assert.match(text, /N2 — parked \(archived in the app\) — finished/)
   assert.doesNotMatch(text, /N3/)
   assert.match(text, /workers: none live/)
+})
+
+test('resumedParks: a parked session whose turn started after the park, and nothing else', () => {
+  const state = { parked: { [id(1)]: { parkedAt: 100 }, [id(2)]: { parkedAt: 100 }, [id(3)]: { parkedAt: 100 } }, done: {} }
+  const working = [
+    { sessionId: id(1), state: 'working', at: 150 }, // new prompt after parking
+    { sessionId: id(2), state: 'working', at: 90 }, // the turn it parked itself in
+    { sessionId: id(3), state: 'idle', at: 200 }, // ended a turn, no new prompt
+    { sessionId: id(4), state: 'working', at: 200 }, // not parked
+  ]
+  assert.deepEqual(resumedParks(state, working), [id(1)])
+  assert.deepEqual(resumedParks({ parked: {} }, working), [])
+})
+
+test('unparkSession with `before` leaves a newer re-park standing', async () => {
+  const f = await tmp()
+  await parkSession(id(1), { reason: 'r' }, f, 100)
+  await unparkSession(id(1), f, { before: 50 })
+  assert.ok((await readState(f)).parked[id(1)], 're-parked after that turn started: kept')
+  await unparkSession(id(1), f, { before: 150 })
+  assert.equal((await readState(f)).parked[id(1)], undefined)
+})
+
+test('the roster marks a parked manager under its own entry, with reason, date and note', async () => {
+  const { renderRoster } = await import('../lib/roster.mjs')
+  const m = (parked) => ({ name: 'Mgr', sessionId: id(2), state: 'idle', children: [], parked })
+  const text = renderRoster({ interface: [], managers: [m({ reason: 'all merged', parkedAt: NOW, wake: null, handoffNote: '\nPRs 1-3 merged\nmore' })], orphans: [], unclassified: [] })
+  const lines = text.split('\n')
+  const at = lines.indexOf('## Manager: Mgr')
+  assert.match(lines[at + 2], /^- parked \(finished; a new prompt unparks it\) — all merged — \d{4}-\d{2}-\d{2}$/)
+  assert.equal(lines[at + 3], '  note: PRs 1-3 merged')
+  assert.ok(!renderRoster({ interface: [], managers: [m(null)], orphans: [], unclassified: [] }).includes('- parked ('))
 })
