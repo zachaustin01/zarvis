@@ -62,12 +62,9 @@ Do this once at the start, and again when the user asks. Do not re-read it every
 This is the most common request ("which session has ticket KEY / this MR / this topic?"). One source is
 never enough, so check all of these, and say which you did not.
 
-1. `roster.mjs list --query` (default scope), then again with `--all`. Prefer distinctive title words over a
-   bare ticket key: the query also matches **branch names**, so a key that is also the branch name matches
-   every session on that branch. Treat branch-only hits as weak evidence.
+1. `roster.mjs list --ticket KEY` (combines checkout claims, content matches and branch names, ranking claim holders and prompt/title matches first) or `roster.mjs list --query` (with `--field prompt,reply,title` or `--exclude-branch` to avoid branch-only noise), then again with `--all`.
 2. `search_session_transcripts`, including archived sessions.
-3. **Non-Claude agents.** Antigravity conversations are not in the roster or in `search_session_transcripts`;
-   see below. Check them without being asked.
+3. **Non-Claude agents.** Antigravity conversations can be listed with `roster.mjs list --source antigravity` (or `--source all`). They are not in `search_session_transcripts`; see below. Check them without being asked.
 4. Git state of the repo: uncommitted changes, `git worktree list`, `git log` on the ticket's branch.
 5. Checkout claims: `npm run claims -- list` (run from the Zarvis clone). A claim is keyed by ticket and
    names the holding session, so it often answers "who owns KEY" in one call.
