@@ -84,7 +84,7 @@ All run with the server stopped; none need extra setup beyond `npm run setup`.
 | Command | Purpose | Docs |
 |---|---|---|
 | `npm run roster` | Look up sessions, roles, managers, running state | [roles-and-roster](docs/roles-and-roster.md#session-lookup) |
-| `npm run park` | Managers park their finished workers | [keys-and-parking](docs/keys-and-parking.md#managers-parking-their-own-workers) |
+| `npm run park` | Managers park their finished workers, and themselves when done | [keys-and-parking](docs/keys-and-parking.md#managers-parking-their-own-workers) |
 | `npm run claims` | Claim / release a checkout, list holders | [session-tools](docs/session-tools.md#checkout-claims) |
 | `npm run link` | Attach links to a session card | [session-tools](docs/session-tools.md#session-links) |
 | `npm run event` | Push a line to the footer ticker | [session-tools](docs/session-tools.md#pushing-events) |

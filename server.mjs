@@ -21,8 +21,8 @@ import { appVersion } from './lib/version.mjs'
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
 import { readClaims, claimView, realDeps, psLstart } from './lib/claims.mjs'
-import { readEvents } from './lib/events.mjs'
-import { visibleRows, lifecycleOf, hideDone, archivedParked } from './lib/lifecycle.mjs'
+import { readEvents, appendEvent, buildEvent } from './lib/events.mjs'
+import { visibleRows, lifecycleOf, hideDone, archivedParked, resumedParks } from './lib/lifecycle.mjs'
 import { readTags, resolveProject } from './lib/project-tags.mjs'
 import { createUsageScanner } from './lib/usage.mjs'
 import { costsReport } from './lib/costs-cli.mjs'
@@ -428,8 +428,19 @@ let lastClaims = []
 let lastEvents = []
 let lastVersion = ''
 const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook, claims: lastClaims, events: lastEvents, version: lastVersion })
+/** A parked session that got a new prompt is working again: unpark it, with a ticker line saying why. */
+async function unparkResumed() {
+  const [state, working] = await Promise.all([readState(), readMarkers(WORKING_DIR)])
+  const turnStart = new Map(working.map((m) => [m.sessionId, m.at]))
+  for (const id of resumedParks(state, working)) {
+    const after = await unparkSession(id, undefined, { before: turnStart.get(id) })
+    if (!after.parked[id]) await appendEvent(ZARVIS_HOME, buildEvent({ text: 'unparked: new prompt', kind: 'info', sessionId: id })).catch(() => {})
+  }
+}
+
 async function tick() {
   try {
+    await unparkResumed().catch((e) => console.error('auto-unpark failed:', e.message))
     lastQueue = await currentQueue()
     lastVersion = await appVersion(PUBLIC)
     lastHook = hookStatus([...(await readMarkers()), ...(await readMarkers(WORKING_DIR))])

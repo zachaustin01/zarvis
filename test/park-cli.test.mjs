@@ -64,7 +64,7 @@ test('refuses the interface, managers, other managers\' workers, strays and non-
   const h = await harness()
   for (const [args, msg] of [
     [park(IFACE, MGR), /interface session/],
-    [park(MGR, MGR), /manager; only workers/],
+    [park(OTHER_MGR, MGR), /another manager/],
     [park(OTHER_W, MGR), /not a worker of/],
     [park(STRAY, MGR), /not a worker of/],
     [park(W, STRAY), /not a manager/],
@@ -177,4 +177,48 @@ test('an impossible wake date is refused by the CLI, dry run or not; unknown com
   assert.ok(u.err.every((l) => !l.includes('\n')))
   assert.match(u.err[0], /^park: unknown command frobnicate$/)
   assert.match(u.err[1], /^usage: npm run park -- park\|unpark\|list/)
+})
+
+test('a manager parks itself once its workers are parked, done or archived; a note is required', async () => {
+  const h = await harness()
+  const open = await h.run(park(MGR, MGR, ['--note', 'n']))
+  assert.equal(open.code, 1)
+  assert.match(open.err[0], /still has 1 open worker \(“S3”/)
+  assert.match((await h.run(park(MGR, MGR))).err[0], /still has 1 open worker/, 'open workers are named before the note')
+
+  await h.run(park(W, MGR))
+  assert.match((await h.run(park(MGR, MGR))).err[0], /--note is required when a manager parks itself/)
+  assert.match((await h.run(park(MGR, MGR, ['--note', '  ']))).err[0], /--note is required/)
+  assert.match((await h.run(park(MGR, MGR, ['--note', 'PRs 1-3 merged', '--dry-run']))).out[0], /^would park “S2”/)
+  const r = await h.run(park(MGR, MGR, ['--note', 'PRs 1-3 merged']))
+  assert.equal(r.code, 0)
+  const p = (await readState(h.stateFile)).parked[id(MGR)]
+  assert.deepEqual([p.parkedBy, p.handoffNote], [id(MGR), 'PRs 1-3 merged'])
+  assert.match((await h.run(['unpark', id(MGR), '--by', id(MGR)])).out[0], /^unparked “S2”/)
+})
+
+test('self-park counts done and archived workers as finished, and --force overrides open ones', async () => {
+  const done = await harness()
+  await setDone(id(W), true, done.stateFile)
+  assert.equal((await done.run(park(MGR, MGR, ['--note', 'n']))).code, 0)
+
+  const archived = await harness(world({ records: [rec(IFACE), rec(MGR), rec(W, { isArchived: true }), rec(OTHER_W), rec(OTHER_MGR), rec(STRAY)] }))
+  assert.equal((await archived.run(park(MGR, MGR, ['--note', 'n']))).code, 0)
+
+  const forced = await harness()
+  assert.equal((await forced.run(park(MGR, MGR, ['--note', 'n', '--force']))).code, 0)
+})
+
+test('self-park ignores the manager\'s own working marker (it is mid-turn); its blocked one too', async () => {
+  const h = await harness(world({ working: [{ sessionId: id(MGR), state: 'working', at: NOW - 5000, seen: NOW - 10 }] }))
+  await h.run(park(W, MGR))
+  assert.equal((await h.run(park(MGR, MGR, ['--note', 'n']))).code, 0)
+})
+
+test('a worker cannot park its manager or itself; the interface still cannot park anyone', async () => {
+  const h = await harness()
+  assert.match((await h.run(park(MGR, W))).err[0], /not a manager/)
+  assert.match((await h.run(park(W, W))).err[0], /not a manager/)
+  assert.match((await h.run(park(MGR, IFACE))).err[0], /not a manager/)
+  assert.match((await h.run(park(IFACE, IFACE))).err[0], /not a manager/)
 })
