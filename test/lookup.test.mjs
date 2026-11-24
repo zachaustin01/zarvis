@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildLookup, findEntry, collectRows, cwdsOf } from '../lib/lookup.mjs'
+import { buildLookup, findEntry, collectRows, cwdsOf, formatLookupEntry } from '../lib/lookup.mjs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -228,4 +228,28 @@ test('collectRows and buildLookup preserve runtime, project, branch, and manager
     else process.env.ANTIGRAVITY_HOME = prevAgyHome
     await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
   }
+})
+
+test('formatLookupEntry projects consistent runtime, link, and project fields', () => {
+  const state = { overlays: { [id(MGR)]: { name: 'Mgr' } }, parked: {}, done: {} }
+  const entry = formatLookupEntry({
+    id: id(W),
+    title: 'Worker',
+    role: 'worker',
+    managerId: id(MGR),
+    cwd: '/work/api',
+    branch: 'main',
+    runtime: 'antigravity',
+    state,
+    projectTags: {},
+    links: {},
+    schedules: {},
+    nameOf: (sid) => state.overlays[sid]?.name || '',
+  })
+  assert.equal(entry.runtime, 'antigravity')
+  assert.equal(entry.link, `antigravity://conversation/${id(W)}`)
+  assert.equal(entry.managerName, 'Mgr')
+  assert.equal(entry.project, 'api')
+  assert.equal(entry.running, 'unknown')
+  assert.equal(entry.state, 'unknown')
 })
