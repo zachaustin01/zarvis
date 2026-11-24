@@ -65,10 +65,25 @@ function requestAllowed(req) {
   return true
 }
 
-/** Every hook-signalled session with its lifecycle facts; parked and done ones included. */
-async function allRows() {
-  const [markers, working] = await Promise.all([readMarkers(), readMarkers(WORKING_DIR)])
+/** Read desktop session records and state together when markers are not needed. */
+async function readDesktopAndState() {
   const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
+  return { records, deleted, state }
+}
+
+/** One consistent read of the filesystem sources that every per-tick projection shares. */
+async function readWorldSnapshot() {
+  const [markers, working, { records, deleted, state }] = await Promise.all([
+    readMarkers(),
+    readMarkers(WORKING_DIR),
+    readDesktopAndState(),
+  ])
+  return { markers, working, records, deleted, state }
+}
+
+/** Every hook-signalled session with its lifecycle facts; parked and done ones included. */
+async function allRows(snapshot) {
+  const { markers, working, records, deleted, state } = snapshot ?? (await readWorldSnapshot())
   const { rows } = await collectRows({ markers, working, tasks: await readAllTasks(ZARVIS_HOME), records, deleted, state, roles: await roleRegistry(state), projectTags: await readTags(ZARVIS_HOME), maxAgeMs: MAX_AGE_MS, workingMaxAgeMs: WORKING_MAX_AGE_MS })
   // Approximate context use per row, from the transcript tail (cached by mtime and size). Server-side only:
   // the file path never reaches the browser, and a session with no usage yet gets no `ctx` at all.
@@ -95,21 +110,26 @@ async function transcriptFor(sessionId) {
 }
 
 /** The "Needs you" queue: done and parked sessions filtered out (see lifecycle.visibleRows). */
-async function currentQueue() {
-  return visibleRows(await allRows())
+async function currentQueue(snapshot) {
+  return visibleRows(await allRows(snapshot))
 }
 
 const RECENT_MS = 7 * 24 * 3600 * 1000
 const STATE_RANK = { blocked: 0, waiting_on_child: 1, working: 2, idle: 3 }
 
 /** The role tree: the interface pinned, managers with their workers, then everything unclassified. */
-async function currentTree() {
-  const [{ records }, state, queue, markers, working] = await Promise.all([scanDesktopRecords(), readState(), allRows(), readMarkers(), readMarkers(WORKING_DIR)])
+async function currentTree(snapshot) {
+  const snap = snapshot ?? (await readWorldSnapshot())
+  const { records, state, markers, working } = snap
+  const [queue, roles, links, projectTags] = await Promise.all([
+    allRows(snap),
+    roleRegistry(state),
+    readAllLinks(ZARVIS_HOME),
+    readTags(ZARVIS_HOME),
+  ])
   const allCwds = { ...cwdsOf(markers), ...cwdsOf(working), ...cwdsOf(queue) }
-  const nodes = classify({ records, roles: await roleRegistry(state), cwds: allCwds, sessions: queue })
+  const nodes = classify({ records, roles, cwds: allCwds, sessions: queue })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
-  const links = await readAllLinks(ZARVIS_HOME)
-  const projectTags = await readTags(ZARVIS_HOME)
   const projectOf = (n, derived) => {
     const { project, source } = resolveProject(n.sessionId, { managerId: n.managerId, derived, tags: projectTags })
     return { project, projectSource: source }
@@ -165,13 +185,14 @@ async function currentTree() {
     .sort(byState)
   const orphans = all.filter((n) => n.role === 'worker' && !kids.get(n.managerId)?.includes(n)).map(view).sort(byState)
   // Parked sessions whose app record is archived: shown only in the Parked view (and the roster), never in the tree or queue.
-  const archived = archivedParked(records, state, await roleRegistry(state)).map((n) => {
+  const archived = archivedParked(records, state, roles).map((n) => {
     const worktree = splitWorktree(n.cwd).worktree
     return {
       ...n,
       worktree,
       initiative: initiativeOf(n.branch, worktree),
-      link: deepLinkFor(n.desktopSessionId),
+      runtime: n.runtime || 'claude',
+      link: n.runtime === 'antigravity' ? `antigravity://conversation/${n.sessionId}` : deepLinkFor(n.desktopSessionId),
       overlay: state.overlays[n.sessionId]?.name || '',
       name: state.overlays[n.sessionId]?.name || n.title,
       suggested: '',
@@ -201,10 +222,10 @@ const claimProbes = {
 }
 
 /** Every claim as the UI shows it: holder and sharer names are the app's current titles (or hand-set names) when known. */
-async function currentClaims() {
+async function currentClaims(snapshot) {
   const entries = readClaims()
   if (!entries.length) return []
-  const [{ records, deleted }, state] = await Promise.all([scanDesktopRecords(), readState()])
+  const { records, deleted, state } = snapshot ?? (await readDesktopAndState())
   const names = {}
   for (const r of records) if (r.cliSessionId && r.title) names[r.cliSessionId] = r.title
   for (const [id, o] of Object.entries(state.overlays)) if (o?.name) names[id] = o.name
@@ -216,10 +237,10 @@ async function currentClaims() {
 const EVENTS_SHOWN = 30 // pushed events sent to the browser (it keeps up to 40 and scrolls through them)
 
 /** The newest pushed events (oldest first), each with the display name of its session when that is known. */
-async function currentEvents() {
+async function currentEvents(snapshot) {
   const events = readEvents(ZARVIS_HOME, EVENTS_SHOWN)
   if (!events.some((e) => e.sessionId)) return events
-  const [{ records }, state] = await Promise.all([scanDesktopRecords(), readState()])
+  const { records, state } = snapshot ?? (await readDesktopAndState())
   const names = {}
   for (const r of records) if (r.cliSessionId && r.title) names[r.cliSessionId] = r.title
   for (const [id, o] of Object.entries(state.overlays)) if (o?.name) names[id] = o.name
@@ -387,7 +408,8 @@ function readJson(req) {
 const ROSTER_FILE = path.join(ZARVIS_HOME, 'roster.md')
 let lastRoster = ''
 async function writeRoster() {
-  const text = renderRoster(hideDone(await currentTree()), await currentClaims())
+  const snap = await readWorldSnapshot()
+  const text = renderRoster(hideDone(await currentTree(snap)), await currentClaims(snap))
   if (text === lastRoster) return
   await fsp.mkdir(ZARVIS_HOME, { recursive: true })
   const tmp = `${ROSTER_FILE}.${process.pid}.tmp`
@@ -429,23 +451,31 @@ let lastEvents = []
 let lastVersion = ''
 const payload = () => ({ now: Date.now(), queue: lastQueue, hook: lastHook, claims: lastClaims, events: lastEvents, version: lastVersion })
 /** A parked session that got a new prompt is working again: unpark it, with a ticker line saying why. */
-async function unparkResumed() {
-  const [state, working] = await Promise.all([readState(), readMarkers(WORKING_DIR)])
+async function unparkResumed(snap) {
+  const { state, working } = snap
   const turnStart = new Map(working.map((m) => [m.sessionId, m.at]))
   for (const id of resumedParks(state, working)) {
     const after = await unparkSession(id, undefined, { before: turnStart.get(id) })
+    snap.state = after
     if (!after.parked[id]) await appendEvent(ZARVIS_HOME, buildEvent({ text: 'unparked: new prompt', kind: 'info', sessionId: id })).catch(() => {})
   }
 }
 
 async function tick() {
   try {
-    await unparkResumed().catch((e) => console.error('auto-unpark failed:', e.message))
-    lastQueue = await currentQueue()
-    lastVersion = await appVersion(PUBLIC)
-    lastHook = hookStatus([...(await readMarkers()), ...(await readMarkers(WORKING_DIR))])
-    lastClaims = await currentClaims()
-    lastEvents = await currentEvents()
+    const snap = await readWorldSnapshot()
+    await unparkResumed(snap).catch((e) => console.error('auto-unpark failed:', e.message))
+    const [queue, version, claims, events] = await Promise.all([
+      currentQueue(snap),
+      appVersion(PUBLIC),
+      currentClaims(snap),
+      currentEvents(snap),
+    ])
+    lastQueue = queue
+    lastVersion = version
+    lastHook = hookStatus([...snap.markers, ...snap.working])
+    lastClaims = claims
+    lastEvents = events
     const sig = JSON.stringify([lastQueue.map(({ waitMs, ...r }) => r), lastHook, lastClaims, lastEvents, lastVersion])
     if (sig !== lastSig) {
       lastSig = sig
