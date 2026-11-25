@@ -32,6 +32,7 @@ import {
   writeRoleTag,
   buildClaimsContext,
   runAutoEvents,
+  runAutoLinks,
 } from '../lib/hook-common.mjs'
 
 /** One-line summary of Antigravity tool arguments. */
@@ -249,38 +250,139 @@ async function ensureRoleTag(payload, id, rolesDir) {
   await writeRoleTag(rolesDir, id, tag)
 }
 
-/** Checkout claims guard for Antigravity run_command tool calls. */
-async function guardToolCall(payload, home = getHome()) {
-  const toolCall = payload.toolCall
-  if (toolCall?.name !== 'run_command' || !toolCall.args) return null
-  const command = toolCall.args.CommandLine ?? toolCall.args.command
-  if (typeof command !== 'string') return null
+function resolveAntigravityCwd(payload) {
+  if (typeof payload?.cwd === 'string' && payload.cwd) return payload.cwd
+  return Array.isArray(payload?.workspacePaths) ? payload.workspacePaths[0] || '' : ''
+}
 
+function buildClaimsPayload(payload) {
+  const id = payload?.conversationId || payload?.session_id
+  const toolCall = payload?.toolCall
+  if (!id || !toolCall?.name || !toolCall.args || typeof toolCall.args !== 'object') return null
+  const cwd = resolveAntigravityCwd(payload)
+  const explicitUseId = toolCall.id ?? payload.toolUseId ?? payload.tool_use_id
+  const toolUseId = typeof explicitUseId === 'string' && explicitUseId
+    ? explicitUseId
+    : `agy:${toolCall.name}:${summarizeAntigravityInput(toolCall.name, toolCall.args).slice(0, 120)}`
+  if (toolCall.name === 'run_command') {
+    const command = toolCall.args.CommandLine ?? toolCall.args.command
+    if (typeof command !== 'string') return null
+    return { session_id: id, cwd, tool_name: 'Bash', tool_input: { command }, tool_use_id: toolUseId }
+  }
+  if (toolCall.name === 'write_file' || toolCall.name === 'edit_file') {
+    const filePath = toolCall.args.Path ?? toolCall.args.path ?? toolCall.args.file_path
+    if (typeof filePath !== 'string' || !filePath) return null
+    return {
+      session_id: id,
+      cwd,
+      tool_name: toolCall.name,
+      tool_input: { ...toolCall.args, file_path: filePath },
+      tool_use_id: toolUseId,
+    }
+  }
+  return null
+}
+
+/** Checkout claims guard for Antigravity run_command, write_file, and edit_file tool calls. */
+async function guardToolCall(payload, home = getHome()) {
+  const claudePayload = buildClaimsPayload(payload)
+  if (!claudePayload) return null
   try {
     const claims = await import('../lib/claims.mjs')
     const ctx = buildClaimsContext(claims, home)
-    const claudePayload = {
-      session_id: payload.conversationId,
-      cwd: payload.cwd || (Array.isArray(payload.workspacePaths) ? payload.workspacePaths[0] || '' : ''),
-      tool_name: 'Bash',
-      tool_input: { command },
-    }
     return claims.guard(claudePayload, ctx)
   } catch {
     return null
   }
 }
 
+/** Checkout claims PostToolUse sharer join when user allowed a pending ask in Antigravity. */
+async function guardPostToolCall(payload, home = getHome()) {
+  const claudePayload = buildClaimsPayload(payload)
+  if (!claudePayload) return
+  try {
+    const claims = await import('../lib/claims.mjs')
+    const ctx = buildClaimsContext(claims, home)
+    claims.guardPost(claudePayload, ctx)
+  } catch {
+    /* a failed guardPost must not disturb the session */
+  }
+}
+
+async function extractToolResponse(payload) {
+  const direct =
+    payload?.toolResponse ??
+    payload?.toolResult ??
+    payload?.tool_response ??
+    payload?.output ??
+    payload?.result ??
+    payload?.response
+  if (payload?.error) {
+    const errText = typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error)
+    if (typeof direct === 'string') return { isError: true, output: direct, stderr: errText }
+    if (direct && typeof direct === 'object') return { ...direct, isError: true, stderr: direct.stderr ?? errText }
+    return { isError: true, stderr: errText }
+  }
+  if (direct !== undefined) return direct
+  const tc = payload?.toolCall
+  const cmd = tc?.name === 'run_command' ? (tc.args?.CommandLine ?? tc.args?.command) : ''
+  if (
+    typeof cmd === 'string' &&
+    /\b(push|pr|mr)\b|merge_requests/.test(cmd) &&
+    typeof payload?.transcriptPath === 'string' &&
+    payload.transcriptPath &&
+    Number.isInteger(payload.stepIdx)
+  ) {
+    try {
+      const tail = await readTail(payload.transcriptPath, 32 * 1024)
+      const lines = tail.split('\n')
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (!lines[i]) continue
+        let r
+        try {
+          r = JSON.parse(lines[i])
+        } catch {
+          continue
+        }
+        if (r?.step_index === payload.stepIdx && typeof r.content === 'string') {
+          const badCode = /Command exited with code ([1-9]\d*)/.exec(r.content)
+          return badCode ? { exitCode: Number(badCode[1]), output: r.content } : r.content
+        }
+      }
+    } catch {
+      /* transcript unreadable or not flushed yet */
+    }
+  }
+  return undefined
+}
+
 /** Auto-events logger for git push / gh pr create in run_command. */
-async function autoEventsAntigravity(payload, home = getHome()) {
-  const toolCall = payload.toolCall
+async function autoEventsAntigravity(payload, home = getHome(), toolResponse = undefined) {
+  const id = payload?.conversationId || payload?.session_id
+  const toolCall = payload?.toolCall
   if (toolCall?.name !== 'run_command' || !toolCall.args) return
   const command = toolCall.args.CommandLine ?? toolCall.args.command
   if (typeof command !== 'string') return
   await runAutoEvents({
-    session_id: payload.conversationId,
+    session_id: id,
+    cwd: resolveAntigravityCwd(payload),
     tool_name: 'Bash',
     tool_input: { command },
+    ...(toolResponse !== undefined ? { tool_response: toolResponse } : {}),
+  }, home)
+}
+
+/** Auto-links logger for PR/MR URLs, HTML reports, and user-facing Antigravity artifacts. */
+async function autoLinksAntigravity(payload, home = getHome(), toolResponse = undefined) {
+  const id = payload?.conversationId || payload?.session_id
+  const toolCall = payload?.toolCall
+  if (!toolCall?.name || !toolCall.args || typeof toolCall.args !== 'object') return
+  await runAutoLinks({
+    session_id: id,
+    cwd: resolveAntigravityCwd(payload),
+    tool_name: toolCall.name,
+    tool_input: toolCall.args,
+    ...(toolResponse !== undefined ? { tool_response: toolResponse } : {}),
   }, home)
 }
 
@@ -332,19 +434,26 @@ export async function handleHook(mode, payload) {
     // Claims guard check
     const askGuard = await guardToolCall(payload, home)
     if (askGuard && typeof askGuard === 'object') {
-      const reason = askGuard.reason || 'Checkout claimed by another session'
+      const hso = askGuard.hookSpecificOutput
+      const decision = hso?.permissionDecision || askGuard.decision || 'ask'
+      const reason = hso?.permissionDecisionReason || askGuard.reason || 'Checkout claimed by another session'
       await writeAtomic(file, buildAntigravityBlockedMarker(payload, reason))
-      return { decision: 'ask', reason }
+      return { decision, reason }
     }
 
+    await clearMarker(file)
     return { decision: 'allow' }
   }
 
   if (mode === 'post_tool_use') {
+    await clearMarker(file)
     let prev = await readJson(workFile)
     await writeAtomic(workFile, buildAntigravityWorking(payload, prev, Date.now(), 'working'))
     await ensureRoleTag(payload, id, rolesDir)
-    await autoEventsAntigravity(payload, home)
+    await guardPostToolCall(payload, home)
+    const toolResponse = await extractToolResponse(payload)
+    await autoEventsAntigravity(payload, home, toolResponse)
+    await autoLinksAntigravity(payload, home, toolResponse)
     return {}
   }
 

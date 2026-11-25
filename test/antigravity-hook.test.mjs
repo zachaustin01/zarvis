@@ -773,5 +773,205 @@ test('server: ZARVIS_KEYSTROKES=0 forbids keystrokes even when requested', async
   }
 })
 
+test('Antigravity hook claims guard handles write_file/edit_file/run_command and wires guardPost on post_tool_use (#16)', async () => {
+  const { readClaim, claimsDir, claimId } = await import('../lib/claims.mjs')
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-claims-'))
+  const repoDir = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-repo-')))
+  await fsp.mkdir(path.join(repoDir, '.git'), { recursive: true })
+  await fsp.writeFile(path.join(repoDir, '.git', 'HEAD'), 'ref: refs/heads/feat/ONYX-101-guard\n')
+  const prevHome = process.env.ZARVIS_HOME
+  process.env.ZARVIS_HOME = home
+
+  try {
+    // 1. Session ID claims unclaimed checkout via write_file
+    const resA = await handleHook('pre_tool_use', {
+      conversationId: ID,
+      cwd: repoDir,
+      toolCall: { id: 'tc_a1', name: 'write_file', args: { Path: path.join(repoDir, 'src', 'index.js') } },
+    })
+    assert.deepEqual(resA, { decision: 'allow' })
+    const claimFile = path.join(claimsDir(home), `${claimId(repoDir)}.json`)
+    let claim = readClaim(claimFile)
+    assert.equal(claim.holder.sessionId, ID)
+    assert.equal(claim.label, 'ONYX-101')
+
+    // 2. Another live session (PARENT) touching the same checkout via edit_file gets decision: 'ask' + full reason
+    const resBAsk = await handleHook('pre_tool_use', {
+      conversationId: PARENT,
+      cwd: repoDir,
+      toolCall: { id: 'tc_b1', name: 'edit_file', args: { Path: path.join(repoDir, 'src', 'index.js') } },
+    })
+    assert.equal(resBAsk.decision, 'ask')
+    assert.match(resBAsk.reason, /Zarvis: .* is claimed by .*ONYX-101/)
+    const blockedBeforeAllow = await readMarkers(path.join(home, 'blocked'))
+    assert.equal(blockedBeforeAllow.length, 1)
+    assert.equal(blockedBeforeAllow[0].sessionId, PARENT)
+    assert.match(blockedBeforeAllow[0].message, /Zarvis: .* is claimed by/)
+    assert.deepEqual(readClaim(claimFile).pending, { [PARENT]: 'tc_b1' })
+    assert.deepEqual(readClaim(claimFile).shared, [])
+
+    // 3. When user allows in Antigravity, post_tool_use runs with matching toolCall.id -> joins claim.shared & clears blocked
+    await handleHook('post_tool_use', {
+      conversationId: PARENT,
+      cwd: repoDir,
+      toolCall: { id: 'tc_b1', name: 'edit_file', args: { Path: path.join(repoDir, 'src', 'index.js') } },
+    })
+    claim = readClaim(claimFile)
+    assert.equal(claim.shared.length, 1)
+    assert.equal(claim.shared[0].sessionId, PARENT)
+    assert.deepEqual(claim.pending, {})
+    assert.equal((await readMarkers(path.join(home, 'blocked'))).length, 0)
+
+    // 4. Subsequent single-file write_file/edit_file by sharer PARENT is allowed without asking
+    const resBAgain = await handleHook('pre_tool_use', {
+      conversationId: PARENT,
+      cwd: repoDir,
+      toolCall: { id: 'tc_b2', name: 'write_file', args: { Path: path.join(repoDir, 'src', 'other.js') } },
+    })
+    assert.deepEqual(resBAgain, { decision: 'allow' })
+
+    // 5. Whole-tree git via run_command while shared still asks every time
+    const resWhole = await handleHook('pre_tool_use', {
+      conversationId: PARENT,
+      cwd: repoDir,
+      toolCall: { id: 'tc_b3', name: 'run_command', args: { CommandLine: 'git reset --hard' } },
+    })
+    assert.equal(resWhole.decision, 'ask')
+    assert.match(resWhole.reason, /whole-tree git/)
+
+    // 6. Also supports payloads that omit toolCall.id (deterministic fallback matching)
+    const thirdId = 'c3c3c3c3-0000-4000-8000-000000000000'
+    const resCAsk = await handleHook('pre_tool_use', {
+      conversationId: thirdId,
+      workspacePaths: [repoDir],
+      toolCall: { name: 'write_file', args: { path: 'README.md' } },
+    })
+    assert.equal(resCAsk.decision, 'ask')
+    await handleHook('post_tool_use', {
+      conversationId: thirdId,
+      workspacePaths: [repoDir],
+      toolCall: { name: 'write_file', args: { path: 'README.md' } },
+    })
+    assert.ok(readClaim(claimFile).shared.some((s) => s.sessionId === thirdId))
+  } finally {
+    if (prevHome === undefined) delete process.env.ZARVIS_HOME
+    else process.env.ZARVIS_HOME = prevHome
+  }
+})
+
+test('Antigravity post_tool_use wires runAutoLinks for user-facing artifacts, HTML reports, and PR/MR commands (#16, #20)', async () => {
+  const { readLinks, fileUrlOf } = await import('../lib/links.mjs')
+  const { readEvents } = await import('../lib/events.mjs')
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-links-'))
+  const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-ag-work-'))
+  const trFile = path.join(workDir, 'transcript.jsonl')
+  const planMd = path.join(workDir, 'plan.md')
+  const reportHtml = path.join(workDir, 'perf.html')
+  await fsp.writeFile(planMd, '# Migration Plan\n\nStep 1.')
+  await fsp.writeFile(reportHtml, '<title>Perf Benchmark</title><p>99ms</p>')
+  const prevHome = process.env.ZARVIS_HOME
+  process.env.ZARVIS_HOME = home
+
+  try {
+    // 1. User-facing write_file artifact pins file:// link with Markdown heading
+    await handleHook('post_tool_use', {
+      conversationId: ID,
+      cwd: workDir,
+      toolCall: {
+        id: 't1',
+        name: 'write_file',
+        args: {
+          Path: planMd,
+          ArtifactMetadata: { UserFacing: true, RequestFeedback: true, Summary: 'Migration plan' },
+        },
+      },
+    })
+
+    // 2. Standalone .html write_file pins file:// link with <title> even without ArtifactMetadata
+    await handleHook('post_tool_use', {
+      conversationId: ID,
+      cwd: workDir,
+      toolCall: {
+        id: 't2',
+        name: 'write_file',
+        args: { Path: 'perf.html' },
+      },
+    })
+
+    // 3. Plain code write_file does NOT pin a link
+    await handleHook('post_tool_use', {
+      conversationId: ID,
+      cwd: workDir,
+      toolCall: {
+        id: 't3',
+        name: 'write_file',
+        args: { Path: 'src/index.js' },
+      },
+    })
+
+    // 4. run_command gh pr create with direct output pins PR #<n> AND logs pr event with URL
+    await handleHook('post_tool_use', {
+      conversationId: ID,
+      cwd: workDir,
+      toolCall: {
+        id: 't4',
+        name: 'run_command',
+        args: { CommandLine: 'gh pr create --fill' },
+      },
+      output: 'https://github.com/zachaustin01/zarvis/pull/16\n',
+    })
+
+    // 5. run_command glab mr create reading output from transcriptPath at stepIdx (when stdin omits toolResponse)
+    await fsp.writeFile(
+      trFile,
+      JSON.stringify({
+        step_index: 9,
+        source: 'MODEL',
+        type: 'GENERIC',
+        status: 'DONE',
+        content: 'Command exited with code 0.\n\nCommand output:\nhttps://gitlab.example.com/team/zarvis/-/merge_requests/20\n',
+      }) + '\n',
+    )
+    await handleHook('post_tool_use', {
+      conversationId: ID,
+      cwd: workDir,
+      transcriptPath: trFile,
+      stepIdx: 9,
+      toolCall: {
+        id: 't5',
+        name: 'run_command',
+        args: { CommandLine: 'glab mr create --fill' },
+      },
+    })
+
+    // 6. Failed run_command (payload.error set) does NOT pin bogus PR link
+    await handleHook('post_tool_use', {
+      conversationId: ID,
+      cwd: workDir,
+      error: 'exit status 1',
+      output: 'https://github.com/zachaustin01/zarvis/pull/999\n',
+      toolCall: {
+        id: 't6',
+        name: 'run_command',
+        args: { CommandLine: 'gh pr create --fill' },
+      },
+    })
+
+    assert.deepEqual(await readLinks(home, ID), [
+      { url: fileUrlOf(planMd), label: 'Migration Plan' },
+      { url: fileUrlOf(reportHtml), label: 'Perf Benchmark' },
+      { url: 'https://github.com/zachaustin01/zarvis/pull/16', label: 'PR #16' },
+      { url: 'https://gitlab.example.com/team/zarvis/-/merge_requests/20', label: 'MR !20' },
+    ])
+    const events = readEvents(home)
+    assert.equal(events.length, 1)
+    assert.equal(events[0].kind, 'pr')
+    assert.equal(events[0].url, 'https://github.com/zachaustin01/zarvis/pull/16')
+  } finally {
+    if (prevHome === undefined) delete process.env.ZARVIS_HOME
+    else process.env.ZARVIS_HOME = prevHome
+  }
+})
+
 
 

@@ -23,9 +23,12 @@ the page both re-check before rendering. A file chip (▤) is a button, never a 
 `npm run roster -- get|list` shows them (`links` in `--json`). Sessions only learn about `npm run link` after
 `npm run setup` copies the updated skills.
 
-Files a session sends with `SendUserFile` and artifacts it publishes with `Artifact` (a publish, not list/read/delete or
-an asset upload) are pinned to its card automatically by the hook, on `PostToolUse`, with no `npm run link` call. They
-count toward the 8-link limit like any other link. An artifact chip is labelled with the page's `<title>` (HTML) or first `# heading` (Markdown); without one it is `Artifact<n>.<type>`. Off with `ZARVIS_AUTO_LINKS=0` or `"autoLinks": false` in `~/.zarvis/state.json`.
+Files a session sends with `SendUserFile`, artifacts it publishes with `Artifact` (a publish, not list/read/delete or
+an asset upload), PRs or MRs opened via `Bash` / `run_command` (`gh pr create`, `gh api …/pulls`, `glab mr create`,
+`glab api …/merge_requests`, labelled `PR #<n>` / `MR !<n>`), standalone `.html` / `.htm` reports written via `Write` /
+`write_file`, and user-facing Antigravity artifacts written or edited via `write_file` / `edit_file`
+(`ArtifactMetadata.UserFacing: true`) are pinned to its card automatically by the hook on `PostToolUse`, with no
+`npm run link` call. They count toward the 8-link limit like any other link. An `Artifact` chip is labelled with the page's `<title>` (HTML) or first `# heading` (Markdown), else `Artifact<n>.<type>`; standalone `.html` reports and user-facing Antigravity artifacts use `<title>` / first `# heading`, falling back to the file name. Off with `ZARVIS_AUTO_LINKS=0` or `"autoLinks": false` in `~/.zarvis/state.json`.
 
 ## Schedule
 
@@ -115,7 +118,7 @@ Two sessions editing the same checkout trip over each other's uncommitted work. 
 visible and, through the hook, makes the second session ask first.
 
 **What is enforced.** A session *claims* a checkout (the worktree root containing the file or the
-`git` command) on its first Edit / Write / MultiEdit / NotebookEdit or `git` command there that can write; read-only git (`log`, `show`, `diff`, `status`, `grep`, `blame`, `rev-parse`,
+`git` command) on its first Edit / Write / MultiEdit / NotebookEdit (or Antigravity's `write_file` / `edit_file`) or `git` command (`Bash` / `run_command`) there that can write; read-only git (`log`, `show`, `diff`, `status`, `grep`, `blame`, `rev-parse`,
 `rev-list`, `ls-files`, `ls-tree`, `cat-file`, `merge-base`, `describe`, `shortlog`, `branch` / `tag` / `remote -v`
 that only list, `stash list`, `worktree list`, ...) neither claims nor asks, so a manager reviewing its worker's
 checkout with `git -C <dir> log / diff` never becomes a sharer. Commands that look read-only but write
