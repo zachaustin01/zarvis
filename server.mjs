@@ -16,7 +16,7 @@ import { promptsOf } from './lib/prompts.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
 import { collectRows, cwdsOf, nameFn, withHolderLinks } from './lib/lookup.mjs'
-import { contextOf, contextWindow } from './lib/context.mjs'
+import { contextOf, contextWindow, workerWarnTokens, applyWorkerWarn } from './lib/context.mjs'
 import { appVersion } from './lib/version.mjs'
 import { roleRegistry } from './lib/registry.mjs'
 import { readState, setOverlay, setRole, parkSession, unparkSession, setDone } from './lib/state.mjs'
@@ -88,11 +88,13 @@ async function allRows(snapshot) {
   // Approximate context use per row, from the transcript tail (cached by mtime and size). Server-side only:
   // the file path never reaches the browser, and a session with no usage yet gets no `ctx` at all.
   const win = contextWindow()
+  const workerWarn = workerWarnTokens(ZARVIS_HOME)
   const links = await readAllLinks(ZARVIS_HOME) // posted with `npm run link`; re-validated on read
   return Promise.all(
     rows.map(async ({ transcript, ...r }) => {
       const file = transcript || (await transcriptFor(r.sessionId))
-      const ctx = await contextOf(file, win)
+      const rawCtx = await contextOf(file, win)
+      const ctx = r.role === 'worker' ? applyWorkerWarn(rawCtx, workerWarn) : rawCtx
       return ctx ? { ...r, ctx, links: links[r.sessionId] || [] } : { ...r, links: links[r.sessionId] || [] }
     }),
   )

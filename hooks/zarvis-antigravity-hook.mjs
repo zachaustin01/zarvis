@@ -30,6 +30,7 @@ import {
   parseRoleTag,
   claimFirstPrompt,
   writeRoleTag,
+  checkWorkerContextWarn,
   buildClaimsContext,
   runAutoEvents,
 } from '../lib/hook-common.mjs'
@@ -345,6 +346,7 @@ export async function handleHook(mode, payload) {
     await writeAtomic(workFile, buildAntigravityWorking(payload, prev, Date.now(), 'working'))
     await ensureRoleTag(payload, id, rolesDir)
     await autoEventsAntigravity(payload, home)
+    await checkWorkerContextWarn({ sessionId: id, transcriptPath: payload.transcriptPath ?? payload.transcript_path, home })
     return {}
   }
 
@@ -366,6 +368,7 @@ export async function handleHook(mode, payload) {
     }
 
     await writeAtomic(workFile, buildAntigravityWorking(payload, null, Date.now(), 'idle'))
+    await checkWorkerContextWarn({ sessionId: id, transcriptPath: payload.transcriptPath ?? payload.transcript_path, home })
     return { decision: "allow" }
   }
 
