@@ -11,7 +11,7 @@ import { readAllTasks } from './lib/tasks.mjs'
 import { readAllLinks, readLinks, openPlan, modeFor } from './lib/links.mjs'
 import { readJobs } from './lib/schedule.mjs'
 import { scheduleView } from './lib/schedule-view.mjs'
-import { renderRoster } from './lib/roster.mjs'
+import { renderRoster, visibleInterfaces } from './lib/roster.mjs'
 import { promptsOf } from './lib/prompts.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectPathOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
@@ -136,7 +136,7 @@ async function currentTree(snapshot) {
   }
   const kids = childrenOf(nodes)
   const now = Date.now()
-  const recent = new Map(records.map((r) => [r.cliSessionId, Number(r.lastActivityAt) || Number(r.createdAt) || now]))
+  const recent = new Map(records.map((r) => [r.cliSessionId, Number(r.lastActivityAt) || Number(r.createdAt) || (r.sessionId ? now : 0)]))
   // Branch for every session, not just ones with a hook signal: the record's, else the checkout's HEAD.
   const recOf = new Map(records.map((r) => [r.cliSessionId, r]))
   const branchOf = new Map(
@@ -205,7 +205,11 @@ async function currentTree(snapshot) {
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),
     }
   })
-  return { interface: all.filter((n) => n.role === 'interface').map(view), managers, orphans, unclassified, archived }
+  const interfaces = visibleInterfaces(all.filter((n) => n.role === 'interface').map(view))
+  if (interfaces.length <= 1) {
+    for (const i of interfaces) i.warnings = i.warnings.filter((w) => w !== 'more than one interface session')
+  }
+  return { interface: interfaces, managers, orphans, unclassified, archived }
 }
 
 // --- checkout claims: read-only; the hook and the claims CLI write them ---

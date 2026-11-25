@@ -4,10 +4,13 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { classify, childrenOf, NO_ROLE, roleMarker, rolePrompt, isNewSessionRole } from '../lib/roles.mjs'
-import { renderRoster } from '../lib/roster.mjs'
-import { applyRoles } from '../lib/queue.mjs'
+import { renderRoster, visibleInterfaces, isGhostInterface } from '../lib/roster.mjs'
+import { applyRoles, newSessionLink } from '../lib/queue.mjs'
 import { setRole, readState } from '../lib/state.mjs'
-import { buildRoleTag } from '../hooks/zarvis-hook.mjs'
+import { buildRoleTag, spawnsWorker } from '../hooks/zarvis-hook.mjs'
+import { spawnSync } from 'node:child_process'
+import { runPark } from '../lib/park-cli.mjs'
+import { buildLookup } from '../lib/lookup.mjs'
 
 const id = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`
 const rec = (n, extra = {}) => ({ sessionId: `local_${id(n)}`, cliSessionId: id(n), title: `S${n}`, cwd: `/r/${n}`, ...extra })
@@ -267,5 +270,200 @@ test('classify is pure and does no Antigravity filesystem I/O when agyMeta is om
     if (prevAgyHome === undefined) delete process.env.ANTIGRAVITY_HOME
     else process.env.ANTIGRAVITY_HOME = prevAgyHome
     await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
+// ---- Issue #18: auto-promotion to manager on first worker spawn + stale interface cleanup ----
+
+test('classify auto-promotes an unclassified parent to manager when a live explicitly-tagged worker names it or was spawned from it (#18)', () => {
+  // 1) Worker explicitly tagged with `parent=<untaggedMgr>`
+  const byParent = classify({
+    records: [rec(2), rec(3)],
+    roles: { [id(3)]: { role: 'worker', parent: id(2) } },
+  })
+  assert.equal(byParent.get(id(2)).role, 'manager')
+  assert.equal(byParent.get(id(2)).source, 'spawn')
+  assert.equal(byParent.get(id(2)).suggested, '')
+  assert.equal(byParent.get(id(3)).managerId, id(2))
+  assert.deepEqual(byParent.get(id(3)).warnings, [])
+  assert.deepEqual(childrenOf(byParent).get(id(2)).map((n) => n.sessionId), [id(3)])
+
+  // 2) Worker explicitly tagged `[zarvis: role=worker]` (no parent=), linked via desktop spawnedFrom
+  const bySpawn = classify({
+    records: [rec(2), rec(3, spawnedBy(2)), rec(4, spawnedBy(2))],
+    roles: { [id(3)]: { role: 'worker' } },
+  })
+  assert.equal(bySpawn.get(id(2)).role, 'manager')
+  assert.equal(bySpawn.get(id(3)).managerId, id(2))
+  assert.deepEqual(bySpawn.get(id(3)).warnings, [])
+  // Sibling untagged child spawned by the now-promoted manager also attaches as a worker
+  assert.equal(bySpawn.get(id(4)).role, 'worker')
+  assert.equal(bySpawn.get(id(4)).managerId, id(2))
+
+  // 3) Explicitly cleared (`NO_ROLE`) parent is NOT auto-promoted; interface parent is NOT auto-promoted
+  const clearedParent = classify({
+    records: [rec(1), rec(2), rec(3), rec(4)],
+    roles: {
+      [id(1)]: { role: 'interface' },
+      [id(2)]: { role: NO_ROLE },
+      [id(3)]: { role: 'worker', parent: id(2) },
+      [id(4)]: { role: 'worker', parent: id(1) },
+    },
+  })
+  assert.equal(clearedParent.get(id(2)).role, 'unclassified')
+  assert.match(clearedParent.get(id(3)).warnings[0], /not a manager/)
+  assert.equal(clearedParent.get(id(1)).role, 'interface')
+  assert.match(clearedParent.get(id(4)).warnings[0], /not a manager/)
+
+  // 4) Archived worker does NOT promote an unclassified parent
+  const archivedWorker = classify({
+    records: [rec(2), rec(3, { isArchived: true })],
+    roles: { [id(3)]: { role: 'worker', parent: id(2) } },
+  })
+  assert.equal(archivedWorker.get(id(2)).role, 'unclassified')
+})
+
+test('spawnsWorker detects Claude worker launches without false positives on edits, commits or subagents (#18)', () => {
+  const tag = `[zarvis: role=worker parent=${id(2)}] Fix issue`
+  // Agent & Task
+  assert.equal(spawnsWorker({ tool_name: 'Agent', tool_input: { prompt: tag } }), true)
+  assert.equal(spawnsWorker({ tool_name: 'Task', tool_input: { description: '[zarvis: role=worker]', prompt: 'go' } }), true)
+  assert.equal(spawnsWorker({ tool_name: 'Agent', tool_input: { prompt: 'plain subagent' } }), false)
+  assert.equal(spawnsWorker({ agent_id: 'sub1', tool_name: 'Agent', tool_input: { prompt: tag } }), false)
+
+  // Desktop MCP start_session
+  assert.equal(spawnsWorker({ tool_name: 'start_session', tool_input: { prompt: tag } }), true)
+  assert.equal(spawnsWorker({ tool_name: 'mcp__ccd_sessions__start_session', tool_input: { prompt: tag } }), true)
+  assert.equal(spawnsWorker({ tool_name: 'start_session', tool_input: { prompt: '[zarvis: role=manager]' } }), false)
+
+  // Bash claude://code/new deep links (URLSearchParams `+` encoding, `%20` encoding, raw) and claude CLI
+  const link = newSessionLink('/repo', tag)
+  assert.equal(spawnsWorker({ tool_name: 'Bash', tool_input: { command: `open "${link}"` } }), true)
+  assert.equal(spawnsWorker({ tool_name: 'Bash', tool_input: { command: 'open "claude://code/new?q=%5Bzarvis%3A%20role%3Dworker%5D"' } }), true)
+  assert.equal(spawnsWorker({ tool_name: 'Bash', tool_input: { command: `claude -p "${tag}"` } }), true)
+  assert.equal(spawnsWorker({ tool_name: 'Bash', tool_input: { command: `cd /tmp/wt && FOO=1 /usr/local/bin/claude "${tag}"` } }), true)
+
+  // Must NOT false-positive on git commit, grep, or file-editing tools mentioning the tag
+  assert.equal(spawnsWorker({ tool_name: 'Bash', tool_input: { command: `git commit -m "handle claude [zarvis: role=worker]"` } }), false)
+  assert.equal(spawnsWorker({ tool_name: 'Bash', tool_input: { command: 'grep "[zarvis: role=worker]" hooks/zarvis-hook.mjs' } }), false)
+  assert.equal(spawnsWorker({ tool_name: 'Edit', tool_input: { file_path: '/a.js', new_string: tag } }), false)
+})
+
+test('Claude hook auto-promotes untagged session to manager on worker spawn (PreToolUse / PostToolUse), never overwrites existing tag, and enables park CLI (#18)', async () => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-hook-promote-'))
+  const hook = new URL('../hooks/zarvis-hook.mjs', import.meta.url).pathname
+  const runHook = (mode, payload) =>
+    spawnSync(process.execPath, [hook, mode], { input: JSON.stringify(payload), env: { ...process.env, ZARVIS_HOME: home } })
+  const readTag = async (sid) => {
+    try {
+      return JSON.parse(await fsp.readFile(path.join(home, 'roles', `${sid}.json`), 'utf8'))
+    } catch {
+      return null
+    }
+  }
+
+  const untaggedMgr = id(2)
+  const workerId = id(3)
+  const existingIface = id(1)
+
+  // Session starts untagged
+  runHook('start', { session_id: untaggedMgr, prompt: 'Coordinate the release' })
+  assert.equal(await readTag(untaggedMgr), null)
+
+  // Subagent event must NOT promote parent
+  runHook('resume', { session_id: untaggedMgr, agent_id: 'sub99', tool_name: 'Agent', tool_input: { prompt: `[zarvis: role=worker parent=${untaggedMgr}]` } })
+  assert.equal(await readTag(untaggedMgr), null)
+
+  // Main-session PreToolUse (`resume`) spawning a worker promotes untaggedMgr to `manager`
+  runHook('resume', {
+    session_id: untaggedMgr,
+    tool_name: 'Bash',
+    tool_input: { command: `open "${newSessionLink('/r/2', `[zarvis: role=worker parent=${untaggedMgr}] implement fix`)}"` },
+  })
+  const promoted = await readTag(untaggedMgr)
+  assert.equal(promoted?.role, 'manager')
+  assert.equal(promoted?.parent, '')
+
+  // PostToolUse (`work`) also promotes an untagged session
+  const untaggedMgr2 = id(6)
+  runHook('start', { session_id: untaggedMgr2, prompt: 'Another coordinator' })
+  runHook('work', { session_id: untaggedMgr2, tool_name: 'Agent', tool_input: { prompt: `[zarvis: role=worker parent=${untaggedMgr2}] task` } })
+  assert.equal((await readTag(untaggedMgr2))?.role, 'manager')
+
+  // Existing `interface` tag is never overwritten by wx
+  runHook('start', { session_id: existingIface, prompt: '[zarvis: role=interface] triage' })
+  assert.equal((await readTag(existingIface))?.role, 'interface')
+  runHook('resume', { session_id: existingIface, tool_name: 'Agent', tool_input: { prompt: '[zarvis: role=worker] oops' } })
+  assert.equal((await readTag(existingIface))?.role, 'interface')
+
+  // Promoted manager can immediately park its worker via runPark
+  const stateFile = path.join(home, 'state.json')
+  const out = []
+  const code = await runPark(['park', workerId, '--by', untaggedMgr, '--reason', 'merged'], {
+    deps: {
+      records: [rec(2), rec(3)],
+      roles: { [untaggedMgr]: promoted, [workerId]: { role: 'worker', parent: untaggedMgr } },
+      blocked: [],
+      working: [],
+    },
+    stateFile,
+    log: (l) => out.push(l),
+    err: () => {},
+  })
+  assert.equal(code, 0)
+  assert.match(out[0], /parked “S3”/)
+})
+
+test('renderRoster and buildLookup suppress duplicate untitled zero-activity interface ghosts when a real or newer interface exists (#18)', async () => {
+  const real = { sessionId: id(1), desktopSessionId: `local_${id(1)}`, name: 'Zarvis Triage', title: 'Zarvis Triage', state: 'idle', lastActivityAt: 5000 }
+  const ghostA = { sessionId: id(7), desktopSessionId: '', name: 'Untitled session', title: 'Untitled session', state: 'unknown', lastActivityAt: 0 }
+  const ghostB = { sessionId: id(8), desktopSessionId: '', name: 'Untitled session', title: 'Untitled session', state: 'no signal', lastActivityAt: 0 }
+
+  assert.equal(isGhostInterface(ghostA), true)
+  assert.equal(isGhostInterface(ghostB), true)
+  assert.equal(isGhostInterface(real), false)
+  assert.deepEqual(visibleInterfaces([ghostA, real, ghostB]).map((i) => i.sessionId), [id(1)])
+
+  const roster = renderRoster({ interface: [ghostA, real, ghostB], managers: [], orphans: [], unclassified: [] })
+  assert.match(roster, /## Interface: Zarvis Triage/)
+  assert.doesNotMatch(roster, /## Interface: Untitled session/)
+
+  // Two legitimate titled/desktop interfaces are BOTH kept
+  const real2 = { sessionId: id(9), desktopSessionId: `local_${id(9)}`, name: 'Second Interface', title: 'Second Interface', state: 'unknown', lastActivityAt: 6000 }
+  const bothRoster = renderRoster({ interface: [real, real2], managers: [], orphans: [], unclassified: [] })
+  assert.match(bothRoster, /## Interface: Zarvis Triage/)
+  assert.match(bothRoster, /## Interface: Second Interface/)
+
+  // A single untitled interface is kept when it is the only interface
+  const singleRoster = renderRoster({ interface: [ghostA], managers: [], orphans: [], unclassified: [] })
+  assert.match(singleRoster, /## Interface: Untitled session/)
+
+  // buildLookup (`npm run roster -- list`) hides stale ghosts by default, while `--all` still includes them
+  const lookupDeps = {
+    findTranscript: async () => null,
+    transcriptMeta: async () => ({ cwd: '', gitBranch: '', title: '', spawnedFrom: '' }),
+    gitBranchOf: async () => '',
+    findAntigravityTitle: async () => '',
+  }
+  const world = {
+    records: [rec(1, { title: 'Zarvis Triage', lastActivityAt: 10_000 })],
+    state: { overlays: {}, roles: {}, parked: {}, done: {} },
+    roles: { [id(1)]: { role: 'interface' }, [id(7)]: { role: 'interface' } },
+    now: 20_000,
+    deps: lookupDeps,
+    branchOf: async () => '',
+  }
+  const prevAgy = process.env.ANTIGRAVITY_HOME
+  const tmpAgy = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-lookup-agy-'))
+  process.env.ANTIGRAVITY_HOME = tmpAgy
+  try {
+    const defaultList = await buildLookup({ ...world, all: false })
+    assert.deepEqual(defaultList.filter((e) => e.role === 'interface').map((e) => e.sessionId), [id(1)])
+    const allList = await buildLookup({ ...world, all: true })
+    assert.equal(allList.filter((e) => e.role === 'interface').length, 2)
+  } finally {
+    if (prevAgy === undefined) delete process.env.ANTIGRAVITY_HOME
+    else process.env.ANTIGRAVITY_HOME = prevAgy
+    await fsp.rm(tmpAgy, { recursive: true, force: true }).catch(() => {})
   }
 })

@@ -91,6 +91,7 @@ All run with the server stopped; none need extra setup beyond `npm run setup`.
 | `npm run schedule` | Register scheduled jobs for the timeline | [session-tools](docs/session-tools.md#schedule) |
 | `npm run costs` | Token usage and API-equivalent cost | [session-tools](docs/session-tools.md#costs) |
 | `npm run project` | Tag sessions with a project | [session-tools](docs/session-tools.md#costs) |
+| `npm run role` | Set, clear or reset session roles from the CLI | [roles-and-roster](docs/roles-and-roster.md#role-cli) |
 
 ## Reference docs
 
