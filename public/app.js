@@ -313,7 +313,7 @@ function setView(v) {
   $('#sched').hidden = v !== 'schedule'
   $('#costs').hidden = v !== 'costs'
   if (v === 'schedule') { renderBar(); return loadSchedule(true) }
-  if (v === 'costs') { renderBar(); csPage = 0; return loadCosts(true) }
+  if (v === 'costs') { renderBar(); csPage = 0; renderCosts(true); return loadCosts(true) } // draw the loading (or last) state now, not after the fetch
   $('#pager').dataset.key = '' // the other view's pager state is stale
   if (v !== 'queue') loadTree()
   else render()
@@ -393,9 +393,11 @@ function rowHtml(r, now) {
     renaming === r.sessionId
       ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
       : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
+  // The section heading already says Working / Idle: drop that line unless it says more (background tasks, no app link).
+  const quiet = r.link && !r.parked && (working || (idle && !r.tasks?.count))
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
-    `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}${canBeOverdue(r) ? '' : ' data-nood="1"'}>` +
+    `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${quiet ? ' quiet' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}${canBeOverdue(r) ? '' : ' data-nood="1"'}>` +
     `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span>${runtimeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
@@ -2114,12 +2116,15 @@ async function loadCosts(force) {
   clearTimeout(csTimer)
   const wantRange = costRange
   const wantProvider = costProvider
+  const root = $('#costs')
+  if (force) root.classList.add('cs-loading') // a user-asked load (view, range, provider): dim what is shown until it lands
   try {
     const d = await (await fetch(`/api/costs?range=${wantRange}&provider=${wantProvider}`)).json()
     if (view !== 'costs' || wantRange !== costRange || wantProvider !== costProvider || !Array.isArray(d?.projects)) return
     costs = d
+    root.classList.remove('cs-loading')
     renderCosts(false)
-  } catch { /* next poll */ }
+  } catch { root.classList.remove('cs-loading') /* next poll */ }
   csTimer = setTimeout(() => loadCosts(false), costs?.scanning ? 1500 : 15000)
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) loadCosts(false) })
@@ -2231,7 +2236,7 @@ function renderCosts(force) {
   $('#csGroup').innerHTML = ['project', 'manager'].map((g) => `<button type="button" data-g="${g}" class="${g === costGroup ? 'on' : ''}" aria-pressed="${g === costGroup}">${g}</button>`).join('')
   $('#csProvider').innerHTML = COST_PROVIDERS.map((p) => `<button type="button" data-p="${p.id}" class="${p.id === costProvider ? 'on' : ''}" aria-pressed="${p.id === costProvider}">${p.label}</button>`).join('')
   $('#csRange').innerHTML = COST_RANGES.map((r) => `<button type="button" data-r="${r.id}" class="${r.id === costRange ? 'on' : ''}" aria-pressed="${r.id === costRange}">${r.label}</button>`).join('')
-  if (!costs) { setHtml('sum', $('#csSum'), '<span class="cs-kv">reading transcripts…</span>'); return }
+  if (!costs) { setHtml('sum', $('#csSum'), '<span class="cs-kv cs-wait">Reading transcripts…</span>'); $('#csEmpty').hidden = true; return }
   if (csDrill && !csGroups().some((p) => p.key === csDrill) && !csBuckets().some((p) => p.key === csDrill)) csDrill = ''
   const items = csItems()
   csSel = stepIndex(csSel, items.length, 0)

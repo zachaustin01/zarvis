@@ -598,3 +598,29 @@ body.v-costs .wrap{max-width:1180px}
 .cs-foot a{color:var(--t2)}
 .cs-scan{color:var(--am)}
 @media (max-width:700px){.cs-row{grid-template-columns:minmax(0,1fr)}.cs-spark{grid-column:1;grid-row:auto;height:34px;min-height:0;margin-top:4px}.cs-big{font-size:21px}}
+
+/* Density: more rows per page. Roles rows are one line (long names ellipsize) and keep their links and background
+   tasks for the selected row; queue rows drop the "Working…" / "Idle" line their section heading already says. */
+.q.tr{padding:6px 12px 6px 14px;margin-bottom:4px}
+@media (min-width:761px){ /* phones keep wrapping rows: one line there would squeeze the name out */
+  .q.tr .r1{flex-wrap:nowrap;min-width:0}
+  .q.tr .r1>*{flex:none}
+  .q.tr .r1 .key,.q.tr .r1 .bg,.q.tr .r1 .wt,.q.tr .r1 .ap{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .q.tr .r1 .nm{flex:1 1 0;min-width:min(12em,30%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+.q.tr:not(.sel)>.lks,.q.tr:not(.sel)>.bgl{display:none}
+.q.quiet:not(.sel)>.prompt{display:none}
+.q.quiet:not(.sel)>.cmd{margin-bottom:0}
+
+/* Costs: say it is loading instead of showing an empty frame, and dim stale numbers while a new range loads (static:
+   nothing in the Costs view animates, so a redraw restarts nothing) */
+.cs-wait{color:var(--cy);letter-spacing:.14em;text-transform:uppercase}
+.costs.cs-loading #csList,.costs.cs-loading #csSum{opacity:.45}
+
+/* With the project rail on screen it is the project picker: the bar keeps only the active project (and All to clear
+   it), the hidden-count chip and the filter chips, so the list starts higher. g / G still cycle projects. */
+@media (min-width:1100px){
+  body.rail-on .projbar .chip[data-p]:not(.hid):not(.on):not([data-p=""]),
+  body.rail-on .projbar .chip[data-p=""].on:not(.hid),
+  body.rail-on .projbar .ap.g{display:none}
+}
