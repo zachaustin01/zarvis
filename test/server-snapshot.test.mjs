@@ -93,4 +93,66 @@ test('server.mjs: tick() uses a single readWorldSnapshot() and archivedParked ha
 
   assert.match(src, /runtime:\s*n\.runtime\s*\|\|\s*'claude'/)
   assert.match(src, /n\.runtime === 'antigravity'\s*\?\s*`antigravity:\/\/conversation\/\$\{n\.sessionId\}`\s*:\s*deepLinkFor\(n\.desktopSessionId\)/)
+  assert.match(src, /const agyMeta = enrichAgyMeta\(\{ records, roles, sessions: queue, cwds: allCwds \}\)/)
+  assert.match(src, /classify\(\{ records, roles, cwds: allCwds, sessions: queue, agyMeta \}\)/)
+})
+
+test('server: /api/tree enriches aged-out Antigravity role-only workers with title and antigravity runtime', async () => {
+  const home = await tmp()
+  const desktop = await tmp()
+  const agy = await tmp()
+  const mgrId = '22222222-2222-4222-8222-222222222222'
+  const workerId = '33333333-3333-4333-8333-333333333333'
+
+  await fsp.mkdir(path.join(home, 'roles'), { recursive: true })
+  await fsp.writeFile(path.join(home, 'roles', `${mgrId}.json`), JSON.stringify({ sessionId: mgrId, role: 'manager', parent: '' }))
+  await fsp.writeFile(path.join(home, 'roles', `${workerId}.json`), JSON.stringify({ sessionId: workerId, role: 'worker', parent: mgrId }))
+  await fsp.mkdir(path.join(agy, 'annotations'), { recursive: true })
+  await fsp.writeFile(path.join(agy, 'annotations', `${mgrId}.pbtxt`), 'title:"Strategy Manager"')
+  await fsp.mkdir(path.join(agy, 'brain', workerId, '.system_generated', 'logs'), { recursive: true })
+  await fsp.writeFile(
+    path.join(agy, 'brain', workerId, '.system_generated', 'logs', 'transcript.jsonl'),
+    JSON.stringify({
+      type: 'SYSTEM_MESSAGE',
+      content: `[Message] sender=${mgrId} content=You have just started. Your assignment (recorded on the board as #1 for @accuracy): Evaluate accuracy`,
+    }) + '\n',
+  )
+
+  const port = 20000 + Math.floor(Math.random() * 20000)
+  const p = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], {
+    env: {
+      ...process.env,
+      ZARVIS_HOME: home,
+      ZARVIS_PORT: String(port),
+      ZARVIS_DESKTOP_SESSIONS: desktop,
+      ANTIGRAVITY_HOME: agy,
+      ZARVIS_DRY_OPEN: '1',
+      ZARVIS_COSTS_WARM: '0',
+    },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+
+  try {
+    await new Promise((res, rej) => {
+      p.stdout.on('data', (d) => /Zarvis →/.test(String(d)) && res())
+      p.on('exit', () => rej(new Error('server exited')))
+    })
+    const tRes = await fetch(`http://127.0.0.1:${port}/api/tree`)
+    assert.equal(tRes.status, 200)
+    const tree = await tRes.json()
+    const mgr = tree.managers.find((m) => m.sessionId === mgrId)
+    assert.ok(mgr, 'manager present in /api/tree')
+    assert.equal(mgr.runtime, 'antigravity')
+    assert.equal(mgr.children.length, 1)
+    assert.equal(mgr.children[0].sessionId, workerId)
+    assert.equal(mgr.children[0].runtime, 'antigravity')
+    assert.equal(mgr.children[0].title, '@accuracy: Evaluate accuracy')
+  } finally {
+    p.kill()
+    await Promise.all([
+      fsp.rm(home, { recursive: true, force: true }).catch(() => {}),
+      fsp.rm(desktop, { recursive: true, force: true }).catch(() => {}),
+      fsp.rm(agy, { recursive: true, force: true }).catch(() => {}),
+    ])
+  }
 })
