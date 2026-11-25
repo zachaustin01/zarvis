@@ -56,7 +56,7 @@ const ifaceFirst = () => {
 }
 // The Roles view's checkout cards are selectable like session rows (id `ck:<claim id>`); Enter opens the holder.
 const ckItems = () => claims.map((c) => ({ sessionId: `ck:${c.id}`, ck: c, name: c.holder.name, role: 'checkout' }))
-const items = () => (view === 'tree' ? [...ckItems(), ...nodes] : view === 'parked' ? parkedList : ifaceFirst())
+const items = () => (view === 'tree' ? [...nodes, ...ckItems()] : view === 'parked' ? parkedList : ifaceFirst())
 /** The selected session row; undefined on a checkout card, so park / done / rename / classify never act on one. */
 const selRow = () => items().find((x) => x.sessionId === sel && !x.ck)
 /** Done sessions are hidden unless searched; a search matches name, title, project, park reason and handoff note. */
@@ -243,14 +243,15 @@ function renderTree() {
 }
 function renderTreeInner() {
   renderBar()
-  $('#side').innerHTML = ''
-  document.querySelector('.wrap').classList.remove('has-side')
+  const ck = claimsSection()
+  $('#side').innerHTML = ck
+  document.querySelector('.wrap').classList.toggle('has-side', Boolean(ck))
   const t = tree
   const part = (title, rows) => (rows.length ? heading(title) + rows.map((r) => treeRow(r, 0)).join('') : '')
   const mgr = t.managers.map((m) => treeRow(m, 0) + m.children.map((c) => treeRow(c, 1)).join('')).join('')
   const renameSnap = snapRename()
   $('#list').innerHTML =
-    claimsSection() + part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
+    part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
     `<div class="empty">${hiddenParkedN ? `Everything here is parked (${hiddenParkedN} hidden) · v shows them, p lists them` : 'No sessions.'}</div>`
   const all = items()
   if (!all.some((r) => r.sessionId === sel) && all.length) sel = (nodes[0] || all[0]).sessionId
