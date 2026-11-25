@@ -27,13 +27,30 @@ export const toggleRole = (current, role) => (ROLE_FILTERS.includes(role) && rol
 /** `role` as a stored filter value: anything unknown means no filter. */
 export const resolveRole = (v) => (ROLE_FILTERS.includes(v) ? v : '')
 
-const shown = (r, project, role) => r.role === 'interface' || ((!project || r.project === project) && (!role || r.role === role))
+/** Queue harness filters: Claude Code or Antigravity only ('' = every harness). */
+export const HARNESS_FILTERS = ['claude', 'antigravity']
 
-/** Rows in `project` ('' = all) and with `role` ('' = any); the interface session is always kept. */
-export const filterRows = (rows, project, role = '') => (project || role ? rows.filter((r) => shown(r, project, role)) : rows)
+/** Pressing a harness chip again turns its filter off; a different one switches to it. */
+export const toggleHarness = (current, harness) => (HARNESS_FILTERS.includes(harness) && harness !== current ? harness : '')
+
+/** `harness` as a stored filter value: anything unknown means no filter. */
+export const resolveHarness = (v) => (HARNESS_FILTERS.includes(v) ? v : '')
+
+/** Effective harness for a row ('antigravity' | 'claude'). */
+export const harnessOf = (r) => (r.runtime === 'antigravity' || (!r.desktopSessionId && Boolean(r.transcriptPath?.includes('antigravity') || r.transcript?.includes('antigravity'))) ? 'antigravity' : 'claude')
+
+const isSubagent = (r) => Boolean(r.spawnedFrom)
+
+const shown = (r, project, role, hideSubagents = false, harness = '') =>
+  r.role === 'interface' || ((!project || r.project === project) && (!role || r.role === role) && (!hideSubagents || !isSubagent(r)) && (!harness || harnessOf(r) === harness))
+
+/** Rows in `project` ('' = all), with `role` ('' = any), optionally hiding sub-agents and filtering by `harness`; the interface session is always kept. */
+export const filterRows = (rows, project, role = '', hideSubagents = false, harness = '') =>
+  (project || role || hideSubagents || harness ? rows.filter((r) => shown(r, project, role, hideSubagents, harness)) : rows)
 
 /** Blocked sessions the filters hide: never hide them silently. */
-export const hiddenBlocked = (rows, project, role = '') => (project || role ? rows.filter((r) => !shown(r, project, role) && needsYou(r)).length : 0)
+export const hiddenBlocked = (rows, project, role = '', hideSubagents = false, harness = '') =>
+  (project || role || hideSubagents || harness ? rows.filter((r) => !shown(r, project, role, hideSubagents, harness) && needsYou(r)).length : 0)
 
 /** The tree restricted to `project`: a manager stays when it or any worker is in it. */
 export function filterTreeByProject(t, project) {

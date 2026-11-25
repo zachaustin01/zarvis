@@ -3,7 +3,7 @@ import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere,
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
 import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel, PROVIDERS as COST_PROVIDERS, DEFAULT_PROVIDER, providerOfChoice, pricingAttribution } from '/costs.js'
-import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
+import { nextView, hideParked, ROLE_FILTERS, toggleRole, resolveRole, HARNESS_FILTERS, toggleHarness, resolveHarness, harnessOf, chipProjects, resolveProject, hiddenParked, ago, filterRows, hiddenBlocked, filterTreeByProject, cycleProject, projectHue } from '/projects.js'
 const $ = (s) => document.querySelector(s)
 const OVERDUE_MS = 5 * 60 * 1000
 let queue = []
@@ -19,6 +19,7 @@ let awaitingNew = false // after `n`: the next key picks the new session's role
 let awaitingNewRuntime = false // after `n` + role: the next key picks the runtime (a antigravity · c/space claude)
 let pendingNewRole = ''
 let awaitingRole = false // after `c`: the next key picks the role
+let awaitingFilter = false // after `f`: the next key picks a queue filter (c claude · a antigravity · m/w role · s sub-agents · x clear)
 let sel = null // sessionId of the selected row
 let renaming = null // sessionId being renamed
 let parking = null // the park modal: { sessionId, name } while open
@@ -32,9 +33,13 @@ let showParked = false // Roles page: parked sessions hidden by default (the Par
 let hiddenParkedN = 0 // how many the Roles page is hiding right now
 let claims = [] // checkout claims from the server, newest write first
 let roleFilter = '' // queue role filter: '' | 'manager' | 'worker' (persisted)
+let harnessFilter = '' // queue harness filter: '' | 'claude' | 'antigravity' (persisted)
+let hideSubagents = false // queue sub-agent filter: hide Antigravity swarm/subagent sessions (persisted)
 try { project = localStorage.getItem('zarvis.project') || '' } catch { /* storage blocked */ }
 try { showParked = localStorage.getItem('zarvis.showParked') === '1' } catch { /* storage blocked */ }
 try { roleFilter = resolveRole(localStorage.getItem('zarvis.role')) } catch { /* storage blocked */ }
+try { harnessFilter = resolveHarness(localStorage.getItem('zarvis.harness')) } catch { /* storage blocked */ }
+try { hideSubagents = localStorage.getItem('zarvis.hideSubagents') === '1' } catch { /* storage blocked */ }
 let agyKeystrokes = false
 try { agyKeystrokes = localStorage.getItem('zarvis.antigravityKeystrokes') === '1' } catch { /* storage blocked */ }
 
@@ -43,7 +48,7 @@ const STATE_LABEL = { blocked: 'needs you', waiting_on_child: 'waiting on worker
 // Project filter. A remembered project with no sessions left counts as All; the interface is never filtered out.
 const projectList = () => chipProjects(queue, rawTree ? flatten(rawTree) : [])
 const activeProject = () => resolveProject(project, projectList())
-const visibleQueue = () => filterRows(queue, activeProject(), roleFilter)
+const visibleQueue = () => filterRows(queue, activeProject(), roleFilter, hideSubagents, harnessFilter)
 const viewTree = () => filterTreeByProject(filterTree(rawTree, filter), activeProject())
 const ifaceFirst = () => {
   const q = visibleQueue()
@@ -714,6 +719,18 @@ function setRoleFilter(r) {
   render()
 }
 
+function setHarnessFilter(h) {
+  harnessFilter = h
+  try { localStorage.setItem('zarvis.harness', h) } catch { /* storage blocked */ }
+  render()
+}
+
+function setHideSubagents(on) {
+  hideSubagents = on
+  try { localStorage.setItem('zarvis.hideSubagents', on ? '1' : '0') } catch { /* storage blocked */ }
+  render()
+}
+
 function setShowParked(on) {
   showParked = on
   try { localStorage.setItem('zarvis.showParked', on ? '1' : '0') } catch { /* storage blocked */ }
@@ -739,22 +756,27 @@ function renderBar() {
   const counts = (e) => `${e.blocked ? `<b class="nd">${e.blocked}</b>` : ''}${e.working ? `<b class="rn">${e.working}</b>` : ''}`
   const all = list.reduce((a, e) => ({ blocked: a.blocked + e.blocked, working: a.working + e.working }), { blocked: 0, working: 0 })
   // Each view's own count of what the filter hides: blocked in the queue, parked in the Parked view, none in Roles.
-  const hiddenN = view === 'queue' ? hiddenBlocked(queue, cur, roleFilter) : view === 'parked' ? hiddenParked(rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : [], cur) : 0
+  const hiddenN = view === 'queue' ? hiddenBlocked(queue, cur, roleFilter, hideSubagents, harnessFilter) : view === 'parked' ? hiddenParked(rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : [], cur) : 0
   const hiddenWhat = view === 'parked' ? 'parked' : 'blocked'
-  const hiddenWhere = view === 'queue' && roleFilter ? 'outside the filters' : 'in other projects'
+  const hiddenWhere = view === 'queue' && (roleFilter || hideSubagents || harnessFilter) ? 'outside the filters' : 'in other projects'
+  const hiddenSubagentsN = view === 'queue' && hideSubagents ? queue.filter((r) => r.role !== 'interface' && r.spawnedFrom && (!cur || r.project === cur) && (!roleFilter || r.role === roleFilter) && (!harnessFilter || harnessOf(r) === harnessFilter)).length : 0
   bar.innerHTML =
     `<span class="chip${cur ? '' : ' on'}" data-p="">All ${counts(all)}</span>` +
     list.map((e) => `<span class="chip${e.project === cur ? ' on' : ''}" data-p="${esc(e.project)}" style="--ph:${projectHue(e.project)}">${esc(e.project)} ${counts(e)}</span>`).join('') +
     (hiddenN ? `<span class="chip hid" data-p="" title="Show all projects">${hiddenN} ${hiddenWhat} ${hiddenWhere}</span>` : '') +
     (view === 'queue' ? ROLE_FILTERS.map((r) => `<span class="chip rl${roleFilter === r ? ' on' : ''}" data-r="${r}">${r}s <kbd>${r[0]}</kbd></span>`).join('') : '') +
+    (view === 'queue' ? HARNESS_FILTERS.map((h) => `<span class="chip hr${harnessFilter === h ? ' on' : ''}" data-h="${h}" title="h cycles harness">${h}</span>`).join('') : '') +
+    (view === 'queue' ? `<span class="chip sa${hideSubagents ? ' on' : ''}" data-sa="1" title="v toggles">hide sub-agents${hiddenSubagentsN ? ` (${hiddenSubagentsN})` : ''} <kbd>v</kbd></span>` : '') +
     (view === 'tree' ? `<span class="chip pv${showParked ? ' on' : ''}" data-v="parked" title="v toggles">parked ${showParked ? 'shown' : filter.trim() ? 'shown (searching)' : `hidden${hiddenParkedN ? ` (${hiddenParkedN})` : ''}`} <kbd>v</kbd></span>` : '') +
     '<span class="ap g">g project</span>'
 }
 $('#projbar').addEventListener('click', (e) => {
   const c = e.target.closest('.chip')
   if (c && c.dataset.v) setShowParked(!showParked)
+  else if (c && c.dataset.sa) setHideSubagents(!hideSubagents)
+  else if (c && c.dataset.h) setHarnessFilter(toggleHarness(harnessFilter, c.dataset.h))
   else if (c && c.dataset.r) setRoleFilter(toggleRole(roleFilter, c.dataset.r))
-  else if (c) { if (roleFilter && c.classList.contains('hid')) setRoleFilter(''); setProject(c.dataset.p) }
+  else if (c) { if (c.classList.contains('hid')) { if (roleFilter) setRoleFilter(''); if (harnessFilter) setHarnessFilter(''); if (hideSubagents) setHideSubagents(false) } setProject(c.dataset.p) }
 })
 
 function render() {
@@ -776,7 +798,8 @@ function renderInner() {
   if (!vq.length) {
     side.innerHTML = ''
     document.querySelector('.wrap').classList.remove('has-side')
-    list.innerHTML = `<div class="empty">${queue.length ? 'Nothing in this project.' : 'Nothing waiting on you.'}</div>`
+    const emptyMsg = !queue.length ? 'Nothing waiting on you.' : activeProject() ? 'Nothing in this project.' : 'Nothing matches the active filters.'
+    list.innerHTML = `<div class="empty">${emptyMsg}</div>`
     return
   }
   if (!vq.some((r) => r.sessionId === sel)) sel = vq[0].sessionId
@@ -1188,6 +1211,46 @@ function toggleRoleKey(k) {
   toast(next ? `Showing ${next}s only · ${k} again clears` : 'Role filter off')
 }
 
+/** `h` (or its palette entry): cycle the queue harness filter (All -> Claude -> Antigravity -> All). */
+function cycleHarnessKey() {
+  if (view !== 'queue') return toast('The harness filter applies to the queue (1 / q)')
+  const order = ['', ...HARNESS_FILTERS]
+  const next = order[(order.indexOf(harnessFilter) + 1) % order.length]
+  setHarnessFilter(next)
+  toast(next ? `Showing ${next === 'antigravity' ? 'Antigravity' : 'Claude Code'} only · h cycles` : 'Harness filter off')
+}
+
+function toggleHarnessChoice(h) {
+  if (view !== 'queue') return toast('The harness filter applies to the queue (1 / q)')
+  const next = toggleHarness(harnessFilter, h)
+  setHarnessFilter(next)
+  toast(next ? `Showing ${next === 'antigravity' ? 'Antigravity' : 'Claude Code'} only` : 'Harness filter off')
+}
+
+/** `v` in Queue (or `f s` / `toggle-subagents`): show or hide sub-agents (Antigravity swarm/subagent sessions). */
+function toggleSubagentsHidden() {
+  if (view !== 'queue') return toast('The sub-agents filter applies to the queue (1 / q)')
+  setHideSubagents(!hideSubagents)
+  toast(hideSubagents ? 'Queue: sub-agents hidden · v again shows them' : 'Queue: sub-agents shown')
+}
+
+/** `0` / `f x`: clear all active queue filters. */
+function clearQueueFilters() {
+  if (view !== 'queue') return toast('Queue filters apply to the queue (1 / q)')
+  if (!project && !roleFilter && !harnessFilter && !hideSubagents) return toast('No active queue filters')
+  if (project) setProject('')
+  if (roleFilter) setRoleFilter('')
+  if (harnessFilter) setHarnessFilter('')
+  if (hideSubagents) setHideSubagents(false)
+  toast('Queue filters cleared')
+}
+
+const startFilter = () => {
+  if (view !== 'queue') return toast('Queue filters apply to the queue (1 / q)')
+  awaitingFilter = true
+  toast('Filter: c claude · a antigravity · m managers · w workers · s sub-agents · x clear', 60000)
+}
+
 const stepProject = (d) => setProject(cycleProject(projectList().map((p) => p.project), activeProject(), d))
 const startRename = () => (selRow() ? ((renaming = sel), render()) : toast('Select a session to rename'))
 const startClassify = () => {
@@ -1249,6 +1312,11 @@ const RUN = {
   'project-all': () => setProject(''),
   'role-manager': () => toggleRoleKey('m'),
   'role-worker': () => toggleRoleKey('w'),
+  'harness-claude': () => toggleHarnessChoice('claude'),
+  'harness-antigravity': () => toggleHarnessChoice('antigravity'),
+  'harness-cycle': cycleHarnessKey,
+  'toggle-subagents': toggleSubagentsHidden,
+  'clear-filters': clearQueueFilters,
   'toggle-parked': toggleParkedShown,
   open: openSel,
   interface: jumpToInterface,
@@ -1387,6 +1455,8 @@ function jumpToSession(id) {
     const row = paletteSessions().find((x) => x.sessionId === id)
     if (view === 'queue') {
       if (roleFilter) setRoleFilter('')
+      if (!visible() && harnessFilter) setHarnessFilter('')
+      if (!visible() && hideSubagents) setHideSubagents(false)
       if (!visible() && project) setProject('')
       if (!visible() && !queue.some((x) => x.sessionId === id)) setView(row?.parked ? 'parked' : 'tree')
     } else {
@@ -1507,6 +1577,17 @@ document.addEventListener('keydown', (e) => {
     if (role !== undefined) { e.preventDefault(); classifySel(role) }
     return
   }
+  if (awaitingFilter) {
+    awaitingFilter = false
+    $('#toast').classList.remove('on')
+    if (e.key === 'Escape') return
+    if (e.key === 'c') { e.preventDefault(); return toggleHarnessChoice('claude') }
+    if (e.key === 'a') { e.preventDefault(); return toggleHarnessChoice('antigravity') }
+    if (e.key === 'm' || e.key === 'w') { e.preventDefault(); return toggleRoleKey(e.key) }
+    if (e.key === 's' || e.key === 'v') { e.preventDefault(); return toggleSubagentsHidden() }
+    if (e.key === 'x' || e.key === '0') { e.preventDefault(); return clearQueueFilters() }
+    return
+  }
   const help = $('#ovHelp')
   if (view === 'costs' && !help.classList.contains('on') && ['j', 'k', 'ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Backspace'].includes(e.key)) {
     e.preventDefault()
@@ -1532,6 +1613,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 's') setView('schedule')
   else if (e.key === '$') setView('costs')
   else if (e.key === 'v' && view === 'costs') { e.preventDefault(); setCostGroup(costGroup === 'manager' ? 'project' : 'manager') }
+  else if (e.key === 'v' && view === 'queue') { e.preventDefault(); toggleSubagentsHidden() }
   else if (e.key === '-') zoomSched(1)
   else if (e.key === '=' || e.key === '+') zoomSched(-1)
   else if (e.key === '/' && view !== 'queue') { e.preventDefault(); $('#flt').focus() }
@@ -1540,10 +1622,18 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'E') { e.preventDefault(); setList(!listOpen) }
   else if (e.key === 'v') { e.preventDefault(); toggleParkedShown() }
   else if (e.key === 'm' || e.key === 'w') { e.preventDefault(); toggleRoleKey(e.key) }
+  else if (e.key === 'h') { e.preventDefault(); cycleHarnessKey() }
+  else if (e.key === 'f') { e.preventDefault(); startFilter() }
+  else if (e.key === '0') { e.preventDefault(); clearQueueFilters() }
   else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); stepProject(e.key === 'g' ? 1 : -1) }
   else if (e.key === 'i') { e.preventDefault(); jumpToInterface() }
+  else if (e.key === '1') setView('queue')
+  else if (e.key === '2') setView('tree')
+  else if (e.key === '3') setView('parked')
+  else if (e.key === '4') setView('schedule')
+  else if (e.key === '5') setView('costs')
   else if (e.key === 't') setView('tree')
-  else if (e.key === 'h' || e.key === 'q') setView('queue')
+  else if (e.key === 'q') setView('queue')
   else if (e.key === 'c') { e.preventDefault(); startClassify() }
   else if (e.key === 'C' && view === 'tree') { e.preventDefault(); classifyGroup() }
   else if (e.key === 'r' && view === 'costs') { e.preventDefault(); startCostRename() }

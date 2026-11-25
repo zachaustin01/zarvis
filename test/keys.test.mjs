@@ -32,6 +32,34 @@ test('role filter keys: m / w toggle the queue filter after the n / c second-key
   assert.match(readme, /`m`\/`w` queue role filter/)
 })
 
+test('v toggles hiding sub-agents in the queue: default shown, remembered, blocked counted, documented', async () => {
+  const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])
+  assert.match(app, /let hideSubagents = false/)
+  assert.match(app, /localStorage\.setItem\('zarvis\.hideSubagents'/)
+  assert.match(app, /filterRows\(queue, activeProject\(\), roleFilter, hideSubagents, harnessFilter\)/)
+  assert.match(app, /hiddenBlocked\(queue, cur, roleFilter, hideSubagents, harnessFilter\)/)
+  assert.match(app, /e\.key === 'v' && view === 'queue'/)
+  assert.match(sheet(html), /<kbd>v<\/kbd><\/span><span class="kd">Visibility toggle — Queue: show\/hide sub-agents/)
+  assert.match(readme, /Queue: show\/hide sub-agents/)
+})
+
+test('h cycles the queue harness filter (All / Claude / Antigravity), 1-5 switch views, f starts filter chord, 0 clears filters', async () => {
+  const [app, html, readme] = await Promise.all([read('public/app.js'), read('public/index.html'), read('README.md')])
+  assert.match(app, /let harnessFilter = ''/)
+  assert.match(app, /localStorage\.setItem\('zarvis\.harness'/)
+  assert.match(app, /e\.key === 'h'/)
+  assert.match(app, /e\.key === 'f'/)
+  assert.match(app, /e\.key === '0'/)
+  assert.match(app, /e\.key === '1'/)
+  assert.match(app, /e\.key === '5'/)
+  assert.match(sheet(html), /<kbd>h<\/kbd><\/span><span class="kd">Queue harness filter/)
+  assert.match(sheet(html), /<kbd>1<\/kbd>–<kbd>5<\/kbd>/)
+  assert.match(sheet(html), /<kbd>f<\/kbd>/)
+  assert.match(sheet(html), /<kbd>0<\/kbd>/)
+  assert.match(readme, /`h` cycle queue harness filter/)
+  assert.match(readme, /`1`–`5`/)
+})
+
 test('both list renders keep a half-typed rename across live redraws', async () => {
   const app = await read('public/app.js')
   assert.equal((app.match(/const renameSnap = snapRename\(\)/g) || []).length, 2) // queue and role tree
@@ -46,8 +74,8 @@ test('v toggles parked sessions on the Roles page: default hidden, remembered, s
   assert.match(app, /view === 'tree' && !showParked && !filter\.trim\(\)/) // a search shows parked too
   assert.match(app, /parkedList = \[\.\.\.flatten\(full\)/) // the Parked view never loses them
   assert.match(app, /e\.key === 'v'/)
-  assert.match(sheet(html), /<kbd>v<\/kbd><\/span><span class="kd">Roles: show or hide parked/)
-  assert.match(readme, /`v` show\/hide parked sessions on the Roles page/)
+  assert.match(sheet(html), /<kbd>v<\/kbd><\/span><span class="kd">Visibility toggle[^\n]*Roles: show\/hide parked/)
+  assert.match(readme, /Roles: show\/hide parked sessions/)
 })
 
 test('Tab cycles the views but leaves inputs and the key sheet alone, and is documented', async () => {
