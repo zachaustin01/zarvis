@@ -35,11 +35,11 @@
     <span class="dial" id="dialWait" title="Longest wait: nothing needs you"><svg viewBox="0 0 28 28" width="30" height="30"><circle class="dl-bg" cx="14" cy="14" r="11"/><circle class="dl-fg" cx="14" cy="14" r="11" transform="rotate(-90 14 14)"/><text class="dl-tx" x="14" y="17" text-anchor="middle">—</text></svg><span class="dl-lb">wait</span></span>
     <span class="dial" id="dialHook" title="Hook status unknown"><svg viewBox="0 0 28 28" width="30" height="30"><circle class="dl-bg" cx="14" cy="14" r="11"/><circle class="dl-fg" cx="14" cy="14" r="11" transform="rotate(-90 14 14)"/><circle class="dl-dot" cx="14" cy="14" r="2.6"/></svg><span class="dl-lb">hook</span></span>
   </span>
-  <span class="pill on" data-view="queue" title="Tab / Shift+Tab cycle the views · h" style="cursor:pointer">Queue <span class="badge num" id="qb"></span></span>
-  <span class="pill" data-view="tree" title="Tab / Shift+Tab cycle the views · t" style="cursor:pointer">Roles</span>
-  <span class="pill" data-view="parked" title="Tab / Shift+Tab cycle the views · p" style="cursor:pointer">Parked</span>
-  <span class="pill" data-view="schedule" title="Tab / Shift+Tab cycle the views · s" style="cursor:pointer">Schedule</span>
-  <span class="pill" data-view="costs" title="Tab / Shift+Tab cycle the views · $" style="cursor:pointer">Costs</span>
+  <span class="pill on" data-view="queue" title="Tab / Shift+Tab cycle the views · 1 or q" style="cursor:pointer">Queue <span class="badge num" id="qb"></span></span>
+  <span class="pill" data-view="tree" title="Tab / Shift+Tab cycle the views · 2 or t" style="cursor:pointer">Roles</span>
+  <span class="pill" data-view="parked" title="Tab / Shift+Tab cycle the views · 3 or p" style="cursor:pointer">Parked</span>
+  <span class="pill" data-view="schedule" title="Tab / Shift+Tab cycle the views · 4 or s" style="cursor:pointer">Schedule</span>
+  <span class="pill" data-view="costs" title="Tab / Shift+Tab cycle the views · 5 or $" style="cursor:pointer">Costs</span>
   <span class="sp"></span>
   <span class="telem mono" id="telem" title="Needs-you count over the last five minutes">
     <svg viewBox="0 0 64 18" width="64" height="18" aria-hidden="true"><polyline id="sparkLine" points="1,17 63,17"/></svg>
@@ -85,7 +85,8 @@
     <section><h3>Views</h3>
       <div class="kr"><span class="kk"><kbd>]</kbd> <kbd>[</kbd></span><span class="kd">Next or previous page when the list does not fit the window (also PageDown and PageUp, the mouse wheel or a swipe, or click the pager). Nothing scrolls</span></div>
       <div class="kr"><span class="kk"><kbd>Tab</kbd></span><span class="kd">Cycle Queue, Roles, Parked, Schedule, Costs (Shift+Tab goes back)</span></div>
-      <div class="kr"><span class="kk"><kbd>h</kbd> <kbd>q</kbd></span><span class="kd">Attention queue</span></div>
+      <div class="kr"><span class="kk"><kbd>1</kbd>–<kbd>5</kbd></span><span class="kd">Jump to Queue, Roles, Parked, Schedule, Costs (also <kbd>q</kbd> <kbd>t</kbd> <kbd>p</kbd> <kbd>s</kbd> <kbd>$</kbd>)</span></div>
+      <div class="kr"><span class="kk"><kbd>q</kbd></span><span class="kd">Attention queue</span></div>
       <div class="kr"><span class="kk"><kbd>t</kbd></span><span class="kd">Role tree</span></div>
       <div class="kr"><span class="kk"><kbd>p</kbd></span><span class="kd">Parked view: reason, who parked it, handoff note</span></div>
       <div class="kr"><span class="kk"><kbd>s</kbd></span><span class="kd">Schedule: upcoming runs of scheduled jobs on a timeline that slides with the clock</span></div>
@@ -97,7 +98,10 @@
     <section><h3>Filters</h3>
       <div class="kr"><span class="kk"><kbd>g</kbd> <kbd>G</kbd></span><span class="kd">Filter by project, next or previous, back around to All; blocked sessions elsewhere stay counted</span></div>
       <div class="kr"><span class="kk"><kbd>m</kbd> <kbd>w</kbd></span><span class="kd">Queue role filter: managers only, workers only; the same key clears it</span></div>
-      <div class="kr"><span class="kk"><kbd>v</kbd></span><span class="kd">Roles: show or hide parked sessions (hidden by default)</span></div>
+      <div class="kr"><span class="kk"><kbd>h</kbd></span><span class="kd">Queue harness filter: cycle All, Claude Code, Antigravity</span></div>
+      <div class="kr"><span class="kk"><kbd>v</kbd></span><span class="kd">Visibility toggle — Queue: show/hide sub-agents · Roles: show/hide parked · Costs: by project/manager</span></div>
+      <div class="kr"><span class="kk"><kbd>f</kbd></span><span class="kd">Queue filter chord: <kbd>c</kbd> Claude, <kbd>a</kbd> Antigravity, <kbd>m</kbd> managers, <kbd>w</kbd> workers, <kbd>s</kbd> sub-agents, <kbd>x</kbd> clear</span></div>
+      <div class="kr"><span class="kk"><kbd>0</kbd></span><span class="kd">Queue: clear all active filters</span></div>
     </section>
     <section><h3>Sessions</h3>
       <div class="kr"><span class="kk"><kbd>P</kbd></span><span class="kd">Park (Shift+P): reason, optional wake date, handoff note. On a parked session it unparks</span></div>

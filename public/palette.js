@@ -142,10 +142,10 @@ export function scoreCommand(q, c) {
  * app.js maps each id to the same function the key handler calls (a test keeps the two in step).
  */
 export const COMMANDS = [
-  { id: 'view-queue', group: 'View', label: 'Attention queue', key: 'h', words: 'q home' },
-  { id: 'view-tree', group: 'View', label: 'Role tree', key: 't', words: 'roles' },
-  { id: 'view-parked', group: 'View', label: 'Parked view', key: 'p' },
-  { id: 'view-schedule', group: 'View', label: 'Schedule: upcoming runs', key: 's', words: 'cron timeline jobs' },
+  { id: 'view-queue', group: 'View', label: 'Attention queue', key: 'q', words: '1 home' },
+  { id: 'view-tree', group: 'View', label: 'Role tree', key: 't', words: '2 roles' },
+  { id: 'view-parked', group: 'View', label: 'Parked view', key: 'p', words: '3' },
+  { id: 'view-schedule', group: 'View', label: 'Schedule: upcoming runs', key: 's', words: '4 cron timeline jobs' },
   { id: 'schedule-wider', group: 'View', label: 'Schedule: wider window (3h 12h 24h 7d)', key: '-', words: 'zoom out' },
   { id: 'schedule-narrower', group: 'View', label: 'Schedule: narrower window', key: '=', words: 'zoom in' },
   { id: 'view-costs', group: 'View', label: 'Costs: tokens and estimated cost by project', key: '$', words: 'money dollars spend usage tokens price' },
@@ -166,6 +166,11 @@ export const COMMANDS = [
   { id: 'project-all', group: 'Filter', label: 'Project: All', key: '', words: 'clear' },
   { id: 'role-manager', group: 'Filter', label: 'Queue: managers only', key: 'm', words: 'role filter' },
   { id: 'role-worker', group: 'Filter', label: 'Queue: workers only', key: 'w', words: 'role filter' },
+  { id: 'harness-claude', group: 'Filter', label: 'Queue: Claude Code only', key: '', words: 'harness runtime claude filter' },
+  { id: 'harness-antigravity', group: 'Filter', label: 'Queue: Antigravity only', key: '', words: 'harness runtime antigravity agy filter' },
+  { id: 'harness-cycle', group: 'Filter', label: 'Queue: cycle harness filter (All / Claude / Antigravity)', key: 'h', words: 'harness runtime claude antigravity filter' },
+  { id: 'toggle-subagents', group: 'Filter', label: 'Queue: show or hide sub-agents', key: 'v', words: 'subagent swarm antigravity hide filter' },
+  { id: 'clear-filters', group: 'Filter', label: 'Queue: clear all filters', key: '0', words: 'reset all project role harness subagent' },
   { id: 'toggle-parked', group: 'Filter', label: 'Roles: show or hide parked', key: 'v' },
   { id: 'open', group: 'Session', label: 'Open selected in Claude', key: 'Enter' },
   { id: 'interface', group: 'Session', label: 'Jump to the interface session', key: 'i' },

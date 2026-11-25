@@ -126,6 +126,43 @@ test('role filter: toggle, resolve, and composition with the project filter', ()
   assert.equal(hiddenBlocked(rs, '', ''), 0)
 })
 
+import { toggleHarness, resolveHarness, HARNESS_FILTERS } from '../public/projects.js'
+
+test('filterRows and hiddenBlocked can hide sub-agents (spawnedFrom) while keeping interface and counting blocked ones', () => {
+  const rs = [
+    row('a', 'working', { role: 'manager' }),
+    row('a', 'working', { role: 'worker', spawnedFrom: 'mgr-1' }),
+    row('a', 'blocked', { role: 'worker', spawnedFrom: 'mgr-1' }),
+    row('a', 'working', { role: 'worker' }),
+    row('x', 'idle', { role: 'interface', spawnedFrom: 'root' }),
+  ]
+  assert.equal(filterRows(rs, '', '', true).length, 3)
+  assert.deepEqual(filterRows(rs, '', '', true).map((r) => r.role + (r.spawnedFrom ? '*' : '')), ['manager', 'worker', 'interface*'])
+  assert.equal(hiddenBlocked(rs, '', '', true), 1)
+  assert.equal(hiddenBlocked(rs, '', '', false), 0)
+})
+
+test('toggleHarness, resolveHarness, filterRows, and hiddenBlocked filter by harness (claude | antigravity)', () => {
+  assert.deepEqual(HARNESS_FILTERS, ['claude', 'antigravity'])
+  assert.equal(toggleHarness('', 'claude'), 'claude')
+  assert.equal(toggleHarness('claude', 'claude'), '')
+  assert.equal(toggleHarness('claude', 'antigravity'), 'antigravity')
+  assert.equal(toggleHarness('', 'bogus'), '')
+  assert.equal(resolveHarness('antigravity'), 'antigravity')
+  assert.equal(resolveHarness('bogus'), '')
+  const rs = [
+    row('a', 'blocked', { role: 'worker', runtime: 'claude' }),
+    row('a', 'working', { role: 'worker', runtime: 'antigravity' }),
+    row('b', 'blocked', { role: 'manager', runtime: 'antigravity' }),
+    row('x', 'idle', { role: 'interface', runtime: 'claude' }),
+  ]
+  assert.deepEqual(filterRows(rs, '', '', false, 'antigravity').map((r) => r.project + (r.runtime || '')[0]), ['aa', 'ba', 'xc'])
+  assert.deepEqual(filterRows(rs, '', '', false, 'claude').map((r) => r.project + (r.runtime || '')[0]), ['ac', 'xc'])
+  assert.equal(hiddenBlocked(rs, '', '', false, 'antigravity'), 1)
+  assert.equal(hiddenBlocked(rs, '', '', false, 'claude'), 1)
+  assert.equal(hiddenBlocked(rs, '', '', false, ''), 0)
+})
+
 import { hideParked } from '../public/projects.js'
 
 test('hideParked drops parked sessions, keeps a manager with an unparked worker, and counts what it hid', () => {

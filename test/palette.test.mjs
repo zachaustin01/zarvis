@@ -46,7 +46,7 @@ test('scoreSession: supports field filtering and penalizes branch-only matches',
 test('search: ranks by score, modes filter, empty query lists sessions then commands', () => {
   const sessions = [S('a', 'park the build'), S('b', 'docs')]
   const cmds = buildCommands(['zarvis', 'webapp'])
-  const all = search('', sessions, cmds)
+  const all = search('', sessions, cmds, { limit: 100 })
   assert.deepEqual(all.slice(0, 2).map((e) => e.key), ['s:a', 's:b'])
   assert.equal(all.length, 2 + cmds.length)
   assert.equal(search('>', sessions, cmds).every((e) => e.type === 'command'), true)
@@ -60,7 +60,7 @@ test('registry: unique ids, every key action has an entry, project commands gene
   const ids = COMMANDS.map((c) => c.id)
   assert.equal(new Set(ids).size, ids.length)
   const keys = new Set(COMMANDS.flatMap((c) => c.key.split(' ')))
-  for (const k of ['h', 't', 'p', 'Tab', '/', 'g', 'G', 'm', 'w', 'v', 'Enter', 'i', 'r', 'P', 'u', 'd', 'z', 'a', 'n', 'c', 'C', 'b', 'e', 'E', '?']) assert.ok(keys.has(k), `command for ${k}`)
+  for (const k of ['q', 't', 'p', 'Tab', '/', 'g', 'G', 'm', 'w', 'h', 'v', '0', 'Enter', 'i', 'r', 'P', 'u', 'd', 'z', 'a', 'n', 'c', 'C', 'b', 'e', 'E', '?']) assert.ok(keys.has(k), `command for ${k}`)
   const cs = buildCommands(['alpha'])
   assert.ok(cs.some((c) => c.id === 'project:alpha' && c.label === 'Project: alpha'))
   assert.equal(buildCommands([]).some((c) => c.id === 'project-all'), false)
