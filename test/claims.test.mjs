@@ -99,9 +99,10 @@ test('Write, MultiEdit and NotebookEdit claim too; a read does not; a file outsi
   assert.equal(readClaims(w.home).length, 0)
   assert.equal(guard(edit(A, path.join(outside, 'x.js')), w.ctx(A)), null)
   assert.equal(readClaims(w.home).length, 0)
-  for (const [tool, key] of [['Write', 'file_path'], ['MultiEdit', 'file_path'], ['NotebookEdit', 'notebook_path']]) {
+  for (const [tool, key] of [['Write', 'file_path'], ['MultiEdit', 'file_path'], ['NotebookEdit', 'notebook_path'], ['write_file', 'Path'], ['write_file', 'path'], ['edit_file', 'Path'], ['edit_file', 'file_path']]) {
     assert.equal(touchedRoots({ cwd: r, tool_name: tool, tool_input: { [key]: path.join(r, 'x') } })[0].root, r)
   }
+  assert.equal(touchedRoots({ cwd: r, tool_name: 'run_command', tool_input: { CommandLine: 'git commit -am x' } })[0].whole, true)
 })
 
 test('git commands claim: plain, git -C from elsewhere, chained, env prefixed', () => {

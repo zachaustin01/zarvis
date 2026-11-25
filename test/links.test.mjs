@@ -297,7 +297,8 @@ test('autoLinksFor pins SendUserFile files and Artifact publishes, and nothing e
   for (const input of [{ action: 'list' }, { action: 'read', url: 'https://claude.ai/artifact/abc' }, { action: 'delete', url: 'https://claude.ai/artifact/abc' }, { asset: true, url: 'https://claude.ai/artifact/abc', file_path: '/a.png' }]) {
     assert.deepEqual(autoLinksFor({ tool_name: 'Artifact', tool_input: input, tool_response: 'https://claude.ai/artifact/abc' }), [], JSON.stringify(input))
   }
-  assert.deepEqual(autoLinksFor({ tool_name: 'Write', tool_input: { file_path: '/a/b.html' } }), [])
+  assert.deepEqual(autoLinksFor({ tool_name: 'Write', tool_input: { file_path: '/a/b.txt' } }), [])
+  assert.deepEqual(autoLinksFor({ tool_name: 'Edit', tool_input: { file_path: '/a/b.html' } }), [])
   assert.deepEqual(autoLinksFor({ tool_name: 'Artifact', tool_input: { file_path: '/a.html' }, tool_response: 'no url here' }), [])
 })
 
@@ -327,4 +328,207 @@ test('logAutoLinks labels an artifact by its HTML <title>, else Artifact<n>.<typ
   await logAutoLinks(pub('https://claude.ai/artifact/ccc', '/nope/gone.html'), home, {})
   await logAutoLinks(pub('https://claude.ai/artifact/bbb', '/nope/notes.md'), home, {})
   assert.deepEqual((await readLinks(home, A)).map((l) => l.label), ['Cost & Usage', 'The Plan v2', 'Artifact4.html', 'Artifact2.md'])
+})
+
+test('autoLinksFor extracts PR and MR URLs from Bash and run_command creation commands (#20)', () => {
+  // gh pr create (Claude Bash and Antigravity run_command)
+  assert.deepEqual(
+    autoLinksFor({
+      tool_name: 'Bash',
+      tool_input: { command: 'git push -u origin feat && gh pr create --title "Fix" --body "x"' },
+      tool_response: { stdout: 'Creating pull request...\nhttps://github.com/acme/repo/pull/42\n', stderr: '' },
+    }),
+    [{ url: 'https://github.com/acme/repo/pull/42', label: 'PR #42' }],
+  )
+  assert.deepEqual(
+    autoLinksFor({
+      tool_name: 'run_command',
+      tool_input: { CommandLine: 'GH_TOKEN=xyz /opt/homebrew/bin/gh -R acme/repo pr create --fill' },
+      tool_response: 'https://github.enterprise.corp/acme/repo/pull/108.',
+    }),
+    [{ url: 'https://github.enterprise.corp/acme/repo/pull/108', label: 'PR #108' }],
+  )
+
+  // gh api .../pulls with GitHub REST JSON (ignores api url /pulls/42 and .diff / .patch URLs)
+  const ghApiJson = JSON.stringify({
+    url: 'https://api.github.com/repos/acme/repo/pulls/99',
+    html_url: 'https://github.com/acme/repo/pull/99',
+    diff_url: 'https://github.com/acme/repo/pull/99.diff',
+    patch_url: 'https://github.com/acme/repo/pull/99.patch',
+  })
+  assert.deepEqual(
+    autoLinksFor({
+      tool_name: 'Bash',
+      tool_input: { command: 'gh api repos/acme/repo/pulls -f title=Fix -f head=feat -f base=main' },
+      tool_response: { stdout: ghApiJson },
+    }),
+    [{ url: 'https://github.com/acme/repo/pull/99', label: 'PR #99' }],
+  )
+
+  // glab mr create / glab mr new / glab api .../merge_requests
+  assert.deepEqual(
+    autoLinksFor({
+      tool_name: 'Bash',
+      tool_input: { command: 'glab mr create --fill --yes' },
+      tool_response: { stdout: '!73 Add feature\nhttps://gitlab.com/org/sub/proj/-/merge_requests/73\n' },
+    }),
+    [{ url: 'https://gitlab.com/org/sub/proj/-/merge_requests/73', label: 'MR !73' }],
+  )
+  assert.deepEqual(
+    autoLinksFor({
+      tool_name: 'run_command',
+      tool_input: { CommandLine: 'glab api projects/42/merge_requests -X POST -f source_branch=a -f target_branch=main -f title="MR"' },
+      tool_response: '{"id":999,"iid":123,"web_url":"https:\\/\\/gitlab.example.com\\/org\\/proj\\/-\\/merge_requests\\/123"}',
+    }),
+    [{ url: 'https://gitlab.example.com/org/proj/-/merge_requests/123', label: 'MR !123' }],
+  )
+
+  // Non-creation commands, help flags, and failed commands yield []
+  const prOut = { stdout: 'https://github.com/acme/repo/pull/42' }
+  const mrOut = { stdout: 'https://gitlab.com/org/proj/-/merge_requests/73' }
+  for (const cmd of [
+    'gh pr view 42',
+    'gh pr list',
+    'gh pr checks 42',
+    'gh pr merge 42',
+    'gh pr create --help',
+    'gh pr create -h',
+    'gh api repos/acme/repo/pulls/42',
+    'gh api -X GET repos/acme/repo/pulls',
+    'gh api "repos/acme/repo/pulls?state=open"',
+    'echo https://github.com/acme/repo/pull/42',
+  ]) {
+    assert.deepEqual(autoLinksFor({ tool_name: 'Bash', tool_input: { command: cmd }, tool_response: prOut }), [], cmd)
+  }
+  for (const cmd of [
+    'glab mr view 73',
+    'glab mr list',
+    'glab mr note 73 -m hi',
+    'glab mr create --help',
+    'glab api projects/42/merge_requests/73',
+    'glab api projects/42/merge_requests/73/notes -f body=hi',
+    'glab api -X GET projects/42/merge_requests',
+    'glab api --method=GET projects/42/merge_requests',
+    'glab api "projects/42/merge_requests?state=opened"',
+  ]) {
+    assert.deepEqual(autoLinksFor({ tool_name: 'Bash', tool_input: { command: cmd }, tool_response: mrOut }), [], cmd)
+  }
+  for (const badResp of [{ exitCode: 1, stdout: prOut.stdout }, { is_error: true, stdout: prOut.stdout }, { isError: true, output: prOut.stdout }, { interrupted: true, stdout: prOut.stdout }, { error: 'exit status 1', output: prOut.stdout }]) {
+    assert.deepEqual(autoLinksFor({ tool_name: 'Bash', tool_input: { command: 'gh pr create --fill' }, tool_response: badResp }), [])
+  }
+})
+
+test('logAutoLinks pins standalone .html/.htm reports from Write and write_file with <title> fallback to basename (#20)', async () => {
+  const home = await tmp()
+  const titled = path.join(home, 'bench-report.html')
+  const untitled = path.join(home, 'raw.htm')
+  await fsp.writeFile(titled, '<!doctype html><html><head><title>Latency &mdash; P99 &amp; P50</title></head><body>ok</body></html>')
+  await fsp.writeFile(untitled, '<div>no title tag</div>')
+
+  await logAutoLinks({ session_id: A, cwd: home, tool_name: 'Write', tool_input: { file_path: titled } }, home, {})
+  await logAutoLinks({ session_id: A, cwd: home, tool_name: 'write_file', tool_input: { Path: 'raw.htm' } }, home, {})
+  // Non-HTML files and failed writes do not pin
+  await logAutoLinks({ session_id: A, cwd: home, tool_name: 'Write', tool_input: { file_path: path.join(home, 'notes.md') } }, home, {})
+  await logAutoLinks({ session_id: A, cwd: home, tool_name: 'write_file', tool_input: { Path: 'broken.html' }, tool_response: { isError: true } }, home, {})
+
+  assert.deepEqual(await readLinks(home, A), [
+    { url: fileUrlOf(titled), label: 'Latency — P99 & P50' },
+    { url: fileUrlOf(untitled), label: 'raw.htm' },
+  ])
+})
+
+test('logAutoLinks pins Antigravity write_file and edit_file artifacts only when UserFacing === true (#16)', async () => {
+  const home = await tmp()
+  const plan = path.join(home, 'implementation_plan.md')
+  const walk = path.join(home, 'walkthrough.md')
+  const scratch = path.join(home, 'scratch.md')
+  await fsp.writeFile(plan, '# Checkout **Claims** & `Links`\n\nDetails.')
+  await fsp.writeFile(walk, 'Plain body without h1 heading.')
+  await fsp.writeFile(scratch, '# Scratch Notes')
+
+  await logAutoLinks({
+    session_id: A,
+    cwd: home,
+    tool_name: 'write_file',
+    tool_input: { Path: plan, ArtifactMetadata: { UserFacing: true, Summary: 'Plan', RequestFeedback: true } },
+  }, home, {})
+  await logAutoLinks({
+    session_id: A,
+    cwd: home,
+    tool_name: 'edit_file',
+    tool_input: { Path: walk, ArtifactMetadata: { UserFacing: true, Summary: 'Walkthrough', RequestFeedback: false } },
+  }, home, {})
+  // Non-user-facing or omitted ArtifactMetadata on .md does NOT pin
+  await logAutoLinks({
+    session_id: A,
+    cwd: home,
+    tool_name: 'write_file',
+    tool_input: { Path: scratch, ArtifactMetadata: { UserFacing: false, Summary: 'Scratch', RequestFeedback: false } },
+  }, home, {})
+  await logAutoLinks({
+    session_id: A,
+    cwd: home,
+    tool_name: 'edit_file',
+    tool_input: { Path: scratch },
+  }, home, {})
+
+  assert.deepEqual(await readLinks(home, A), [
+    { url: fileUrlOf(plan), label: 'Checkout Claims & Links' },
+    { url: fileUrlOf(walk), label: 'walkthrough.md' },
+  ])
+})
+
+test('Claude zarvis-hook.mjs work mode auto-pins PR URLs and HTML reports end-to-end (#20)', async () => {
+  const home = await tmp()
+  const report = path.join(home, 'summary.html')
+  await fsp.writeFile(report, '<title>Weekly Summary</title><p>done</p>')
+  const runWork = (payload, extraEnv = {}) =>
+    spawnSync(process.execPath, [path.join(ROOT, 'hooks', 'zarvis-hook.mjs'), 'work'], {
+      input: JSON.stringify(payload),
+      env: { ...process.env, ...extraEnv, ZARVIS_HOME: home },
+      encoding: 'utf8',
+      timeout: 8000,
+    })
+
+  assert.equal(
+    runWork({
+      session_id: A,
+      hook_event_name: 'PostToolUse',
+      cwd: home,
+      tool_name: 'Bash',
+      tool_input: { command: 'gh pr create --fill' },
+      tool_response: { stdout: 'https://github.com/zachaustin01/zarvis/pull/21\n', stderr: '' },
+    }).status,
+    0,
+  )
+  assert.equal(
+    runWork({
+      session_id: A,
+      hook_event_name: 'PostToolUse',
+      cwd: home,
+      tool_name: 'Write',
+      tool_input: { file_path: report },
+      tool_response: 'File created',
+    }).status,
+    0,
+  )
+  assert.equal(
+    runWork(
+      {
+        session_id: A,
+        hook_event_name: 'PostToolUse',
+        cwd: home,
+        tool_name: 'Bash',
+        tool_input: { command: 'gh pr create --fill' },
+        tool_response: { stdout: 'https://github.com/zachaustin01/zarvis/pull/99\n' },
+      },
+      { ZARVIS_AUTO_LINKS: '0' },
+    ).status,
+    0,
+  )
+
+  assert.deepEqual(await readLinks(home, A), [
+    { url: 'https://github.com/zachaustin01/zarvis/pull/21', label: 'PR #21' },
+    { url: fileUrlOf(report), label: 'Weekly Summary' },
+  ])
 })
