@@ -55,7 +55,19 @@ const ifaceFirst = () => {
   return [...q.filter((r) => r.role === 'interface'), ...q.filter((r) => r.role !== 'interface')]
 }
 // The Roles view's checkout cards are selectable like session rows (id `ck:<claim id>`); Enter opens the holder.
-const ckItems = () => claims.map((c) => ({ sessionId: `ck:${c.id}`, ck: c, name: c.holder.name, role: 'checkout' }))
+function claimProject(root) {
+  const s = String(root || '').replace(/[\\/]+$/, '')
+  const cl = s.replace(/[\\/]\.claude[\\/]worktrees[\\/].*$/, '')
+  const sib = /^(.*[\\/])?([^\\/]+)-worktrees(?:[\\/].*)?$/.exec(cl)
+  return (sib ? sib[2] : cl.split(/[\\/]/).pop()) || ''
+}
+function visibleClaims() {
+  const cur = activeProject()
+  if (!cur) return claims
+  const byId = new Map((rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : []).map((n) => [n.sessionId, n.project]))
+  return claims.filter((c) => byId.get(c.holder.sessionId) === cur || (!byId.has(c.holder.sessionId) && claimProject(c.root) === cur))
+}
+const ckItems = () => visibleClaims().map((c) => ({ sessionId: `ck:${c.id}`, ck: c, name: c.holder.name, role: 'checkout' }))
 const items = () => (view === 'tree' ? [...nodes, ...ckItems()] : view === 'parked' ? parkedList : ifaceFirst())
 /** The selected session row; undefined on a checkout card, so park / done / rename / classify never act on one. */
 const selRow = () => items().find((x) => x.sessionId === sel && !x.ck)
@@ -98,13 +110,14 @@ function claimTag(r) {
 
 /** The Roles view's Checkouts section: every claimed checkout, who holds it, who shares it, windowed around selection. */
 function claimsSection() {
-  if (!claims.length) return ''
+  const list = visibleClaims()
+  if (!list.length) return ''
   const home = (p) => p.replace(/^\/(Users|home)\/[^/]+/, '~')
-  const selIdx = Math.max(0, claims.findIndex((c) => `ck:${c.id}` === sel))
+  const selIdx = Math.max(0, list.findIndex((c) => `ck:${c.id}` === sel))
   const cap = fitCount(Math.max(160, innerHeight - 210), 42)
-  const [c0, c1] = windowAround(selIdx, claims.length, cap)
-  const slice = claims.slice(c0, c1)
-  const title = claims.length > slice.length ? `Checkouts · ${c0 + 1}–${c1}/${claims.length}` : 'Checkouts'
+  const [c0, c1] = windowAround(selIdx, list.length, cap)
+  const slice = list.slice(c0, c1)
+  const title = list.length > slice.length ? `Checkouts · ${c0 + 1}–${c1}/${list.length}` : 'Checkouts'
   return (
     heading(title) +
     slice
