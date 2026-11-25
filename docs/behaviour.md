@@ -29,6 +29,18 @@
   any blocked marker: a new prompt, the next tool call, SessionEnd. An unreadable transcript just means idle.
   No new hook events: nothing to re-run.
 - Only sessions with their own marker appear (leaf-only); a parent waiting on a child never does.
+- **Worktrees and scratch sessions**: `splitWorktree()` and `projectPathOf()` roll `.claude/worktrees/<name>`,
+  sibling `<repo>-worktrees/<name>` directories, and linked git worktrees (`.git` `gitdir: …/<repo>/.git/worktrees/<name>`)
+  up under `<repo>` with `worktree: <name>`. Sessions that start in `<app data>/scratch-workspaces/<id>` and stay there
+  group under project `scratch` instead of creating one bucket per scratch folder; moving into a repo switches to that repo.
+- **Opt-in worker checkout write policy**: to keep `worker` sessions from writing inside `.claude/worktrees/` or directly
+  on a primary checkout (while leaving managers, the interface, unclassified sessions, linked sibling worktrees, and all
+  read-only git commands unprompted), set `checkoutPolicy` in `~/.zarvis/state.json` or via environment variables:
+  `"checkoutPolicy": { "disallowDotClaudeWorktrees": true, "protectedPrimaryCheckouts": true, "decision": "ask" }`
+  (`protectedPrimaryCheckouts` accepts `true` for all non-worktree checkouts or an array of repo paths/names; `decision` is
+  `"ask"` by default or `"deny"`). Env overrides: `ZARVIS_DISALLOW_DOT_CLAUDE_WORKTREES=1`,
+  `ZARVIS_PROTECTED_PRIMARY_CHECKOUTS=1` (or a `:`/`,`-separated list of paths or repo names), and
+  `ZARVIS_CHECKOUT_POLICY_DECISION=ask|deny`.
 - Markers are dropped if the session record is archived/deleted, the session has no record or
   transcript, or the marker is older than 12 h (`ZARVIS_MAX_AGE_HOURS`).
 - Terminal-only sessions (no desktop record) are listed but cannot be opened.

@@ -896,3 +896,50 @@ test('public/costs.js: familyOf, modelLabel, PROVIDERS, and pricingAttribution',
   assert.match(allAttr, /Anthropic/)
   assert.match(allAttr, /Google Cloud/)
 })
+
+test('buildCosts & lookup: sibling git worktrees roll up to <repo>, stationary scratch sessions bucket under scratch (#17)', async () => {
+  const dir = tmp()
+  try {
+    const mainRepo = path.join(dir, 'zarvis')
+    const linkedWt = path.join(dir, 'linked-wt-box')
+    fs.mkdirSync(path.join(mainRepo, '.git', 'worktrees', 'fix-17'), { recursive: true })
+    fs.mkdirSync(linkedWt, { recursive: true })
+    fs.writeFileSync(path.join(linkedWt, '.git'), `gitdir: ${path.join(mainRepo, '.git', 'worktrees', 'fix-17')}\n`)
+
+    const scratchA = '/Users/u/Library/Application Support/Claude/scratch-workspaces/scratch-2026-11-24-aaa'
+    const scratchB = '/Users/u/Library/Application Support/Claude/scratch-workspaces/scratch-2026-11-24-bbb'
+    const m = 'claude-sonnet-5-5'
+    const us = [
+      usageOf(id(1), [ent(NOW, m, [1e6, 0, 0, 0, 0])], '/Users/u/repos/zarvis-worktrees/ONYX-1'),
+      usageOf(id(2), [ent(NOW, m, [1e6, 0, 0, 0, 0])], linkedWt),
+      usageOf(id(3), [ent(NOW, m, [1e6, 0, 0, 0, 0])], scratchA),
+      usageOf(id(4), [ent(NOW, m, [1e6, 0, 0, 0, 0])], scratchB),
+    ]
+    const r = buildCosts(us, facts({}), { prices, range: 'all', now: NOW })
+    assert.deepEqual(
+      r.projects.map((p) => [p.project, p.sessions, p.cost]),
+      [
+        ['scratch', 2, 4],
+        ['zarvis', 2, 4],
+      ],
+    )
+
+    const list = await buildLookup(
+      world({
+        records: [
+          rec(1, { cwd: scratchA, originCwd: scratchA }),
+          rec(2, { cwd: '/Users/u/repos/zarvis-worktrees/ONYX-2', originCwd: '' }),
+          rec(3, { cwd: '/Users/u/repos/moved-repo', originCwd: scratchB }),
+        ],
+        roles: { [id(1)]: { role: 'manager' }, [id(2)]: { role: 'worker', parent: id(1) } },
+      }),
+    )
+    const byId = (n) => list.find((e) => e.sessionId === id(n))
+    assert.equal(byId(1).project, 'scratch')
+    assert.equal(byId(2).folderProject, 'zarvis')
+    assert.equal(byId(2).worktree, 'ONYX-2')
+    assert.equal(byId(3).project, 'moved-repo')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
