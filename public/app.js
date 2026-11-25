@@ -1,5 +1,5 @@
 'use strict'
-import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, ctxGauge, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, isOverdue, canBeOverdue, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
+import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, ctxGauge, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, railGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, isOverdue, canBeOverdue, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
 import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel, PROVIDERS as COST_PROVIDERS, DEFAULT_PROVIDER, providerOfChoice, pricingAttribution } from '/costs.js'
@@ -313,7 +313,7 @@ function setView(v) {
   $('#sched').hidden = v !== 'schedule'
   $('#costs').hidden = v !== 'costs'
   if (v === 'schedule') { renderBar(); return loadSchedule(true) }
-  if (v === 'costs') { renderBar(); csPage = 0; return loadCosts(true) }
+  if (v === 'costs') { renderBar(); csPage = 0; renderCosts(true); return loadCosts(true) } // draw the loading (or last) state now, not after the fetch
   $('#pager').dataset.key = '' // the other view's pager state is stale
   if (v !== 'queue') loadTree()
   else render()
@@ -393,9 +393,11 @@ function rowHtml(r, now) {
     renaming === r.sessionId
       ? `<input id="renIn" value="${esc(r.name)}" maxlength="120">`
       : `<span class="nm">${esc(r.name)}</span>` + (r.overlay ? `<span class="ap">app: ${esc(r.title)}</span>` : '')
+  // The section heading already says Working / Idle: drop that line unless it says more (background tasks, no app link).
+  const quiet = r.link && !r.parked && (working || (idle && !r.tasks?.count))
   const cmd = r.command || r.tool ? `<div class="cmd mono"><span class="tool">${esc(r.kind === 'question' ? 'asks' : r.tool)}</span>${esc(r.command)}</div>` : ''
   return (
-    `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}${canBeOverdue(r) ? '' : ' data-nood="1"'}>` +
+    `<div class="q${r.parked ? ' pkd' : ''}${r.state === 'unknown' ? ' ns' : ''}${working || r.state === 'waiting_on_child' ? ' wk' : ''}${idle ? ' wk id' : ''}${quiet ? ' quiet' : ''}${od ? ' od' : ''}${r.sessionId === sel ? ' sel' : ''}${fresh.has(r.sessionId) ? ' arrive' : ''}" data-id="${esc(r.sessionId)}"${nd(r)}${canBeOverdue(r) ? '' : ' data-nood="1"'}>` +
     `<div class="r1"><span class="ri" title="${esc(r.role || '')}">${ICON[r.role] || ''}</span><span class="role ${esc(r.role || '')}">${esc(r.role || '')}</span>${runtimeTag(r)}<span class="key${showsWhere(r) && (r.branch || r.worktree) ? '' : ' nb'}">${crumbs(r)}</span>${lifeTag(r)}${name}${warn(r)}${bgTag(r)}${ctxHtml(r)}<span class="wt num" data-since="${r.since}">${fmt(now - r.since)}</span></div>` +
     `<div class="prompt">${r.state === 'waiting_on_child' ? esc(r.prompt) + ' · Enter jumps to it' : working ? 'Working…' : idle ? (r.tasks?.count ? `Idle · ${r.tasks.count} background task${r.tasks.count > 1 ? 's' : ''} running` : 'Idle — waiting for your next prompt') : esc(r.prompt)}${r.link ? '' : ' <span class="ap">(terminal session: cannot open from here)</span>'}</div>` +
     cmd +
@@ -567,14 +569,14 @@ let railOpen = true
 try { railOpen = localStorage.getItem('zarvis.rail') !== '0' } catch { /* storage blocked */ }
 document.body.classList.toggle('rail-on', railOpen)
 let railKey = ''
-function renderRail(force) {
+function renderRail(force, cap = Infinity) {
   const rail = $('#rail')
   if (!railOpen) return
   const nodes = rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : []
   const gauges = projectGauges(queue, nodes)
   const cur = activeProject()
   const key = JSON.stringify([gauges.map((g) => [g.project, g.counts]), cur])
-  if (key === railKey && !force) return
+  if (key === railKey && !force && cap === Infinity) return
   railKey = key
   const R = 15
   rail.replaceChildren()
@@ -583,13 +585,13 @@ function renderRail(force) {
   hd.textContent = 'Projects'
   rail.append(hd)
   if (!gauges.length) rail.append(Object.assign(document.createElement('div'), { className: 'rl-empty', textContent: 'No sessions yet' }))
-  const room = fitCount(innerHeight - 30 - 70, 46) // no scrollbar: the gauges that fit, blocked-first, then a count of the rest
-  const shown = gauges.slice(0, gauges.length > room ? Math.max(1, room - 1) : room)
+  const room = Math.min(cap, fitCount(innerHeight - 30 - 70 - RAIL_LEGEND_H, 46)) // no scrollbar: the gauges that fit (pressing ones kept), in name order
+  const { shown, more } = railGauges(gauges, room)
   for (const g of shown) {
     const el = document.createElement('div')
-    el.className = `rl-g${g.project === cur ? ' on' : ''}`
+    el.className = `rl-g st-${g.state}${g.project === cur ? ' on' : ''}`
     el.dataset.p = g.project
-    el.title = `${g.project}: ${g.counts.blocked} need you, ${g.counts.working} working, ${g.counts.idle} idle, ${g.counts.parked} parked`
+    el.title = `${g.project}: ${g.counts.blocked} need you, ${g.counts.working} working, ${g.counts.idle} idle, ${g.counts.parked} parked. Click to filter`
     const NS = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(NS, 'svg')
     svg.setAttribute('viewBox', '0 0 40 40')
@@ -616,16 +618,29 @@ function renderRail(force) {
     const cnt = document.createElement('div')
     cnt.className = 'rl-c mono'
     const parts = []
-    if (g.counts.blocked) parts.push(Object.assign(document.createElement('span'), { className: 'nd', textContent: `${g.counts.blocked} need` }))
-    if (g.counts.working) parts.push(Object.assign(document.createElement('span'), { className: 'rn', textContent: `${g.counts.working} run` }))
-    if (!parts.length) parts.push(document.createTextNode(`${g.total} total`))
+    const part = (n, cls, word) => n && parts.push(Object.assign(document.createElement('span'), { className: cls, textContent: `${n} ${word}` }))
+    part(g.counts.blocked, 'nd', 'need')
+    part(g.counts.working, 'rn', 'run')
+    part(g.counts.idle, 'il', 'idle')
+    part(g.counts.parked, 'pk', 'parked')
+    if (!g.counts.blocked && !g.counts.working && !g.counts.idle) parts.unshift(Object.assign(document.createElement('span'), { className: 'pk', textContent: 'no activity' }))
     parts.forEach((p, i) => { if (i) cnt.append(' · '); cnt.append(p) })
     txt.append(name, cnt)
     el.append(svg, txt)
     rail.append(el)
   }
-  if (shown.length < gauges.length) rail.append(Object.assign(document.createElement('div'), { className: 'rl-empty', textContent: `+${gauges.length - shown.length} more · g cycles projects` }))
+  if (more) rail.append(Object.assign(document.createElement('div'), { className: 'rl-empty', textContent: `+${more} more · g picks a project` }))
+  if (gauges.length) {
+    const leg = document.createElement('div')
+    leg.className = 'rl-leg'
+    leg.innerHTML = '<span class="blocked">needs you</span><span class="working">working</span><span class="idle">idle</span><span class="quiet">no activity</span><span class="pk">parked: counted only</span>'
+    rail.append(leg)
+    // Rows with wrapped counts run taller than the estimate: drop one more gauge until the list clears the legend.
+    const last = leg.previousElementSibling
+    if (last && room > 1 && last.getBoundingClientRect().bottom > leg.getBoundingClientRect().top - 4) renderRail(true, room - 1)
+  }
 }
+const RAIL_LEGEND_H = 52
 $('#rail').addEventListener('click', (e) => {
   const g = e.target.closest('.rl-g')
   if (g) setProject(activeProject() === g.dataset.p ? '' : g.dataset.p)
@@ -768,7 +783,7 @@ function renderBar() {
     (view === 'queue' ? HARNESS_FILTERS.map((h) => `<span class="chip hr${harnessFilter === h ? ' on' : ''}" data-h="${h}" title="h cycles harness">${h}</span>`).join('') : '') +
     (view === 'queue' ? `<span class="chip sa${hideSubagents ? ' on' : ''}" data-sa="1" title="v toggles">hide sub-agents${hiddenSubagentsN ? ` (${hiddenSubagentsN})` : ''} <kbd>v</kbd></span>` : '') +
     (view === 'tree' ? `<span class="chip pv${showParked ? ' on' : ''}" data-v="parked" title="v toggles">parked ${showParked ? 'shown' : filter.trim() ? 'shown (searching)' : `hidden${hiddenParkedN ? ` (${hiddenParkedN})` : ''}`} <kbd>v</kbd></span>` : '') +
-    '<span class="ap g">g project</span>'
+    '<span class="ap g">g pick project · G all</span>'
 }
 $('#projbar').addEventListener('click', (e) => {
   const c = e.target.closest('.chip')
@@ -1252,6 +1267,15 @@ const startFilter = () => {
 }
 
 const stepProject = (d) => setProject(cycleProject(projectList().map((p) => p.project), activeProject(), d))
+// g: the project picker (the palette in # mode, All first). G: All, or straight back to the project you left.
+let lastProject = ''
+const pickProject = () => openPalette('#')
+function toggleAllProjects() {
+  const cur = activeProject()
+  if (cur) { lastProject = cur; return setProject('') }
+  if (lastProject && projectList().some((p) => p.project === lastProject)) return setProject(lastProject)
+  toast('Showing all projects · g picks one')
+}
 const startRename = () => (selRow() ? ((renaming = sel), render()) : toast('Select a session to rename'))
 const startClassify = () => {
   const r = selRow()
@@ -1307,6 +1331,8 @@ const RUN = {
   'view-next': () => nextViewCmd(1),
   'view-prev': () => nextViewCmd(-1),
   search: () => (view !== 'queue' ? $('#flt').focus() : toast('Search applies to the Roles and Parked views (t, p)')),
+  'project-pick': () => pickProject(),
+  'project-toggle': () => toggleAllProjects(),
   'project-next': () => stepProject(1),
   'project-prev': () => stepProject(-1),
   'project-all': () => setProject(''),
@@ -1417,6 +1443,12 @@ function renderPalette(force) {
       .map((e, i) => {
         if (i < w0 || i >= w1) return ''
         const cur = i === h.idx ? ' cur' : ''
+        if (e.type === 'command' && palette.q.startsWith('#')) {
+          const p = e.ref.id === 'project-all' ? null : projectList().find((x) => x.project === e.ref.id.slice(8))
+          const counts = p ? [p.blocked ? `<b class="nd">${p.blocked} need</b>` : '', p.working ? `<b class="rn">${p.working} run</b>` : ''].filter(Boolean).join(' · ') : ''
+          const here = (e.ref.id === 'project-all' ? !activeProject() : activeProject() === e.ref.id.slice(8)) ? '<span class="pk2">current</span>' : ''
+          return `<div class="pl prj${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${e.ref.id === 'project-all' ? '◎ all' : '▣ project'}</span><span class="pn">${markName(e.label, e.idx)}</span><span class="ps">${counts}</span>${here}</div>`
+        }
         if (e.type === 'command') return `<div class="pl cmd${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">${esc(e.ref.group)}</span><span class="pn">${markName(e.label, e.idx)}</span>${e.ref.key ? `<span class="pk2">${e.ref.key.split(' ').map((k) => `<kbd>${esc(k)}</kbd>`).join(' ')}</span>` : ''}</div>`
         if (e.type === 'schedule') return `<div class="pl sch${cur}" role="option" id="pl${i}" data-i="${i}" aria-selected="${!!cur}"><span class="pt">⏱ schedule</span><span class="pn">${markName(e.label, e.idx)}</span><span class="pm">${esc([e.ref.desc, e.ref.owner ? `↳ ${e.ref.owner.name}${e.ref.owner.gone ? ' (session gone)' : ''}` : ''].filter(Boolean).join(' › '))}</span><span class="ps">${e.ref.next ? esc(`next ${clockLabel(e.ref.next)}`) : 'never'}</span></div>`
         const r = e.ref
@@ -1428,11 +1460,15 @@ function renderPalette(force) {
   $('#palIn').setAttribute('aria-activedescendant', `pl${h.idx}`)
 }
 
-function openPalette() {
+function openPalette(prefix = '') {
   if (palette || renaming || pick || parking) return
   $('#ovHelp').classList.remove('on')
-  palette = { q: '', key: '', idx: 0, sig: '', entries: [], back: document.activeElement }
-  $('#palIn').value = ''
+  palette = { q: prefix, key: '', idx: 0, sig: '', entries: [], back: document.activeElement }
+  $('#palIn').value = prefix
+  if (prefix === '#') { // the project picker starts on the current project
+    const cur = activeProject()
+    palette.key = cur ? `c:project:${cur}` : 'c:project-all'
+  }
   $('#ovPal').classList.add('on')
   renderPalette(true)
   $('#palIn').focus()
@@ -1625,7 +1661,8 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'h') { e.preventDefault(); cycleHarnessKey() }
   else if (e.key === 'f') { e.preventDefault(); startFilter() }
   else if (e.key === '0') { e.preventDefault(); clearQueueFilters() }
-  else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); stepProject(e.key === 'g' ? 1 : -1) }
+  else if (e.key === 'g') { e.preventDefault(); pickProject() }
+  else if (e.key === 'G') { e.preventDefault(); toggleAllProjects() }
   else if (e.key === 'i') { e.preventDefault(); jumpToInterface() }
   else if (e.key === '1') setView('queue')
   else if (e.key === '2') setView('tree')
@@ -2114,12 +2151,15 @@ async function loadCosts(force) {
   clearTimeout(csTimer)
   const wantRange = costRange
   const wantProvider = costProvider
+  const root = $('#costs')
+  if (force) root.classList.add('cs-loading') // a user-asked load (view, range, provider): dim what is shown until it lands
   try {
     const d = await (await fetch(`/api/costs?range=${wantRange}&provider=${wantProvider}`)).json()
     if (view !== 'costs' || wantRange !== costRange || wantProvider !== costProvider || !Array.isArray(d?.projects)) return
     costs = d
+    root.classList.remove('cs-loading')
     renderCosts(false)
-  } catch { /* next poll */ }
+  } catch { root.classList.remove('cs-loading') /* next poll */ }
   csTimer = setTimeout(() => loadCosts(false), costs?.scanning ? 1500 : 15000)
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) loadCosts(false) })
@@ -2231,7 +2271,7 @@ function renderCosts(force) {
   $('#csGroup').innerHTML = ['project', 'manager'].map((g) => `<button type="button" data-g="${g}" class="${g === costGroup ? 'on' : ''}" aria-pressed="${g === costGroup}">${g}</button>`).join('')
   $('#csProvider').innerHTML = COST_PROVIDERS.map((p) => `<button type="button" data-p="${p.id}" class="${p.id === costProvider ? 'on' : ''}" aria-pressed="${p.id === costProvider}">${p.label}</button>`).join('')
   $('#csRange').innerHTML = COST_RANGES.map((r) => `<button type="button" data-r="${r.id}" class="${r.id === costRange ? 'on' : ''}" aria-pressed="${r.id === costRange}">${r.label}</button>`).join('')
-  if (!costs) { setHtml('sum', $('#csSum'), '<span class="cs-kv">reading transcripts…</span>'); return }
+  if (!costs) { setHtml('sum', $('#csSum'), '<span class="cs-kv cs-wait">Reading transcripts…</span>'); $('#csEmpty').hidden = true; return }
   if (csDrill && !csGroups().some((p) => p.key === csDrill) && !csBuckets().some((p) => p.key === csDrill)) csDrill = ''
   const items = csItems()
   csSel = stepIndex(csSel, items.length, 0)

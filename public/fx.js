@@ -236,10 +236,13 @@ export function hookDial(status) {
   return { p: 0, state: status === 'absent' ? 'absent' : 'unknown' }
 }
 
+/** A rail gauge's headline state: the most pressing thing in the project (parked sessions are not activity). */
+export const gaugeState = (c) => (c.blocked ? 'blocked' : c.working ? 'working' : c.idle ? 'idle' : 'quiet')
+
 /**
- * One gauge per live project for the rail (see liveProjectNames): its session mix as reactor arcs plus the counts,
- * blocked-first. `parked` is the tree's total for the project (archived ones included), since parked sessions
- * mostly leave the queue; it still counts for a project that stays visible.
+ * One gauge per live project for the rail (see liveProjectNames), in name order so the rail reads the same as
+ * the chips and the g picker. The ring shows activity only (needs you / working / idle);
+ * `counts.parked` is the tree's total for the project (archived ones included) and appears as a count, not an arc.
  */
 export function projectGauges(rows, nodes = []) {
   const names = liveProjectNames(rows, nodes) // a project with only parked or archived sessions has no gauge
@@ -247,9 +250,21 @@ export function projectGauges(rows, nodes = []) {
     const mine = rows.filter((r) => r.project === project && r.role !== 'interface')
     const parked = nodes.filter((n) => n.project === project && n.role !== 'interface' && n.parked && !n.done).length
     const counts = reactorCounts(mine, parked)
-    return { project, counts, arcs: reactorArcs(counts), total: counts.blocked + counts.working + counts.idle + counts.parked }
+    return { project, counts, state: gaugeState(counts), arcs: reactorArcs({ ...counts, parked: 0 }), total: counts.blocked + counts.working + counts.idle + counts.parked }
   })
-  return gauges.sort((a, b) => b.counts.blocked - a.counts.blocked || b.counts.working - a.counts.working || a.project.localeCompare(b.project))
+  return gauges.sort((a, b) => a.project.localeCompare(b.project))
+}
+
+const GAUGE_RANK = { blocked: 0, working: 1, idle: 2, quiet: 3 }
+/**
+ * The gauges that fit in `room` rows, most pressing first (a project that needs you is never the one cut), then
+ * put back in name order. `more` is how many were left out.
+ */
+export function railGauges(gauges, room) {
+  if (gauges.length <= room) return { shown: gauges, more: 0 }
+  const n = Math.max(1, room - 1) // one row goes to the "+N more" line
+  const keep = new Set([...gauges].sort((a, b) => GAUGE_RANK[a.state] - GAUGE_RANK[b.state] || b.counts.blocked - a.counts.blocked || b.counts.working - a.counts.working).slice(0, n).map((g) => g.project))
+  return { shown: gauges.filter((g) => keep.has(g.project)), more: gauges.length - keep.size }
 }
 
 // ---- The interface session inside its big ring ----

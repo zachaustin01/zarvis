@@ -16,6 +16,7 @@ test('parseMode: > commands, @ sessions, else both', () => {
   assert.deepEqual(parseMode('>park'), { mode: 'commands', text: 'park' })
   assert.deepEqual(parseMode('@zar'), { mode: 'sessions', text: 'zar' })
   assert.deepEqual(parseMode('zar'), { mode: 'all', text: 'zar' })
+  assert.deepEqual(parseMode('#nfl'), { mode: 'projects', text: 'nfl' })
 })
 
 test('scoreSession: every token must hit name, project, branch, role or state', () => {
@@ -91,4 +92,12 @@ test('scoreSession: a session is found by the label or host of a link it posted'
   assert.equal(scoreSession('grafana', r), null)
   assert.ok(scoreSession('etl', S('b', 'etl worker', { links: 'nope' }))) // junk never throws
   assert.equal(scoreSession('dagster', S('c', 'plain')), null)
+})
+
+test('search # (the g picker): All first then projects A to Z; a query narrows by project name only', () => {
+  const cmds = buildCommands(['alpha', 'nfl-data', 'zarvis'])
+  const rows = [{ sessionId: 's1', name: 'zarvis work', project: 'zarvis', state: 'idle' }]
+  assert.deepEqual(search('#', rows, cmds).map((e) => e.label), ['All projects', 'alpha', 'nfl-data', 'zarvis'])
+  assert.deepEqual(search('#zar', rows, cmds).map((e) => e.key), ['c:project:zarvis']) // no sessions, no other commands
+  assert.deepEqual(search('#all', rows, cmds)[0].key, 'c:project-all')
 })
