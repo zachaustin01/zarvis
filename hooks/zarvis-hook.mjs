@@ -229,6 +229,47 @@ export function buildRoleTag(payload, now = Date.now()) {
   return parseRoleTag(prompt, payload.session_id, now)
 }
 
+const WORKER_TAG_RE = /\[zarvis:\s*role=worker\b/i
+const CLAUDE_SPAWN_CMD_RE =
+  /(?:claude:\/\/code\/new|(?:^|[;&|()\n]\s*)(?:(?:env|nohup|exec|command)\s+(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*|(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+)?(?:['"](?:[^'"]*\/)?claude['"]|(?:[^\s;|&()'"]*\/)?claude)(?:\s|$))/
+
+function decodePercent(text) {
+  return String(text || '')
+    .replace(/\+/g, ' ')
+    .replace(/%[0-9A-Fa-f]{2}/g, (m) => {
+      try {
+        return decodeURIComponent(m)
+      } catch {
+        return m
+      }
+    })
+}
+
+/**
+ * Whether a main-session tool payload spawns a Zarvis worker carrying `[zarvis: role=worker...]`.
+ * Used on PreToolUse (`resume`) and PostToolUse (`work`) to auto-promote an untagged session to
+ * `manager` (`writeRoleTag` uses `wx`, so an existing role tag is never overwritten).
+ */
+export function spawnsWorker(payload) {
+  if (!payload || typeof payload !== 'object' || payload.agent_id) return false
+  const tool = typeof payload.tool_name === 'string' ? payload.tool_name : ''
+  const input = payload.tool_input
+  if (!tool || !input || typeof input !== 'object') return false
+  if (tool === 'Agent' || tool === 'Task') {
+    return WORKER_TAG_RE.test(String(input.prompt || '')) || WORKER_TAG_RE.test(String(input.description || ''))
+  }
+  if (/^(?:mcp__[A-Za-z0-9_-]+__)?(?:start|create|spawn)_session$/i.test(tool)) {
+    const text = [input.prompt, input.initial_prompt, input.message, input.description].filter((v) => typeof v === 'string').join('\n')
+    return WORKER_TAG_RE.test(text)
+  }
+  if (tool === 'Bash') {
+    const cmd = typeof input.command === 'string' ? input.command : ''
+    if (!cmd || !CLAUDE_SPAWN_CMD_RE.test(cmd)) return false
+    return WORKER_TAG_RE.test(cmd) || WORKER_TAG_RE.test(decodePercent(cmd))
+  }
+  return false
+}
+
 /**
  * The claim guard: prints at most one `ask` decision, never a deny. Any error or the self-timeout prints
  * nothing and exits 0, which changes nothing about the tool call.
@@ -306,6 +347,8 @@ async function main() {
       const first = await claimFirstPrompt(rolesDir, id)
       const tag = first ? buildRoleTag(payload) : null
       await writeRoleTag(rolesDir, id, tag)
+    } else if (!agentId && spawnsWorker(payload)) {
+      await writeRoleTag(rolesDir, id, { sessionId: id, role: 'manager', parent: '', at: Date.now() })
     }
     if (mode !== 'work') {
       // Another agent's tool call must not clear a prompt it did not raise; the raising agent's own

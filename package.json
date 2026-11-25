@@ -11,6 +11,7 @@
     "start": "node server.mjs",
     "setup": "node scripts/setup.mjs",
     "park": "node scripts/park.mjs",
+    "role": "node scripts/role.mjs",
     "claims": "node scripts/claims.mjs",
     "roster": "node scripts/roster.mjs",
     "event": "node scripts/event.mjs",
