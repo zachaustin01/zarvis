@@ -1313,6 +1313,23 @@ function jumpToInterface() {
   render()
 }
 
+let lastSideSel = null
+let lastListSel = null
+function hopColumn(dir) {
+  if (view !== 'queue' && view !== 'tree') return
+  const sideItems = view === 'tree' ? ckItems() : visibleQueue().filter((r) => r.role === 'interface')
+  const listItems = view === 'tree' ? nodes : visibleQueue().filter((r) => r.role !== 'interface')
+  if (dir < 0 && sideItems.length) {
+    if (!sideItems.some((x) => x.sessionId === sel)) lastListSel = sel
+    sel = (sideItems.find((x) => x.sessionId === lastSideSel) || sideItems[0]).sessionId
+    render()
+  } else if (dir > 0 && listItems.length) {
+    if (!listItems.some((x) => x.sessionId === sel)) lastSideSel = sel
+    sel = (listItems.find((x) => x.sessionId === lastListSel) || listItems[0]).sessionId
+    render()
+  }
+}
+
 function move(d) {
   const list = items()
   const i = list.findIndex((r) => r.sessionId === sel)
@@ -1652,6 +1669,8 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); hopColumn(-1) }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); hopColumn(1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
   else if (e.key === 'a') { e.preventDefault(); openPick() }
   else if (e.key === 'P' && items().length) { e.preventDefault(); parkSel() }
