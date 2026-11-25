@@ -118,6 +118,18 @@ If a session runs on a schedule (a cron job, an hourly check), register it so it
 Your cost is counted under your project: your own tag, else your manager's tag, else your folder name. The manager
 tags it (`node "{{ZARVIS_DIR}}/scripts/project.mjs" set ...`); do not retag yourself unless the brief says to.
 
+## Keep your context small across idle gaps
+
+Every turn re-reads your whole context, and once a session passes ~150k tokens or sits idle for an hour or more
+(waiting on CI, QA, or human review) the prompt cache expires and every follow-up turn rewrites and re-reads the full
+history at the higher cache-write price. Multi-day review or debug workers kept alive across idle gaps quickly rack up
+100M+ cached tokens.
+
+- Once your initial implementation is committed or your context passes ~150k tokens (especially before waiting an hour
+  or more on CI, QA, or human review), finish with a clean committed checkpoint and the structured
+  `Done / Branch / Commits / Verified / Open items` report above.
+- Let follow-up review fixes start in a fresh worker on the same branch instead of looping in a bloated session.
+
 ## Must not
 
 - Push, merge or open a PR unless the brief says to.

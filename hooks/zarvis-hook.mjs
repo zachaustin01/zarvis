@@ -49,6 +49,7 @@ import {
   parseRoleTag,
   claimFirstPrompt,
   writeRoleTag,
+  checkWorkerContextWarn,
   buildClaimsContext,
   runAutoEvents,
   runAutoLinks,
@@ -338,6 +339,7 @@ async function main() {
     }
     await writeAtomic(workFile, buildWorking(payload, null, Date.now(), 'idle'))
     await backgroundTasks('idle', payload, home)
+    if (payload.hook_event_name !== 'SessionStart') await checkWorkerContextWarn({ sessionId: id, transcriptPath: payload.transcript_path, home })
   } else if (mode === 'start' || mode === 'resume' || mode === 'work') {
     const prev = mode !== 'start' ? await readJson(workFile) : null
     if (mode === 'start') {
@@ -361,6 +363,7 @@ async function main() {
       await runAutoEvents(payload, home)
       await runAutoLinks(payload, home)
       if (!agentId && /^(Bash|Monitor|Agent|Task|TaskStop|KillShell)$/.test(payload.tool_name || '')) await backgroundTasks('work', payload, home)
+      if (!agentId) await checkWorkerContextWarn({ sessionId: id, transcriptPath: payload.transcript_path, home })
     }
   }
 }

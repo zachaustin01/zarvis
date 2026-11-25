@@ -368,3 +368,12 @@ export function windowAround(index, total, size) {
   const start = Math.min(Math.max(0, index - Math.floor(size / 2)), total - size)
   return [start, start + size]
 }
+
+/** Class list and tooltip text for a session card's context gauge (`r.ctx`). */
+export function ctxGauge(c) {
+  if (!c) return null
+  const cls = `cx${c.level ? ` cx-${c.level}` : ''}${c.workerWarn ? ' cx-warn' : ''}`
+  const warn = c.workerWarn ? ` · past ${c.warnAt || '200k'} worker handoff threshold (consider handing off before idle)` : ''
+  const title = `${c.label} tokens in context · about ${c.pct}% of a ${c.winLabel} window${warn} (the tokens are exact; the window is a reference, set ZARVIS_CONTEXT_WINDOW to change it)`
+  return { cls, title }
+}

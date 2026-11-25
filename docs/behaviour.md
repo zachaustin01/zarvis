@@ -55,7 +55,10 @@ of the session's transcript (read-only, cached by file time and size) and takes 
 input, cache-read and cache-creation tokens. The percentage is against a **reference window**, because a session's
 real window is not recorded anywhere Zarvis can read (model ids carry no 1M marker, and sessions already run past
 200k). The reference is 1,000,000 by default; set `ZARVIS_CONTEXT_WINDOW` to a positive integer (for example
-`200000`) to change it. A session with no usage yet shows nothing, never 0%. After a compaction the figure simply drops.
+`200000`) to change it. A worker session whose context reaches `ZARVIS_WORKER_WARN_TOKENS` (default `200000`, or
+`workerWarnTokens` in `state.json`; `0`/`false` disables) highlights its gauge in amber and logs a one-time `warn`
+ticker event reminding it to hand off before sitting idle. A session with no usage yet shows nothing, never 0%. After a
+compaction the figure simply drops.
 
 ## Updating the page
 

@@ -1,5 +1,5 @@
 'use strict'
-import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, isOverdue, canBeOverdue, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
+import { paginate, clampPage, pageOfIndex, firstRowOn, pageFlags, flagElsewhere, wheelFlip, pageLabel, fitCount, windowAround, ctxGauge, clockText, pushSample, sparkPoints, ifaceRing, loopDelay, IFACE_C, dialDash, waitDial, hookDial, projectGauges, reactorCounts, reactorArcs, reactorState, reactorText, TICKER_MAX, TICKER_SLIDE_MS, TICKER_LIST_MAX, fuseVars, glowState, isOverdue, canBeOverdue, attention, tabTitle, faviconState, snapshot, diffEvents, mergeTicker, evTime, evClock, evParts, evImportant, groupByDay, evKindClass, safeUrl } from '/fx.js'
 import { buildCommands, search as paletteSearch, keepHighlight, stepHighlight } from '/palette.js'
 import { ZOOMS, DEFAULT_ZOOM, zoomOf, stepZoom, trackGeom, posPct, slidePct, slideClock, cullTicks, minGap, nextAfter, countdown, isSoon, axisMarks, lanesPerPage, lanePage, NOW_PCT } from '/schedule.js'
 import { RANGES as COST_RANGES, DEFAULT_RANGE, rangeOf, stepRange, usd, tok, mixSegments, dayBars, dayLabel, share, stepIndex, modelLabel, PROVIDERS as COST_PROVIDERS, DEFAULT_PROVIDER, providerOfChoice, pricingAttribution } from '/costs.js'
@@ -341,9 +341,10 @@ setInterval(loadTree, 2000)
 /** The context gauge: a thin bar, the exact token count and a clearly approximate share of the reference window. Server-side numbers only. */
 function ctxHtml(r) {
   const c = r.ctx
-  if (!c) return ''
+  const g = ctxGauge(c)
+  if (!g) return ''
   return (
-    `<span class="cx${c.level ? ` cx-${c.level}` : ''}" title="${esc(c.label)} tokens in context · about ${c.pct}% of a ${esc(c.winLabel)} window (the tokens are exact; the window is a reference, set ZARVIS_CONTEXT_WINDOW to change it)">` +
+    `<span class="${esc(g.cls)}" title="${esc(g.title)}">` +
     `<i class="cx-bar"><i style="width:${Math.min(100, c.pct)}%"></i></i><span class="cx-tx">${esc(c.label)} · ~${c.pct}%</span></span>`
   )
 }

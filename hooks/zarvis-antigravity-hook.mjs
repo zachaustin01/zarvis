@@ -30,6 +30,7 @@ import {
   parseRoleTag,
   claimFirstPrompt,
   writeRoleTag,
+  checkWorkerContextWarn,
   buildClaimsContext,
   runAutoEvents,
   runAutoLinks,
@@ -454,6 +455,7 @@ export async function handleHook(mode, payload) {
     const toolResponse = await extractToolResponse(payload)
     await autoEventsAntigravity(payload, home, toolResponse)
     await autoLinksAntigravity(payload, home, toolResponse)
+    await checkWorkerContextWarn({ sessionId: id, transcriptPath: payload.transcriptPath ?? payload.transcript_path, home })
     return {}
   }
 
@@ -475,6 +477,7 @@ export async function handleHook(mode, payload) {
     }
 
     await writeAtomic(workFile, buildAntigravityWorking(payload, null, Date.now(), 'idle'))
+    await checkWorkerContextWarn({ sessionId: id, transcriptPath: payload.transcriptPath ?? payload.transcript_path, home })
     return { decision: "allow" }
   }
 
