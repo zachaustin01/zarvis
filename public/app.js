@@ -55,8 +55,20 @@ const ifaceFirst = () => {
   return [...q.filter((r) => r.role === 'interface'), ...q.filter((r) => r.role !== 'interface')]
 }
 // The Roles view's checkout cards are selectable like session rows (id `ck:<claim id>`); Enter opens the holder.
-const ckItems = () => claims.map((c) => ({ sessionId: `ck:${c.id}`, ck: c, name: c.holder.name, role: 'checkout' }))
-const items = () => (view === 'tree' ? [...ckItems(), ...nodes] : view === 'parked' ? parkedList : ifaceFirst())
+function claimProject(root) {
+  const s = String(root || '').replace(/[\\/]+$/, '')
+  const cl = s.replace(/[\\/]\.claude[\\/]worktrees[\\/].*$/, '')
+  const sib = /^(.*[\\/])?([^\\/]+)-worktrees(?:[\\/].*)?$/.exec(cl)
+  return (sib ? sib[2] : cl.split(/[\\/]/).pop()) || ''
+}
+function visibleClaims() {
+  const cur = activeProject()
+  if (!cur) return claims
+  const byId = new Map((rawTree ? [...flatten(rawTree), ...(rawTree.archived || [])] : []).map((n) => [n.sessionId, n.project]))
+  return claims.filter((c) => byId.get(c.holder.sessionId) === cur || (!byId.has(c.holder.sessionId) && claimProject(c.root) === cur))
+}
+const ckItems = () => visibleClaims().map((c) => ({ sessionId: `ck:${c.id}`, ck: c, name: c.holder.name, role: 'checkout' }))
+const items = () => (view === 'tree' ? [...nodes, ...ckItems()] : view === 'parked' ? parkedList : ifaceFirst())
 /** The selected session row; undefined on a checkout card, so park / done / rename / classify never act on one. */
 const selRow = () => items().find((x) => x.sessionId === sel && !x.ck)
 /** Done sessions are hidden unless searched; a search matches name, title, project, park reason and handoff note. */
@@ -96,20 +108,30 @@ function claimTag(r) {
     .join('')
 }
 
-/** The Roles view's Checkouts section: every claimed checkout, who holds it, who shares it. */
+/** The Roles view's Checkouts section: every claimed checkout, who holds it, who shares it, windowed around selection. */
 function claimsSection() {
-  if (!claims.length) return ''
+  const list = visibleClaims()
+  if (!list.length) return ''
   const home = (p) => p.replace(/^\/(Users|home)\/[^/]+/, '~')
+  const selIdx = Math.max(0, list.findIndex((c) => `ck:${c.id}` === sel))
+  const cap = fitCount(Math.max(160, innerHeight - 210), 42)
+  const [c0, c1] = windowAround(selIdx, list.length, cap)
+  const slice = list.slice(c0, c1)
+  const title = list.length > slice.length ? `Checkouts · ${c0 + 1}–${c1}/${list.length}` : 'Checkouts'
   return (
-    heading('Checkouts') +
-    claims
-      .map(
-        (c) =>
-          `<div class="q tr ck${c.live ? '' : ' off'}${c.holder.link ? '' : ' nolink'}${`ck:${c.id}` === sel ? ' sel' : ''}" data-id="ck:${esc(c.id)}"><div class="r1"><span class="clm${c.live ? '' : ' off'}">⛓ ${esc(c.label)}</span><span class="nm">${esc(c.holder.name)}</span>` +
-          `${c.shared.length ? `<span class="ap">shared with ${esc(c.shared.map((s) => s.name).join(', '))}</span>` : ''}` +
+    heading(title) +
+    slice
+      .map((c) => {
+        const isSel = `ck:${c.id}` === sel
+        const pathInfo = `${home(c.root)}${c.branch && c.branch !== c.label ? ` · ${c.branch}` : ''}`
+        return (
+          `<div class="q tr ck${c.live ? '' : ' off'}${c.holder.link ? '' : ' nolink'}${isSel ? ' sel' : ''}" data-id="ck:${esc(c.id)}" title="${esc(pathInfo)}"><div class="r1"><span class="clm${c.live ? '' : ' off'}">⛓ ${esc(c.label)}</span><span class="nm">${esc(c.holder.name)}</span>` +
+          `${c.shared.length ? `<span class="ap">+${c.shared.length}</span>` : ''}` +
           `<span class="wt">${c.live ? 'live' : c.stale ? 'stale' : 'dead'} · ${esc(ago(c.holder.lastWrite))}</span></div>` +
-          `<div class="prompt mono">${esc(home(c.root))}${c.branch && c.branch !== c.label ? ` · ${esc(c.branch)}` : ''}</div>${c.holder.link ? '<span class="go">ENTER ↵ OPEN</span>' : ''}</div>`,
-      )
+          (isSel ? `<div class="prompt mono">${esc(pathInfo)}</div><span class="go">ENTER ↵ SESSION</span>` : '') +
+          `</div>`
+        )
+      })
       .join('')
   )
 }
@@ -243,14 +265,15 @@ function renderTree() {
 }
 function renderTreeInner() {
   renderBar()
-  $('#side').innerHTML = ''
-  document.querySelector('.wrap').classList.remove('has-side')
+  const ck = claimsSection()
+  $('#side').innerHTML = ck
+  document.querySelector('.wrap').classList.toggle('has-side', Boolean(ck))
   const t = tree
   const part = (title, rows) => (rows.length ? heading(title) + rows.map((r) => treeRow(r, 0)).join('') : '')
   const mgr = t.managers.map((m) => treeRow(m, 0) + m.children.map((c) => treeRow(c, 1)).join('')).join('')
   const renameSnap = snapRename()
   $('#list').innerHTML =
-    claimsSection() + part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
+    part('Interface', t.interface) + (mgr ? heading('Project managers') + mgr : '') + part('Workers without a manager', t.orphans) + part('Unclassified', t.unclassified) ||
     `<div class="empty">${hiddenParkedN ? `Everything here is parked (${hiddenParkedN} hidden) · v shows them, p lists them` : 'No sessions.'}</div>`
   const all = items()
   if (!all.some((r) => r.sessionId === sel) && all.length) sel = (nodes[0] || all[0]).sessionId
@@ -967,10 +990,13 @@ async function post(path, body) {
 async function openSel() {
   const r = items().find((x) => x.sessionId === sel)
   if (!r) return
-  // A checkout card opens the session that holds it, through the same /api/open path; with no app session behind it, only a notice.
-  if (r.ck && !r.ck.holder.link) return toast('terminal session: no desktop app session to open')
+  // A checkout card jumps to the holding session in the tree first; Enter again opens it in the desktop app.
+  if (r.ck) {
+    jumpToSession(r.ck.holder.sessionId)
+    return
+  }
   // A manager with a blocked worker: the leaf-only rule says go to the worker that is blocked.
-  const target = r.ck ? r.ck.holder.sessionId : r.blockedChildren?.[0]?.sessionId || r.sessionId
+  const target = r.blockedChildren?.[0]?.sessionId || r.sessionId
   const { ok, data } = await post('/api/open', { sessionId: target, keystrokes: agyKeystrokes })
   const rt = (data?.runtime || r.runtime) === 'antigravity' ? 'Antigravity' : 'Claude'
   if (ok && rt === 'Antigravity') {
@@ -1298,6 +1324,23 @@ function jumpToInterface() {
   const i = all.findIndex((r) => r.sessionId === sel)
   sel = all[(i + 1) % all.length].sessionId
   render()
+}
+
+let lastSideSel = null
+let lastListSel = null
+function hopColumn(dir) {
+  if (view !== 'queue' && view !== 'tree') return
+  const sideItems = view === 'tree' ? ckItems() : visibleQueue().filter((r) => r.role === 'interface')
+  const listItems = view === 'tree' ? nodes : visibleQueue().filter((r) => r.role !== 'interface')
+  if (dir < 0 && sideItems.length) {
+    if (!sideItems.some((x) => x.sessionId === sel)) lastListSel = sel
+    sel = (sideItems.find((x) => x.sessionId === lastSideSel) || sideItems[0]).sessionId
+    render()
+  } else if (dir > 0 && listItems.length) {
+    if (!listItems.some((x) => x.sessionId === sel)) lastSideSel = sel
+    sel = (listItems.find((x) => x.sessionId === lastListSel) || listItems[0]).sessionId
+    render()
+  }
 }
 
 function move(d) {
@@ -1639,6 +1682,8 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); hopColumn(-1) }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); hopColumn(1) }
   else if (e.key === 'Enter') { e.preventDefault(); openSel() }
   else if (e.key === 'a') { e.preventDefault(); openPick() }
   else if (e.key === 'P' && items().length) { e.preventDefault(); parkSel() }

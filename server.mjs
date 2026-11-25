@@ -15,7 +15,7 @@ import { renderRoster, visibleInterfaces } from './lib/roster.mjs'
 import { promptsOf } from './lib/prompts.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectNameOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
-import { collectRows, cwdsOf, nameFn, withHolderLinks, agyParentProject } from './lib/lookup.mjs'
+import { collectRows, cwdsOf, enrichAgyMeta, nameFn, withHolderLinks, agyParentProject } from './lib/lookup.mjs'
 import { contextOf, contextWindow, workerWarnTokens, applyWorkerWarn } from './lib/context.mjs'
 import { appVersion } from './lib/version.mjs'
 import { roleRegistry } from './lib/registry.mjs'
@@ -130,7 +130,8 @@ async function currentTree(snapshot) {
     readTags(ZARVIS_HOME),
   ])
   const allCwds = { ...cwdsOf(markers), ...cwdsOf(working), ...cwdsOf(queue) }
-  const nodes = classify({ records, roles, cwds: allCwds, sessions: queue })
+  const agyMeta = enrichAgyMeta({ records, roles, sessions: queue, cwds: allCwds })
+  const nodes = classify({ records, roles, cwds: allCwds, sessions: queue, agyMeta })
   const rowOf = new Map(queue.map((r) => [r.sessionId, r]))
   const projectOf = (n, derived) => {
     const { project, source } = resolveProject(n.sessionId, { managerId: n.managerId, derived, tags: projectTags })

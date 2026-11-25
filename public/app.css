@@ -409,6 +409,12 @@ html,body{height:100%;overflow:hidden}
 textarea{overflow:hidden;resize:none}
 [hidden]{display:none!important}
 #side{max-height:calc(100vh - 160px);overflow:hidden}
+#side .q.ck{border-color:var(--edge);background:var(--p1,#0a121d);padding:6px 10px;margin-bottom:6px}
+#side .q.ck::before{background:var(--gr)}
+#side .q.ck.off::before{background:var(--t3)}
+#side .q.ck.sel{border-color:var(--cy);background:#0d1f31;box-shadow:0 0 0 1px var(--cy) inset}
+#side .q.ck.sel .nm{color:var(--t1)}
+#side .q.ck.sel::after{filter:none}
 .sheet.paged{columns:1}
 .sheet-pg{position:absolute;left:18px;right:18px;bottom:8px;font-size:11px;letter-spacing:.1em;color:var(--t2)}
 .box.wide{padding-bottom:30px}

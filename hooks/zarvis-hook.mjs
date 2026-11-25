@@ -322,6 +322,11 @@ async function main() {
     } catch {
       /* the claims are best effort; they also expire */
     }
+    try {
+      await (await import('../lib/schedule.mjs')).cleanupSessionSchedules(home, id)
+    } catch {
+      /* schedules cleanup is best effort */
+    }
   } else if (mode === 'idle') {
     if (agentId) return // a subagent's lifecycle event says nothing about the visible session
     // A turn can end while a background subagent still waits on a prompt: that prompt stands.
@@ -362,10 +367,36 @@ async function main() {
     if (mode === 'work') {
       await runAutoEvents(payload, home)
       await runAutoLinks(payload, home)
+      await autoSchedulesClaude(payload, home)
       if (!agentId && /^(Bash|Monitor|Agent|Task|TaskStop|KillShell)$/.test(payload.tool_name || '')) await backgroundTasks('work', payload, home)
       if (!agentId) await checkWorkerContextWarn({ sessionId: id, transcriptPath: payload.transcript_path, home })
     }
   }
+}
+
+/** Auto-schedules logger for Claude Code `CronCreate` / `CronDelete` calls. Best-effort, never throws. */
+export async function autoSchedulesClaude(payload, home = getHome()) {
+  try {
+    const tool = payload?.tool_name
+    if (tool !== 'CronCreate' && tool !== 'CronDelete') return
+    const { autoSchedulesEnabled, upsertAutoJob, removeAutoJob } = await import('../lib/schedule.mjs')
+    if (!autoSchedulesEnabled(home)) return
+    const input = payload.tool_input && typeof payload.tool_input === 'object' ? payload.tool_input : {}
+    if (tool === 'CronCreate') {
+      const cron = typeof input.cron === 'string' ? input.cron.trim() : ''
+      if (!cron) return
+      const resp = payload.tool_response
+      const respId = (resp && typeof resp === 'object' && (resp.id || resp.job_id || resp.taskId)) || (typeof resp === 'string' ? (/\bid[:=\s"]+([A-Za-z0-9_-]+)/i.exec(resp)?.[1] || '') : '')
+      const externalId = typeof respId === 'string' ? respId.trim() : ''
+      const prompt = String(input.prompt || input.name || '').replace(/\s+/g, ' ').trim()
+      const name = String(input.name || prompt).replace(/\s+/g, ' ').trim().slice(0, 60) || 'Claude cron'
+      const note = prompt.slice(0, 200).trim()
+      await upsertAutoJob(home, { name, cron, note, externalId, source: 'claude', owner: { session: payload.session_id, app: '' } })
+    } else {
+      const externalId = String(input.id || input.job_id || '').trim()
+      if (externalId) await removeAutoJob(home, { externalId, source: 'claude' })
+    }
+  } catch { /* best effort */ }
 }
 
 /**
