@@ -96,20 +96,29 @@ function claimTag(r) {
     .join('')
 }
 
-/** The Roles view's Checkouts section: every claimed checkout, who holds it, who shares it. */
+/** The Roles view's Checkouts section: every claimed checkout, who holds it, who shares it, windowed around selection. */
 function claimsSection() {
   if (!claims.length) return ''
   const home = (p) => p.replace(/^\/(Users|home)\/[^/]+/, '~')
+  const selIdx = Math.max(0, claims.findIndex((c) => `ck:${c.id}` === sel))
+  const cap = fitCount(Math.max(160, innerHeight - 210), 42)
+  const [c0, c1] = windowAround(selIdx, claims.length, cap)
+  const slice = claims.slice(c0, c1)
+  const title = claims.length > slice.length ? `Checkouts · ${c0 + 1}–${c1}/${claims.length}` : 'Checkouts'
   return (
-    heading('Checkouts') +
-    claims
-      .map(
-        (c) =>
-          `<div class="q tr ck${c.live ? '' : ' off'}${c.holder.link ? '' : ' nolink'}${`ck:${c.id}` === sel ? ' sel' : ''}" data-id="ck:${esc(c.id)}"><div class="r1"><span class="clm${c.live ? '' : ' off'}">⛓ ${esc(c.label)}</span><span class="nm">${esc(c.holder.name)}</span>` +
-          `${c.shared.length ? `<span class="ap">shared with ${esc(c.shared.map((s) => s.name).join(', '))}</span>` : ''}` +
+    heading(title) +
+    slice
+      .map((c) => {
+        const isSel = `ck:${c.id}` === sel
+        const pathInfo = `${home(c.root)}${c.branch && c.branch !== c.label ? ` · ${c.branch}` : ''}`
+        return (
+          `<div class="q tr ck${c.live ? '' : ' off'}${c.holder.link ? '' : ' nolink'}${isSel ? ' sel' : ''}" data-id="ck:${esc(c.id)}" title="${esc(pathInfo)}"><div class="r1"><span class="clm${c.live ? '' : ' off'}">⛓ ${esc(c.label)}</span><span class="nm">${esc(c.holder.name)}</span>` +
+          `${c.shared.length ? `<span class="ap">+${c.shared.length}</span>` : ''}` +
           `<span class="wt">${c.live ? 'live' : c.stale ? 'stale' : 'dead'} · ${esc(ago(c.holder.lastWrite))}</span></div>` +
-          `<div class="prompt mono">${esc(home(c.root))}${c.branch && c.branch !== c.label ? ` · ${esc(c.branch)}` : ''}</div>${c.holder.link ? '<span class="go">ENTER ↵ OPEN</span>' : ''}</div>`,
-      )
+          (isSel ? `<div class="prompt mono">${esc(pathInfo)}</div><span class="go">ENTER ↵ SESSION</span>` : '') +
+          `</div>`
+        )
+      })
       .join('')
   )
 }
@@ -968,10 +977,13 @@ async function post(path, body) {
 async function openSel() {
   const r = items().find((x) => x.sessionId === sel)
   if (!r) return
-  // A checkout card opens the session that holds it, through the same /api/open path; with no app session behind it, only a notice.
-  if (r.ck && !r.ck.holder.link) return toast('terminal session: no desktop app session to open')
+  // A checkout card jumps to the holding session in the tree first; Enter again opens it in the desktop app.
+  if (r.ck) {
+    jumpToSession(r.ck.holder.sessionId)
+    return
+  }
   // A manager with a blocked worker: the leaf-only rule says go to the worker that is blocked.
-  const target = r.ck ? r.ck.holder.sessionId : r.blockedChildren?.[0]?.sessionId || r.sessionId
+  const target = r.blockedChildren?.[0]?.sessionId || r.sessionId
   const { ok, data } = await post('/api/open', { sessionId: target, keystrokes: agyKeystrokes })
   const rt = (data?.runtime || r.runtime) === 'antigravity' ? 'Antigravity' : 'Claude'
   if (ok && rt === 'Antigravity') {
