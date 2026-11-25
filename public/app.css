@@ -223,10 +223,18 @@ body.tab-hidden .reactor *{animation-play-state:paused!important}
 .rl-g.on{border-color:var(--cy);background:#0b1a28}
 .rl-g svg{flex:none;display:block}
 .rl-g .rl-a{fill:none;stroke-width:5;stroke-dasharray:0 100}
-.rl-a.blocked{stroke:var(--am)}.rl-a.working{stroke:var(--gr)}.rl-a.idle{stroke:var(--t3)}.rl-a.parked{stroke:#c792ea}
+.rl-a.blocked{stroke:var(--am)}.rl-a.working{stroke:var(--gr)}.rl-a.idle{stroke:var(--t2)}.rl-a.parked{stroke:transparent}
 .rl-g .rl-n{font-size:12px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rl-g .rl-c{font-size:10px;color:var(--t3);letter-spacing:.04em}
-.rl-g .rl-c .nd{color:var(--am)}.rl-g .rl-c .rn{color:var(--gr)}
+.rl-g .rl-c .nd{color:var(--am)}.rl-g .rl-c .rn{color:var(--cy)}.rl-g .rl-c .il{color:var(--t2)}.rl-g .rl-c .pk{color:var(--t3)}.rl-g .rl-c span{white-space:nowrap}
+/* The ring is activity only: amber needs you, cyan working, grey idle. A project that needs you also lights its name. */
+.rl-g.st-blocked .rl-n{color:var(--am)}
+.rl-g.st-idle .rl-n,.rl-g.st-quiet .rl-n{color:var(--t2)}
+.rl-leg{position:absolute;left:10px;right:10px;bottom:8px;display:flex;flex-wrap:wrap;gap:2px 10px;font-size:9px;letter-spacing:.06em;color:var(--t3);border-top:1px solid var(--edge);padding-top:6px}
+.rl-leg span{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.rl-leg span:not(.pk)::before{content:"";width:7px;height:7px;border-radius:50%;border:2px solid currentColor;box-sizing:border-box}
+.rl-leg .blocked{color:var(--am)}.rl-leg .working{color:var(--cy)}.rl-leg .idle{color:var(--t2)}.rl-leg .quiet{color:var(--t3)}.rl-leg .quiet::before{border-color:var(--edge)}
+.rl-leg .pk{color:var(--t3)}
 .rl-txt{min-width:0}
 .rl-empty{font-size:11px;color:var(--t3);padding:4px 2px}
 
@@ -624,3 +632,7 @@ body.v-costs .wrap{max-width:1180px}
   body.rail-on .projbar .chip[data-p=""].on:not(.hid),
   body.rail-on .projbar .ap.g{display:none}
 }
+
+/* The g project picker: counts in the state colours, the current filter marked */
+.pl.prj .ps b{font-weight:400}.pl.prj .ps .nd{color:var(--am)}.pl.prj .ps .rn{color:var(--cy)}
+.pl.prj .pk2{grid-column:4;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--cy)}

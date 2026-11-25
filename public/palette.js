@@ -36,11 +36,12 @@ export function fuzzy(token, text, { contiguous = false } = {}) {
 
 const tokens = (q) => q.trim().split(/\s+/).filter(Boolean)
 
-/** `>` commands only, `@` sessions only; anything else searches both. */
+/** `>` commands only, `@` sessions only, `#` projects only (the g picker); anything else searches both. */
 export function parseMode(raw) {
   const s = String(raw ?? '')
   if (s.startsWith('>')) return { mode: 'commands', text: s.slice(1) }
   if (s.startsWith('@')) return { mode: 'sessions', text: s.slice(1) }
+  if (s.startsWith('#')) return { mode: 'projects', text: s.slice(1) }
   return { mode: 'all', text: s }
 }
 
@@ -161,9 +162,11 @@ export const COMMANDS = [
   { id: 'view-next', group: 'View', label: 'Next view', key: 'Tab', words: 'cycle' },
   { id: 'view-prev', group: 'View', label: 'Previous view', key: 'Shift+Tab', words: 'cycle back' },
   { id: 'search', group: 'View', label: 'Search Roles or Parked', key: '/', words: 'find filter' },
-  { id: 'project-next', group: 'Filter', label: 'Next project filter', key: 'g' },
-  { id: 'project-prev', group: 'Filter', label: 'Previous project filter', key: 'G' },
-  { id: 'project-all', group: 'Filter', label: 'Project: All', key: '', words: 'clear' },
+  { id: 'project-pick', group: 'Filter', label: 'Pick a project filter', key: 'g', words: 'project filter jump choose' },
+  { id: 'project-toggle', group: 'Filter', label: 'Project: All, or back to the last project', key: 'G', words: 'project filter clear all back' },
+  { id: 'project-next', group: 'Filter', label: 'Next project filter (A to Z)', key: '', words: 'project cycle' },
+  { id: 'project-prev', group: 'Filter', label: 'Previous project filter (Z to A)', key: '', words: 'project cycle' },
+  { id: 'project-all', group: 'Filter', label: 'Project: All', key: '', words: 'clear every all projects' },
   { id: 'role-manager', group: 'Filter', label: 'Queue: managers only', key: 'm', words: 'role filter' },
   { id: 'role-worker', group: 'Filter', label: 'Queue: workers only', key: 'w', words: 'role filter' },
   { id: 'harness-claude', group: 'Filter', label: 'Queue: Claude Code only', key: '', words: 'harness runtime claude filter' },
@@ -216,6 +219,15 @@ export function buildCommands(projects = []) {
 export function search(raw, sessions, commands, { stateLabel = (r) => r.state, limit = 60, schedules = [] } = {}) {
   const { mode, text } = parseMode(raw)
   const out = []
+  if (mode === 'projects') {
+    // The g picker: All first, then the projects in name order; a query narrows them by name.
+    commands.filter((c) => c.id === 'project-all' || c.id.startsWith('project:')).forEach((c, i) => {
+      const m = c.id === 'project-all' ? scoreCommand(text, c) : fuzzy(text.trim(), c.id.slice(8))
+      if (m) out.push({ key: `c:${c.id}`, type: 'command', label: c.id === 'project-all' ? 'All projects' : c.id.slice(8), idx: c.id === 'project-all' ? [] : m.idx, score: m.score, order: i, ref: c })
+    })
+    const blank = !text.trim()
+    return out.sort((a, b) => (blank ? a.order - b.order : b.score - a.score || a.order - b.order)).slice(0, limit)
+  }
   if (mode !== 'commands') {
     sessions.forEach((r, i) => {
       const m = scoreSession(text, r, stateLabel(r))

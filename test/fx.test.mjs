@@ -204,7 +204,7 @@ test('reactorState and reactorText: calm, amber, red, and the spin only while wo
   assert.equal(reactorText({ ...zero, working: 1 }), '1 run')
 })
 
-import { dialDash, compactWait, waitDial, hookDial, projectGauges, DIAL_C } from '../public/fx.js'
+import { dialDash, compactWait, waitDial, hookDial, projectGauges, railGauges, DIAL_C } from '../public/fx.js'
 
 test('compactWait and dialDash', () => {
   assert.equal(compactWait(0), '0s')
@@ -235,15 +235,27 @@ test('hookDial maps the server status and never guesses', () => {
   assert.deepEqual(hookDial(undefined), { p: 0, state: 'unknown' })
 })
 
-test('projectGauges: per-project mix of live projects, parked from the tree, no interface, blocked first', () => {
+test('projectGauges: per-project mix of live projects in name order, parked counted but not drawn, no interface', () => {
   const r = (project, state, extra = {}) => ({ project, state, since: 0, role: 'worker', ...extra })
-  const rows = [r('a', 'working'), r('b', 'blocked'), r('b', 'idle'), r('a', 'idle'), r('x', 'working', { role: 'interface' })]
-  const nodes = [r('a', 'unknown', { parked: {} }), r('c', 'unknown', { parked: {} }), r('c', 'unknown', { parked: {}, done: true }), r('x', 'unknown', { role: 'interface', parked: {} })]
+  const rows = [r('b', 'working'), r('a', 'blocked'), r('a', 'idle'), r('b', 'idle'), r('d', 'idle'), r('x', 'working', { role: 'interface' })]
+  const nodes = [r('b', 'unknown', { parked: {} }), r('c', 'unknown', { parked: {} }), r('c', 'unknown', { parked: {}, done: true }), r('x', 'unknown', { role: 'interface', parked: {} })]
   const g = projectGauges(rows, nodes)
-  assert.deepEqual(g.map((x) => x.project), ['b', 'a']) // blocked first, then working, then name; parked-only 'c' has no gauge
+  assert.deepEqual(g.map((x) => x.project), ['a', 'b', 'd']) // A to Z, like the chips; parked-only 'c' has no gauge
+  assert.deepEqual(g.map((x) => x.state), ['blocked', 'working', 'idle'])
   assert.deepEqual(g[1].counts, { blocked: 0, working: 1, idle: 1, parked: 1 }) // a live project still counts its parked session
+  assert.equal(g[1].arcs.find((a) => a.key === 'parked').frac, 0) // ... but the ring is activity only
+  assert.equal(g[1].arcs.find((a) => a.key === 'working').frac, 0.5)
   assert.equal(g[0].total, 2)
   assert.equal(g[0].arcs.length, 4)
+})
+
+test('railGauges: when the rail is short, pressing projects stay and the rest keep name order', () => {
+  const r = (project, state) => ({ project, state, since: 0, role: 'worker' })
+  const g = projectGauges([r('a', 'idle'), r('b', 'idle'), r('c', 'working'), r('d', 'blocked'), r('e', 'idle')])
+  assert.deepEqual(railGauges(g, 9), { shown: g, more: 0 })
+  const short = railGauges(g, 3) // two gauges plus the "+N more" line
+  assert.deepEqual(short.shown.map((x) => x.project), ['c', 'd'])
+  assert.equal(short.more, 3)
 })
 
 import { ifaceRing, loopDelay, IFACE_C } from '../public/fx.js'

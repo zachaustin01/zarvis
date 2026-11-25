@@ -96,7 +96,8 @@
       <div class="kr"><span class="kk"><kbd>/</kbd></span><span class="kd">Search the Roles or Parked view; done sessions are included</span></div>
     </section>
     <section><h3>Filters</h3>
-      <div class="kr"><span class="kk"><kbd>g</kbd> <kbd>G</kbd></span><span class="kd">Filter by project, next or previous, back around to All; blocked sessions elsewhere stay counted</span></div>
+      <div class="kr"><span class="kk"><kbd>g</kbd></span><span class="kd">Pick a project: All first, then A to Z with what needs you; type to narrow, Enter filters. Blocked sessions elsewhere stay counted</span></div>
+      <div class="kr"><span class="kk"><kbd>G</kbd></span><span class="kd">All projects; press again to go back to the project you left</span></div>
       <div class="kr"><span class="kk"><kbd>m</kbd> <kbd>w</kbd></span><span class="kd">Queue role filter: managers only, workers only; the same key clears it</span></div>
       <div class="kr"><span class="kk"><kbd>h</kbd></span><span class="kd">Queue harness filter: cycle All, Claude Code, Antigravity</span></div>
       <div class="kr"><span class="kk"><kbd>v</kbd></span><span class="kd">Visibility toggle — Queue: show/hide sub-agents · Roles: show/hide parked · Costs: by project/manager</span></div>
@@ -112,10 +113,10 @@
       <div class="kr"><span class="kk"><kbd>a</kbd></span><span class="kd">Roles: on a manager, attach sessions to it as workers; on a worker or unclassified session, choose its manager</span></div>
     </section>
     <section><h3>Screen</h3>
-      <div class="kr"><span class="kk"><kbd>b</kbd></span><span class="kd">Project rail on the left (wide windows): a gauge per project, click to filter</span></div>
+      <div class="kr"><span class="kk"><kbd>b</kbd></span><span class="kd">Project rail on the left (wide windows), A to Z: the ring is amber when something needs you, cyan while working, grey when idle (parked sessions are counted, not drawn). Click to filter, again to clear</span></div>
       <div class="kr"><span class="kk"><kbd>e</kbd></span><span class="kd">Event ticker along the bottom: collapse or expand it. It holds the newest event; click EVENTS for the recent ones, newest first by day</span></div>
       <div class="kr"><span class="kk"><kbd>E</kbd></span><span class="kd">Event list: open or close the recent events, newest first by day (works while the strip is collapsed; Esc closes)</span></div>
-      <div class="kr"><span class="kk"><kbd>⌘K</kbd> <kbd>Ctrl+K</kbd></span><span class="kd">Command palette: fuzzy-find a session or any key action. <kbd>&gt;</kbd> commands only, <kbd>@</kbd> sessions only; ↑↓ or Ctrl+N/P move, Enter runs, Esc closes</span></div>
+      <div class="kr"><span class="kk"><kbd>⌘K</kbd> <kbd>Ctrl+K</kbd></span><span class="kd">Command palette: fuzzy-find a session or any key action. <kbd>&gt;</kbd> commands only, <kbd>@</kbd> sessions only, <kbd>#</kbd> projects only; ↑↓ or Ctrl+N/P move, Enter runs, Esc closes</span></div>
       <div class="kr"><span class="kk"><kbd>?</kbd></span><span class="kd">This sheet</span></div>
     </section>
   </div>
@@ -123,7 +124,7 @@
 </div></div>
 <div class="ov pal" id="ovPal"><div class="box pal-box" role="dialog" aria-modal="true" aria-label="Command palette">
   <i class="tk-c a"></i><i class="tk-c b"></i><i class="tk-c c"></i><i class="tk-c d"></i>
-  <div class="hd pal-hd">Command <span class="ap">&gt; commands · @ sessions · Esc closes</span></div>
+  <div class="hd pal-hd">Command <span class="ap">&gt; commands · @ sessions · # projects · Esc closes</span></div>
   <input id="palIn" class="pal-in" placeholder="Jump to a session or run a command…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="palList" aria-autocomplete="list">
   <div id="palList" class="pal-list" role="listbox"></div>
 </div></div>
