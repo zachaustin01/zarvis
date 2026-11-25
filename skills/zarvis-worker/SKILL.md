@@ -26,7 +26,11 @@ The brief carries a `Reporting:` line.
 
 - `Reporting: user review` (the default): nobody is waiting on the result. Finish with the report below
   in your own session (it shows on your Zarvis card), and end with a closing question that flags it as
-  ready for the user's review. Do not `SendMessage` the manager.
+  ready for the user's review. Do not `SendMessage` the manager. Once the user confirms completion or
+  merges in your session, tidy up by parking yourself
+  (`node "{{ZARVIS_DIR}}/scripts/park.mjs" park <your session id> --by <your session id> --reason "..." --note "<Done / Branch / Verified / Open items>"`)
+  or marking yourself `done` (`node "{{ZARVIS_DIR}}/scripts/park.mjs" done <your session id> --by <your session id>`)
+  for one-off tasks that never need reopening.
 - `Reporting: manager needed`: another worker or step depends on the result, or the manager must decide
   something with it. Message the manager once, in the report format below.
 
@@ -119,4 +123,4 @@ tags it (`node "{{ZARVIS_DIR}}/scripts/project.mjs" set ...`); do not retag your
 - Push, merge or open a PR unless the brief says to.
 - Start sub-workers or managers.
 - Take over a blocked permission prompt; leave it for the user.
-- Write to `~/.zarvis/` or Claude's own files, except through the claims and event CLIs above.
+- Write to `~/.zarvis/` or Claude's own files, except through the claims, event and park CLIs above (self-park or self-done only, after user review).
