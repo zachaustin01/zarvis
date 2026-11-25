@@ -678,6 +678,17 @@ test('pricing: Gemini models, suffix stripping, dated rate steps, and no silent 
   assert.equal(hydrogen.price.input, 0.75)
   assert.equal(hydrogen.price.output, 3.75)
 
+  // Neon: flat rate, no long-context tier
+  const neon = priceFor('gemini-4-neon-high', DEFAULT_PRICES)
+  assert.ok(neon)
+  assert.equal(neon.key, 'gemini-4-neon')
+  assert.equal(neon.match, 'exact')
+  assert.equal(neon.price.input, 3)
+  assert.equal(neon.price.output, 15)
+  assert.equal(neon.price.cacheRead, 0.15)
+  assert.equal(neon.price.over, undefined)
+  assert.equal(providerOf('gemini-4-neon'), 'gcp')
+
   // Orchestrator and GPT-OSS models
   const orch = priceFor('gemini-orchestrator', DEFAULT_PRICES)
   assert.ok(orch)
@@ -863,6 +874,8 @@ test('public/costs.js: familyOf, modelLabel, PROVIDERS, and pricingAttribution',
   assert.equal(familyOf('gemini-3.5-flash-lite'), 'flash-lite')
   assert.equal(familyOf('gemini-3.1-pro'), 'pro')
   assert.equal(familyOf('gemini-3.1-ultra'), 'ultra')
+  assert.equal(familyOf('gemini-4-neon-high'), 'neon')
+  assert.equal(modelLabel('gemini-4-neon-high'), 'neon 4')
   assert.equal(familyOf('gemini-orchestrator'), 'orchestrator')
   assert.equal(familyOf('gemini-unknown'), 'other')
   assert.equal(familyOf('claude-opus-5-5'), 'opus')
