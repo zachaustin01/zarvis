@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildLookup, findEntry, collectRows, cwdsOf, formatLookupEntry } from '../lib/lookup.mjs'
+import { buildLookup, findEntry, collectRows, cwdsOf, formatLookupEntry, agyParentProject } from '../lib/lookup.mjs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -231,6 +231,39 @@ test('collectRows and buildLookup preserve runtime, project, branch, and manager
   }
 })
 
+test('agyParentProject and collectRows inherit the parent project for deleted Antigravity swarm worktrees', async () => {
+  const coordId = '064d8e52-e9fc-4834-92bc-1673f23be422'
+  const workerId = '0a4d4dc3-2194-486b-a392-4bf1ffb6962f'
+  const deletedWt = `/Users/u/.gemini/antigravity/worktrees/${coordId}/swarm-hooks-shared-c27b6d9e`
+  const now = Date.now()
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-agy-wt-'))
+  try {
+    const coordTr = path.join(tmpDir, 'coord.jsonl')
+    const workerTr = path.join(tmpDir, 'worker.jsonl')
+    await fsp.writeFile(coordTr, JSON.stringify({ type: 'USER_INPUT', content: 'Coordinate' }) + '\n')
+    await fsp.writeFile(workerTr, JSON.stringify({ type: 'SYSTEM_MESSAGE', content: `[Message] sender=${coordId} content=You have just started. Your assignment (recorded on the board as #1 for @hooks): do work` }) + '\n')
+
+    const { rows, nodes } = await collectRows({
+      working: [
+        { sessionId: coordId, runtime: 'antigravity', state: 'working', at: now, seen: now, cwd: '/Users/u/Documents/GitHub/zarvis', transcriptPath: coordTr },
+        { sessionId: workerId, runtime: 'antigravity', state: 'idle', at: now, seen: now, cwd: deletedWt, transcriptPath: workerTr },
+      ],
+      records: [],
+      state: { overlays: {}, roles: {}, parked: {}, done: {} },
+      roles: {},
+      now,
+    })
+
+    const wRow = rows.find((r) => r.sessionId === workerId)
+    assert.ok(wRow, 'worker row present')
+    assert.equal(wRow.project, 'zarvis')
+    assert.equal(wRow.worktree, 'swarm-hooks-shared-c27b6d9e')
+    assert.equal(agyParentProject({ sessionId: workerId, cwd: deletedWt }, nodes, new Map(rows.map((r) => [r.sessionId, r]))), 'zarvis')
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
 test('formatLookupEntry projects consistent runtime, link, and project fields', () => {
   const state = { overlays: { [id(MGR)]: { name: 'Mgr' } }, parked: {}, done: {} }
   const entry = formatLookupEntry({
@@ -428,6 +461,39 @@ test('scanAntigravitySessions discovers conversation from disk (#10)', async () 
   } finally {
     if (prevAgyHome === undefined) delete process.env.ANTIGRAVITY_HOME
     else process.env.ANTIGRAVITY_HOME = prevAgyHome
+    await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
+test('agyParentProject and collectRows inherit the parent project for deleted Antigravity swarm worktrees', async () => {
+  const coordId = '064d8e52-e9fc-4834-92bc-1673f23be422'
+  const workerId = '0a4d4dc3-2194-486b-a392-4bf1ffb6962f'
+  const deletedWt = `/Users/u/.gemini/antigravity/worktrees/${coordId}/swarm-hooks-shared-c27b6d9e`
+  const now = Date.now()
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-agy-wt-'))
+  try {
+    const coordTr = path.join(tmpDir, 'coord.jsonl')
+    const workerTr = path.join(tmpDir, 'worker.jsonl')
+    await fsp.writeFile(coordTr, JSON.stringify({ type: 'USER_INPUT', content: 'Coordinate' }) + '\n')
+    await fsp.writeFile(workerTr, JSON.stringify({ type: 'SYSTEM_MESSAGE', content: `[Message] sender=${coordId} content=You have just started. Your assignment (recorded on the board as #1 for @hooks): do work` }) + '\n')
+
+    const { rows, nodes } = await collectRows({
+      working: [
+        { sessionId: coordId, runtime: 'antigravity', state: 'working', at: now, seen: now, cwd: '/Users/u/Documents/GitHub/zarvis', transcriptPath: coordTr },
+        { sessionId: workerId, runtime: 'antigravity', state: 'idle', at: now, seen: now, cwd: deletedWt, transcriptPath: workerTr },
+      ],
+      records: [],
+      state: { overlays: {}, roles: {}, parked: {}, done: {} },
+      roles: {},
+      now,
+    })
+
+    const wRow = rows.find((r) => r.sessionId === workerId)
+    assert.ok(wRow, 'worker row present')
+    assert.equal(wRow.project, 'zarvis')
+    assert.equal(wRow.worktree, 'swarm-hooks-shared-c27b6d9e')
+    assert.equal(agyParentProject({ sessionId: workerId, cwd: deletedWt }, nodes, new Map(rows.map((r) => [r.sessionId, r]))), 'zarvis')
+  } finally {
     await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
   }
 })

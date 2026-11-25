@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { initiativeOf, buildQueue, deepLinkFor, newSessionLink, splitWorktree, pickRecord, projectPathOf, projectNameOf, isScratch } from '../lib/queue.mjs'
+import { initiativeOf, buildQueue, deepLinkFor, newSessionLink, splitWorktree, agyWorktreeOf, pickRecord, projectPathOf, projectNameOf, isScratch } from '../lib/queue.mjs'
 
 const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const B = 'bbbbbbbb-0000-4000-8000-000000000002'
@@ -137,6 +137,8 @@ test('sibling <repo>-worktrees/<name> and .git-file linked worktrees roll up to 
   assert.deepEqual(splitWorktree('/Users/u/repos/zarvis-worktrees/ONYX-42'), { root: '/Users/u/repos/zarvis', worktree: 'ONYX-42' })
   assert.deepEqual(splitWorktree('/Users/u/repos/my-app-worktrees/feat-auth/src/lib'), { root: '/Users/u/repos/my-app', worktree: 'feat-auth' })
   assert.deepEqual(splitWorktree('C:\\Users\\u\\repos\\my-app-worktrees\\wt-win\\sub'), { root: 'C:\\Users\\u\\repos\\my-app', worktree: 'wt-win' })
+  assert.deepEqual(agyWorktreeOf('/Users/u/.gemini/antigravity/worktrees/064d8e52-e9fc-4834-92bc-1673f23be422/swarm-hooks-shared-c27b6d9e'), { coordinatorId: '064d8e52-e9fc-4834-92bc-1673f23be422', worktree: 'swarm-hooks-shared-c27b6d9e' })
+  assert.deepEqual(splitWorktree('/Users/u/.gemini/antigravity/worktrees/064d8e52-e9fc-4834-92bc-1673f23be422/swarm-hooks-shared-c27b6d9e'), { root: '', worktree: 'swarm-hooks-shared-c27b6d9e' })
   assert.equal(projectPathOf('/Users/u/repos/zarvis-worktrees/ONYX-42', ''), '/Users/u/repos/zarvis')
   assert.equal(projectNameOf('/Users/u/repos/zarvis-worktrees/ONYX-42', ''), 'zarvis')
   assert.equal(projectNameOf(SCRATCH, SCRATCH), 'scratch')

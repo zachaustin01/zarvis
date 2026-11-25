@@ -15,7 +15,7 @@ import { renderRoster, visibleInterfaces } from './lib/roster.mjs'
 import { promptsOf } from './lib/prompts.mjs'
 import { scanDesktopRecords, gitBranchOf, findTranscript } from './lib/sessions.mjs'
 import { newSessionLink, deepLinkFor, splitWorktree, projectNameOf, initiativeOf, DEFAULT_MAX_AGE_MS, DEFAULT_WORKING_MAX_AGE_MS } from './lib/queue.mjs'
-import { collectRows, cwdsOf, nameFn, withHolderLinks } from './lib/lookup.mjs'
+import { collectRows, cwdsOf, nameFn, withHolderLinks, agyParentProject } from './lib/lookup.mjs'
 import { contextOf, contextWindow, workerWarnTokens, applyWorkerWarn } from './lib/context.mjs'
 import { appVersion } from './lib/version.mjs'
 import { roleRegistry } from './lib/registry.mjs'
@@ -170,7 +170,7 @@ async function currentTree(snapshot) {
       links: links[n.sessionId] || [],
       tasks: row?.tasks ?? { count: 0, items: [] },
       blockedChildren: row?.blockedChildren ?? [],
-      ...projectOf(n, projectNameOf(n.cwd, recOf.get(n.sessionId)?.originCwd)),
+      ...projectOf(n, row?.folderProject || agyParentProject({ sessionId: n.sessionId, cwd: n.cwd }, nodes, rowOf) || projectNameOf(n.cwd, recOf.get(n.sessionId)?.originCwd)),
       ...lifecycleOf(state, n.sessionId, now, nameFn(nodes, state)),
     }
   }
