@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { initiativeOf, buildQueue, deepLinkFor, newSessionLink, splitWorktree, pickRecord, projectPathOf, isScratch } from '../lib/queue.mjs'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { initiativeOf, buildQueue, deepLinkFor, newSessionLink, splitWorktree, pickRecord, projectPathOf, projectNameOf, isScratch } from '../lib/queue.mjs'
 
 const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const B = 'bbbbbbbb-0000-4000-8000-000000000002'
@@ -120,12 +123,51 @@ test('moved into a worktree: the project is the repo root, the worktree is named
   assert.equal(r.worktree, 'wt9')
 })
 
-test('without a marker cwd the record is the fallback, scratch or not', async () => {
+test('without a marker cwd the record is the fallback; stationary scratch sessions normalize project to scratch', async () => {
   const recs = [{ sessionId: desk('d'), cliSessionId: D, title: 'Still there', cwd: SCRATCH, originCwd: SCRATCH }]
   const [r] = await buildQueue({ markers: [mk(D, 5)], records: recs, now: NOW, deps })
-  assert.equal(r.project, 'ws-1')
+  assert.equal(r.cwd, SCRATCH)
+  assert.equal(r.folder, SCRATCH)
+  assert.equal(r.project, 'scratch')
   const [n] = await buildQueue({ markers: [mk(A, 5)], records, now: NOW, deps })
   assert.equal(n.project, 'proj')
+})
+
+test('sibling <repo>-worktrees/<name> and .git-file linked worktrees roll up to <repo> (#17)', async () => {
+  assert.deepEqual(splitWorktree('/Users/u/repos/zarvis-worktrees/ONYX-42'), { root: '/Users/u/repos/zarvis', worktree: 'ONYX-42' })
+  assert.deepEqual(splitWorktree('/Users/u/repos/my-app-worktrees/feat-auth/src/lib'), { root: '/Users/u/repos/my-app', worktree: 'feat-auth' })
+  assert.deepEqual(splitWorktree('C:\\Users\\u\\repos\\my-app-worktrees\\wt-win\\sub'), { root: 'C:\\Users\\u\\repos\\my-app', worktree: 'wt-win' })
+  assert.equal(projectPathOf('/Users/u/repos/zarvis-worktrees/ONYX-42', ''), '/Users/u/repos/zarvis')
+  assert.equal(projectNameOf('/Users/u/repos/zarvis-worktrees/ONYX-42', ''), 'zarvis')
+  assert.equal(projectNameOf(SCRATCH, SCRATCH), 'scratch')
+  assert.equal(projectNameOf('C:\\Users\\u\\AppData\\Claude\\scratch-workspaces\\scratch-2026-11-24-abc', ''), 'scratch')
+  assert.equal(projectNameOf('/Users/u/repos/zarvis-worktrees/ONYX-42', SCRATCH), 'zarvis')
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zarvis-wt-q-'))
+  try {
+    const mainRepo = path.join(dir, 'core-service')
+    const absWt = path.join(dir, 'custom-wt-dir')
+    const relWt = path.join(dir, 'other-name-worktrees', 'ignored-name')
+    fs.mkdirSync(path.join(mainRepo, '.git', 'worktrees', 'ONYX-77'), { recursive: true })
+    fs.mkdirSync(path.join(mainRepo, '.git', 'worktrees', 'rel-wt'), { recursive: true })
+    fs.mkdirSync(path.join(absWt, 'packages', 'api'), { recursive: true })
+    fs.mkdirSync(relWt, { recursive: true })
+    fs.writeFileSync(path.join(absWt, '.git'), `gitdir: ${path.join(mainRepo, '.git', 'worktrees', 'ONYX-77')}\n`)
+    fs.writeFileSync(path.join(relWt, '.git'), `gitdir: ${path.relative(relWt, path.join(mainRepo, '.git', 'worktrees', 'rel-wt'))}\n`)
+
+    assert.deepEqual(splitWorktree(path.join(absWt, 'packages', 'api')), { root: mainRepo, worktree: 'ONYX-77' })
+    assert.deepEqual(splitWorktree(relWt), { root: mainRepo, worktree: 'rel-wt' })
+    assert.equal(projectNameOf(path.join(absWt, 'packages', 'api'), ''), 'core-service')
+
+    const d2 = { ...deps, findTranscript: async () => ({ file: '/t.jsonl' }), transcriptMeta: async () => ({ cwd: path.join(absWt, 'packages', 'api'), gitBranch: 'feat/x', title: 'CLI wt' }) }
+    const [row] = await buildQueue({ markers: [mk(D, 5)], records: [], now: NOW, deps: d2 })
+    assert.equal(row.project, 'core-service')
+    assert.equal(row.folder, mainRepo)
+    assert.equal(row.worktree, 'ONYX-77')
+    assert.equal(row.initiative, 'ONYX-77')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('real worktree sessions keep the repo as their project even when the marker is the worktree', async () => {

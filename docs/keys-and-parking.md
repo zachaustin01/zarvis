@@ -26,30 +26,45 @@ reasons and notes; `u` unparks the selected one.
 
 ### Managers parking their own workers
 
-A manager can park a finished worker so it drops out of your attention and can be found again:
+A manager can park or mark done a finished worker so it drops out of your attention:
 
 ```bash
 npm run park -- park <workerSessionId> --by <managerSessionId> --reason "PR 7 merged" --note "..." [--wake YYYY-MM-DD]
 npm run park -- unpark <workerSessionId> --by <managerSessionId>
+npm run park -- done <workerSessionId> --by <managerSessionId>
+npm run park -- undone <workerSessionId> --by <managerSessionId>
+npm run park -- done-children --by <managerSessionId>
 npm run park -- list [--by <managerSessionId>]
 ```
 
-A manager can also park **itself**, with its own id as both target and `--by`, once every worker of
-its own is parked, done or archived (else refused unless `--force`). `--note` is then required, and
-the blocked/working check is skipped, since a session parking itself is always mid-turn:
+A manager can also park or mark done **itself**, with its own id as both target and `--by`, once every
+worker of its own is parked, done or archived (else refused unless `--force`). On self-park `--note` is
+required, and the blocked/working check is skipped since a session acting on itself is always mid-turn:
 
 ```bash
 npm run park -- park <managerSessionId> --by <managerSessionId> --reason "all PRs merged" --note "..."
+npm run park -- done <managerSessionId> --by <managerSessionId>
 ```
 
-It writes the same `parked` entry as the UI (plus `parkedBy`), straight to `~/.zarvis/state.json`,
-so it works with the server stopped and a running server picks it up within a second. Ids may be
-CLI session ids or the app's `local_…` ids. Guardrails: `--by` is required and must be a manager; the
-target must be a worker of that manager according to Zarvis's classification, or the manager itself
-(never the interface or another manager); a session that is blocked or working per its hook markers is refused unless `--force`;
-`--dry-run` validates and prints what it would do. A refusal exits 1 with one line why. Parked
-workers are listed under each manager's "Parked" subsection in `~/.zarvis/roster.md`, with the
-reason, date, session id and the first line of the note.
+A **worker** on `Reporting: user review` can likewise park or mark done **itself** (and only itself —
+never siblings, its manager or the interface) once the user confirms completion in its session. Self-park
+requires `--note`:
+
+```bash
+npm run park -- park <workerSessionId> --by <workerSessionId> --reason "user merged" --note "..."
+npm run park -- done <workerSessionId> --by <workerSessionId>
+```
+
+It writes the same `parked` and `done` entries as the UI (plus `parkedBy`), straight to `~/.zarvis/state.json`,
+so it works with the server stopped and a running server picks it up within a second. Both Claude Code
+desktop records and Antigravity sessions are recognized; ids may be CLI/Antigravity session ids or the
+app's `local_…` ids. Guardrails: `--by` is required and must be a manager (or a worker acting on itself);
+for a manager the target must be a worker of that manager according to Zarvis's classification, or the
+manager itself (never the interface or another manager); a session that is blocked or working per its
+hook markers is refused unless acting on itself or passing `--force` (`done-children` likewise refuses if
+any open child is blocked or working unless `--force`); `--dry-run` validates and prints what it would do.
+A refusal exits 1 with one line why. Parked workers are listed under each manager's "Parked" subsection
+in `~/.zarvis/roster.md`, with the reason, date, session id and the first line of the note.
 
 **Auto-unpark.** While the server runs, a parked session that starts a new turn (a prompt submitted after
 it was parked) is unparked and a ticker line says so. A session parked mid-turn is not caught by that

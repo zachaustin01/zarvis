@@ -84,13 +84,14 @@ All run with the server stopped; none need extra setup beyond `npm run setup`.
 | Command | Purpose | Docs |
 |---|---|---|
 | `npm run roster` | Look up sessions, roles, managers, running state | [roles-and-roster](docs/roles-and-roster.md#session-lookup) |
-| `npm run park` | Managers park their finished workers, and themselves when done | [keys-and-parking](docs/keys-and-parking.md#managers-parking-their-own-workers) |
+| `npm run park` | Managers and workers park or mark done finished sessions | [keys-and-parking](docs/keys-and-parking.md#managers-parking-their-own-workers) |
 | `npm run claims` | Claim / release a checkout, list holders | [session-tools](docs/session-tools.md#checkout-claims) |
 | `npm run link` | Attach links to a session card | [session-tools](docs/session-tools.md#session-links) |
 | `npm run event` | Push a line to the footer ticker | [session-tools](docs/session-tools.md#pushing-events) |
 | `npm run schedule` | Register scheduled jobs for the timeline | [session-tools](docs/session-tools.md#schedule) |
 | `npm run costs` | Token usage and API-equivalent cost | [session-tools](docs/session-tools.md#costs) |
 | `npm run project` | Tag sessions with a project | [session-tools](docs/session-tools.md#costs) |
+| `npm run role` | Set, clear or reset session roles from the CLI | [roles-and-roster](docs/roles-and-roster.md#role-cli) |
 
 ## Reference docs
 

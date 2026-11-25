@@ -9,13 +9,26 @@ manager). The tree is Zarvis's own registry (`~/.zarvis/state.json`), not the ap
 Press `t` for the role tree, `h` for the queue.
 
 - Tag by hand: `c`, then `i` / `m` / `w` / `x` (clear). In the tree, `Shift+C` makes every
-  unclassified session a worker.
+  unclassified session a worker. From a terminal, use `npm run role` (see below).
 - Tag at session start: put `[zarvis: role=manager]` (or `interface`; `worker parent=<session id>`, which loads the `zarvis-worker` skill) in the
   very first prompt, at its start (a mention later or mid-prompt is ignored). The hook records it under `~/.zarvis/roles/`; a hand-set role overrides it.
-- A session spawned by a manager becomes its worker; one that has spawned children is only
-  *suggested* as a manager. Spawn links from the interface are ignored.
+- Auto-promote on worker spawn: an untagged session that spawns a tagged worker (`[zarvis: role=worker ...]`, via `Agent` / `Task`, `start_session`, a `claude://code/new` link or `claude` CLI call in `Bash`, or Antigravity `swarm` / `invoke_subagent`) is automatically promoted to `manager` — both by the hook (`wx` write to `~/.zarvis/roles/`, never overwriting an existing tag) and by `classify()` whenever a live tagged worker names an unclassified parent or was spawned from it. An untagged session that spawns an *untagged* child is still only *suggested* as a manager, and a session explicitly cleared (`none`) is never promoted. Spawn links from the interface are ignored.
 - A manager with a blocked worker is **waiting on worker** and Enter jumps to the worker, so a blocked
   leaf never appears once per tier. Rule breaks show a ▲ and never block anything.
+
+### Role CLI
+
+Set, clear or inspect roles in `~/.zarvis/state.json` from the command line (works with the server stopped, including for CLI-only or closed sessions that have no desktop record):
+
+```bash
+npm run role -- set <id> <interface|manager|worker|none> [--parent <managerId>] [--dry-run]
+npm run role -- clear <id> [--dry-run]   # sets 'none' (same as `x` in the UI: overrides hook tags and spawn inference)
+npm run role -- reset <id> [--dry-run]   # drops the manual entry in state.json (falls back to hook tag / spawn inference)
+npm run role -- get <id> [--json]
+npm run role -- list [--json]
+```
+
+`<id>` and `--parent` accept either a CLI session id or the desktop app's `local_…` id.
 
 ## Interface session
 
@@ -36,7 +49,7 @@ to work its whole brief in one turn and report to its manager once (done, blocke
 ## Roster
 
 Zarvis keeps `~/.zarvis/roster.md` current: every manager with the workers attached to it, each
-with its state and session ids. A manager session is an ordinary Claude session that knows nothing
+with its state and session ids. Duplicate untitled zero-activity `no signal` interface entries (for example left behind by CLI scratch or test runs) are suppressed whenever an active, titled or desktop-backed interface exists; use `npm run role -- clear <id>` to clear stale hook tags permanently. A manager session is an ordinary Claude session that knows nothing
 about Zarvis, so `n` then `m` prefills its first prompt with the role tag plus a line pointing at
 this file and one pointing at the `zarvis-manager` skill. It refreshes on every classify and every few seconds.
 

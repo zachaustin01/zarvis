@@ -392,6 +392,8 @@ body.tab-hidden #hudbg::after,body.tab-hidden .top::after,body.tab-hidden .rx-ti
 .cx-amber .cx-bar>i{background:var(--am)}.cx-red .cx-bar>i{background:var(--rd)}
 .cx-amber .cx-tx{color:var(--am)}.cx-red .cx-tx{color:var(--rd)}
 .cx-tx{font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+.cx-warn{border:1px solid #ffb34766;padding:0 5px}
+.cx-red.cx-warn{border-color:#ff4d5e80}
 @media (max-width:760px){.cx-bar{width:30px}}
 
 /* ======= No scrolling anywhere: lists are paged (see paginateList), dialogs fit or page their own content ======= */

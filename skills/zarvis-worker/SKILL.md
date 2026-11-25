@@ -26,7 +26,11 @@ The brief carries a `Reporting:` line.
 
 - `Reporting: user review` (the default): nobody is waiting on the result. Finish with the report below
   in your own session (it shows on your Zarvis card), and end with a closing question that flags it as
-  ready for the user's review. Do not `SendMessage` the manager.
+  ready for the user's review. Do not `SendMessage` the manager. Once the user confirms completion or
+  merges in your session, tidy up by parking yourself
+  (`node "{{ZARVIS_DIR}}/scripts/park.mjs" park <your session id> --by <your session id> --reason "..." --note "<Done / Branch / Verified / Open items>"`)
+  or marking yourself `done` (`node "{{ZARVIS_DIR}}/scripts/park.mjs" done <your session id> --by <your session id>`)
+  for one-off tasks that never need reopening.
 - `Reporting: manager needed`: another worker or step depends on the result, or the manager must decide
   something with it. Message the manager once, in the report format below.
 
@@ -114,9 +118,21 @@ If a session runs on a schedule (a cron job, an hourly check), register it so it
 Your cost is counted under your project: your own tag, else your manager's tag, else your folder name. The manager
 tags it (`node "{{ZARVIS_DIR}}/scripts/project.mjs" set ...`); do not retag yourself unless the brief says to.
 
+## Keep your context small across idle gaps
+
+Every turn re-reads your whole context, and once a session passes ~150k tokens or sits idle for an hour or more
+(waiting on CI, QA, or human review) the prompt cache expires and every follow-up turn rewrites and re-reads the full
+history at the higher cache-write price. Multi-day review or debug workers kept alive across idle gaps quickly rack up
+100M+ cached tokens.
+
+- Once your initial implementation is committed or your context passes ~150k tokens (especially before waiting an hour
+  or more on CI, QA, or human review), finish with a clean committed checkpoint and the structured
+  `Done / Branch / Commits / Verified / Open items` report above.
+- Let follow-up review fixes start in a fresh worker on the same branch instead of looping in a bloated session.
+
 ## Must not
 
 - Push, merge or open a PR unless the brief says to.
 - Start sub-workers or managers.
 - Take over a blocked permission prompt; leave it for the user.
-- Write to `~/.zarvis/` or Claude's own files, except through the claims and event CLIs above.
+- Write to `~/.zarvis/` or Claude's own files, except through the claims, event and park CLIs above (self-park or self-done only, after user review).

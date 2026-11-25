@@ -25,6 +25,9 @@ import {
   gitInvocations,
   isReadOnlyGit,
   managerOf,
+  roleOf,
+  isPrimaryCheckout,
+  readCheckoutPolicy,
   isWholeTree,
   touchedRoots,
   sessionProcess,
@@ -99,9 +102,10 @@ test('Write, MultiEdit and NotebookEdit claim too; a read does not; a file outsi
   assert.equal(readClaims(w.home).length, 0)
   assert.equal(guard(edit(A, path.join(outside, 'x.js')), w.ctx(A)), null)
   assert.equal(readClaims(w.home).length, 0)
-  for (const [tool, key] of [['Write', 'file_path'], ['MultiEdit', 'file_path'], ['NotebookEdit', 'notebook_path']]) {
+  for (const [tool, key] of [['Write', 'file_path'], ['MultiEdit', 'file_path'], ['NotebookEdit', 'notebook_path'], ['write_file', 'Path'], ['write_file', 'path'], ['edit_file', 'Path'], ['edit_file', 'file_path']]) {
     assert.equal(touchedRoots({ cwd: r, tool_name: tool, tool_input: { [key]: path.join(r, 'x') } })[0].root, r)
   }
+  assert.equal(touchedRoots({ cwd: r, tool_name: 'run_command', tool_input: { CommandLine: 'git commit -am x' } })[0].whole, true)
 })
 
 test('git commands claim: plain, git -C from elsewhere, chained, env prefixed', () => {
@@ -793,4 +797,147 @@ test('server: /api/claims and the live payload carry claims (read-only, malforme
   } finally {
     srv.kill()
   }
+})
+
+// --- opt-in checkout write policy (#17) ---
+
+function linkedWorktree(main, name = 'wt-1', dirPath = null) {
+  const gitdir = path.join(main, '.git', 'worktrees', name)
+  fs.mkdirSync(gitdir, { recursive: true })
+  fs.writeFileSync(path.join(gitdir, 'HEAD'), `ref: refs/heads/feat/${name}\n`)
+  const wt = dirPath ? (fs.mkdirSync(dirPath, { recursive: true }), fs.realpathSync(dirPath)) : fs.realpathSync(tmp('zarvis-wt-'))
+  fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${gitdir}\n`)
+  fs.mkdirSync(path.join(wt, 'src'), { recursive: true })
+  return wt
+}
+
+const tagRole = (w, who, role, parent = '') => {
+  fs.mkdirSync(path.join(w.home, 'roles'), { recursive: true })
+  fs.writeFileSync(path.join(w.home, 'roles', `${who}.json`), JSON.stringify({ sessionId: who, role, parent, at: NOW }))
+}
+
+test('roleOf & state preservation: state.json overrides roles/<id>.json, and withState preserves checkoutPolicy (#17)', async () => {
+  const { setOverlay, readState } = await import('../lib/state.mjs')
+  const w = world()
+  assert.equal(roleOf(w.home, A), '')
+  tagRole(w, A, 'worker', B)
+  assert.equal(roleOf(w.home, A), 'worker')
+
+  const stateFile = path.join(w.home, 'state.json')
+  fs.writeFileSync(
+    stateFile,
+    JSON.stringify({
+      roles: { [A]: { role: 'manager' } },
+      checkoutPolicy: { disallowDotClaudeWorktrees: true, protectedPrimaryCheckouts: true, decision: 'deny' },
+    }),
+  )
+  assert.equal(roleOf(w.home, A), 'manager')
+
+  await setOverlay(A, 'Renamed', stateFile)
+  const after = await readState(stateFile)
+  assert.deepEqual(after.checkoutPolicy, { disallowDotClaudeWorktrees: true, protectedPrimaryCheckouts: true, decision: 'deny' })
+  assert.equal(after.overlays[A].name, 'Renamed')
+
+  fs.writeFileSync(stateFile, JSON.stringify({ roles: { [A]: { role: 'none' } } }))
+  assert.equal(roleOf(w.home, A), '', 'explicit none overrides hook role tag')
+})
+
+test('checkoutPolicy disallowDotClaudeWorktrees: prompts/denies workers on .claude/worktrees/, allows sibling worktrees, managers, and read-only git (#17)', () => {
+  const w = world()
+  tagRole(w, A, 'worker', B)
+  tagRole(w, B, 'manager')
+  const main = repo('main')
+  const dotClaudeWt = linkedWorktree(main, 'wt-claude', path.join(main, '.claude', 'worktrees', 'wt-claude'))
+  const siblingWt = linkedWorktree(main, 'wt-sib')
+
+  fs.writeFileSync(path.join(w.home, 'state.json'), JSON.stringify({ checkoutPolicy: { disallowDotClaudeWorktrees: true } }))
+  assert.equal(isPrimaryCheckout(main), true)
+  assert.equal(isPrimaryCheckout(dotClaudeWt), false)
+  assert.equal(isPrimaryCheckout(siblingWt), false)
+
+  // Worker write in .claude/worktrees/ -> ask by default, without creating a claim
+  const outAsk = guard(edit(A, path.join(dotClaudeWt, 'src', 'a.js')), { ...w.ctx(A), env: {} })
+  assert.ok(outAsk)
+  assert.equal(outAsk.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(outAsk.hookSpecificOutput.permissionDecisionReason, /\.claude\/worktrees\/.*sibling worktree/)
+  assert.equal(claimOf(w, dotClaudeWt), null)
+
+  // Worker running `git worktree add .claude/worktrees/new-wt` from main -> caught by disallowDotClaudeWorktrees
+  const wtAddOut = guard(bash(A, 'git worktree add .claude/worktrees/new-wt -b fix/1', main), { ...w.ctx(A), env: {} })
+  assert.ok(wtAddOut)
+  assert.equal(wtAddOut.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(wtAddOut.hookSpecificOutput.permissionDecisionReason, /\.claude\/worktrees\//)
+
+  // Configurable deny via env or state.json
+  const outDeny = guard(edit(A, path.join(dotClaudeWt, 'src', 'a.js')), {
+    ...w.ctx(A),
+    env: { ZARVIS_CHECKOUT_POLICY_DECISION: 'deny' },
+  })
+  assert.equal(outDeny.hookSpecificOutput.permissionDecision, 'deny')
+
+  // Worker read-only git and Read inside .claude/worktrees/ -> unprompted
+  for (const cmd of ['git status', 'git diff', 'git log -n 3', 'git branch --list', 'git worktree list']) {
+    assert.equal(guard(bash(A, cmd, dotClaudeWt), { ...w.ctx(A), env: { ZARVIS_CHECKOUT_POLICY_DECISION: 'deny' } }), null, cmd)
+  }
+  assert.equal(guard({ ...edit(A, path.join(dotClaudeWt, 'src', 'a.js')), tool_name: 'Read' }, { ...w.ctx(A), env: {} }), null)
+
+  // Worker write in sibling linked worktree -> allowed and claimed normally
+  assert.equal(guard(edit(A, path.join(siblingWt, 'src', 'a.js')), { ...w.ctx(A), env: {} }), null)
+  assert.equal(claimOf(w, siblingWt).holder.sessionId, A)
+
+  // Manager and unclassified session writes in .claude/worktrees/ -> allowed
+  assert.equal(guard(edit(B, path.join(dotClaudeWt, 'src', 'b.js')), { ...w.ctx(B), env: { ZARVIS_CHECKOUT_POLICY_DECISION: 'deny' } }), null)
+  assert.equal(claimOf(w, dotClaudeWt).holder.sessionId, B)
+})
+
+test('checkoutPolicy protectedPrimaryCheckouts: boolean true and path/name lists protect primary checkouts for workers only (#17)', () => {
+  const w = world()
+  tagRole(w, A, 'worker', B)
+  tagRole(w, B, 'manager')
+  const [repo1, repo2] = [repo('main'), repo('main')]
+  const sib1 = linkedWorktree(repo1, 'fix-1')
+
+  // 1. Boolean true via env protects ALL primary checkouts for workers
+  const envAll = { ZARVIS_PROTECTED_PRIMARY_CHECKOUTS: '1' }
+  assert.equal(readCheckoutPolicy(w.home, envAll).protectedPrimary.all, true)
+
+  const ask1 = guard(edit(A, path.join(repo1, 'src', 'index.js')), { ...w.ctx(A), env: envAll })
+  assert.ok(ask1)
+  assert.equal(ask1.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(ask1.hookSpecificOutput.permissionDecisionReason, /protected primary checkout.*sibling worktree/)
+  assert.equal(claimOf(w, repo1), null, 'blocked worker write does not claim primary checkout')
+
+  const gitMutate = guard(bash(A, 'git checkout -b feat/direct', repo2), { ...w.ctx(A), env: { ...envAll, ZARVIS_CHECKOUT_POLICY_DECISION: 'deny' } })
+  assert.equal(gitMutate.hookSpecificOutput.permissionDecision, 'deny')
+
+  // Read-only git on protected primary checkout -> unprompted
+  for (const cmd of ['git status -sb', 'git diff HEAD', 'git log --oneline -5', 'git branch --list', 'git worktree list']) {
+    assert.equal(guard(bash(A, cmd, repo1), { ...w.ctx(A), env: { ...envAll, ZARVIS_CHECKOUT_POLICY_DECISION: 'deny' } }), null, cmd)
+  }
+
+  // Worker write on linked worktree of repo1 -> unprompted
+  assert.equal(guard(edit(A, path.join(sib1, 'src', 'ok.js')), { ...w.ctx(A), env: { ...envAll, ZARVIS_CHECKOUT_POLICY_DECISION: 'deny' } }), null)
+  assert.equal(claimOf(w, sib1).holder.sessionId, A)
+
+  // Manager and unclassified C on primary checkout -> unprompted by policy
+  assert.equal(guard(edit(C, path.join(repo2, 'src', 'c.js')), { ...w.ctx(C), env: { ...envAll, ZARVIS_CHECKOUT_POLICY_DECISION: 'deny' } }), null)
+  assert.equal(claimOf(w, repo2).holder.sessionId, C)
+
+  // 2. Specific repo path/name list in state.json (and hook subprocess end-to-end)
+  const repo3 = repo('main')
+  fs.writeFileSync(
+    path.join(w.home, 'state.json'),
+    JSON.stringify({ checkoutPolicy: { protectedPrimaryCheckouts: [repo1, path.basename(repo3)], decision: 'deny' } }),
+  )
+  const unlistedRepo = repo('main')
+  assert.equal(guard(edit(A, path.join(repo1, 'src', 'a.js')), { ...w.ctx(A), env: {} }).hookSpecificOutput.permissionDecision, 'deny')
+  assert.equal(guard(edit(A, path.join(repo3, 'src', 'a.js')), { ...w.ctx(A), env: {} }).hookSpecificOutput.permissionDecision, 'deny')
+  assert.equal(guard(edit(A, path.join(unlistedRepo, 'src', 'a.js')), { ...w.ctx(A), env: {} }), null, 'unlisted primary checkout is allowed')
+
+  // Subprocess hook end-to-end prints permissionDecision: deny for worker on protected primary checkout
+  const sub = hook('guard', edit(A, path.join(repo1, 'src', 'a.js')), w.home)
+  assert.equal(sub.code, 0)
+  const parsed = JSON.parse(sub.out)
+  assert.equal(parsed.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(parsed.hookSpecificOutput.permissionDecisionReason, /protected primary checkout/)
 })

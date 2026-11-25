@@ -3,8 +3,12 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { runPark, parseArgs } from '../lib/park-cli.mjs'
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { runPark, parseArgs, find } from '../lib/park-cli.mjs'
 import { readState, setDone } from '../lib/state.mjs'
+
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 
 const id = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`
 const rec = (n, extra = {}) => ({ sessionId: `local_${id(n)}`, cliSessionId: id(n), title: `S${n}`, cwd: `/r/${n}`, ...extra })
@@ -176,7 +180,7 @@ test('an impossible wake date is refused by the CLI, dry run or not; unknown com
   assert.equal(u.err.length, 2)
   assert.ok(u.err.every((l) => !l.includes('\n')))
   assert.match(u.err[0], /^park: unknown command frobnicate$/)
-  assert.match(u.err[1], /^usage: npm run park -- park\|unpark\|list/)
+  assert.match(u.err[1], /^usage: npm run park -- park\|unpark\|done\|undone\|done-children\|list/)
 })
 
 test('a manager parks itself once its workers are parked, done or archived; a note is required', async () => {
@@ -187,7 +191,7 @@ test('a manager parks itself once its workers are parked, done or archived; a no
   assert.match((await h.run(park(MGR, MGR))).err[0], /still has 1 open worker/, 'open workers are named before the note')
 
   await h.run(park(W, MGR))
-  assert.match((await h.run(park(MGR, MGR))).err[0], /--note is required when a manager parks itself/)
+  assert.match((await h.run(park(MGR, MGR))).err[0], /--note is required when parking yourself/)
   assert.match((await h.run(park(MGR, MGR, ['--note', '  ']))).err[0], /--note is required/)
   assert.match((await h.run(park(MGR, MGR, ['--note', 'PRs 1-3 merged', '--dry-run']))).out[0], /^would park “S2”/)
   const r = await h.run(park(MGR, MGR, ['--note', 'PRs 1-3 merged']))
@@ -215,10 +219,282 @@ test('self-park ignores the manager\'s own working marker (it is mid-turn); its 
   assert.equal((await h.run(park(MGR, MGR, ['--note', 'n']))).code, 0)
 })
 
-test('a worker cannot park its manager or itself; the interface still cannot park anyone', async () => {
-  const h = await harness()
-  assert.match((await h.run(park(MGR, W))).err[0], /not a manager/)
-  assert.match((await h.run(park(W, W))).err[0], /not a manager/)
-  assert.match((await h.run(park(MGR, IFACE))).err[0], /not a manager/)
-  assert.match((await h.run(park(IFACE, IFACE))).err[0], /not a manager/)
+test('a worker can park and unpark itself (requiring --note and ignoring own working marker), but never siblings, managers or the interface (#15)', async () => {
+  const SIBLING = 7
+  const w = world({
+    records: [rec(IFACE), rec(MGR), rec(W), rec(SIBLING), rec(OTHER_W), rec(OTHER_MGR), rec(STRAY)],
+    roles: {
+      [id(IFACE)]: { role: 'interface' },
+      [id(MGR)]: { role: 'manager' },
+      [id(W)]: { role: 'worker', parent: id(MGR) },
+      [id(SIBLING)]: { role: 'worker', parent: id(MGR) },
+      [id(OTHER_MGR)]: { role: 'manager' },
+      [id(OTHER_W)]: { role: 'worker', parent: id(OTHER_MGR) },
+    },
+    working: [{ sessionId: id(W), state: 'working', at: NOW - 2000, seen: NOW - 10 }],
+    blocked: [{ sessionId: id(W), at: NOW - 1000 }],
+  })
+  const h = await harness(w)
+
+  // Refuses without --note (or blank --note)
+  assert.match((await h.run(park(W, W))).err[0], /--note is required when parking yourself/)
+  assert.match((await h.run(park(W, W, ['--note', '   ']))).err[0], /--note is required when parking yourself/)
+
+  // Dry run and real self-park succeed despite active working/blocked markers on W itself
+  const dry = await h.run(park(W, W, ['--note', 'Done: fix; Branch: fix/15', '--dry-run']))
+  assert.equal(dry.code, 0)
+  assert.match(dry.out[0], /^would park “S3”/)
+  await assert.rejects(fsp.access(h.stateFile))
+
+  const ok = await h.run(park(W, W, ['--note', 'Done: fix; Branch: fix/15']))
+  assert.equal(ok.code, 0)
+  assert.match(ok.out[0], /^parked “S3”/)
+  const p = (await readState(h.stateFile)).parked[id(W)]
+  assert.deepEqual([p.parkedBy, p.reason, p.handoffNote], [id(W), 'finished', 'Done: fix; Branch: fix/15'])
+
+  // Worker can list and unpark itself
+  const listed = await h.run(['list', '--by', id(W)])
+  assert.equal(listed.out.length, 1)
+  assert.match(listed.out[0], /S3 .*by S3 — finished/)
+  assert.match((await h.run(['unpark', id(W), '--by', id(W)])).out[0], /^unparked “S3”/)
+  assert.deepEqual((await readState(h.stateFile)).parked, {})
+
+  // Worker cannot park/unpark sibling, other worker, manager, stray or interface; interface still cannot park anyone
+  for (const [args, msg] of [
+    [park(SIBLING, W, ['--note', 'n']), /is a worker; a worker may only act on itself/],
+    [park(OTHER_W, W, ['--note', 'n']), /is a worker; a worker may only act on itself/],
+    [park(MGR, W, ['--note', 'n']), /is a worker; a worker may only act on itself/],
+    [park(STRAY, W, ['--note', 'n']), /is a worker; a worker may only act on itself/],
+    [park(IFACE, W, ['--note', 'n']), /interface session/],
+    [['unpark', id(SIBLING), '--by', id(W)], /is a worker; a worker may only act on itself/],
+    [park(MGR, IFACE), /not a manager/],
+    [park(IFACE, IFACE), /not a manager/],
+  ]) {
+    const r = await h.run(args)
+    assert.equal(r.code, 1, args.join(' '))
+    assert.match(r.err[0], msg)
+  }
+})
+
+test('done and undone mark sessions done, clear parked entries, enforce busy/ownership rules, and support --dry-run (#15)', async () => {
+  const SIBLING = 7
+  const makeWorld = (extra = {}) =>
+    world({
+      records: [rec(IFACE), rec(MGR), rec(W), rec(SIBLING), rec(OTHER_W), rec(OTHER_MGR), rec(STRAY)],
+      roles: {
+        [id(IFACE)]: { role: 'interface' },
+        [id(MGR)]: { role: 'manager' },
+        [id(W)]: { role: 'worker', parent: id(MGR) },
+        [id(SIBLING)]: { role: 'worker', parent: id(MGR) },
+        [id(OTHER_MGR)]: { role: 'manager' },
+        [id(OTHER_W)]: { role: 'worker', parent: id(OTHER_MGR) },
+      },
+      ...extra,
+    })
+
+  // Busy worker refused without --force; allowed with --force
+  const busyH = await harness(makeWorld({ working: [{ sessionId: id(W), state: 'working', at: NOW - 1000, seen: NOW - 1000 }] }))
+  const refusedBusy = await busyH.run(['done', id(W), '--by', id(MGR)])
+  assert.equal(refusedBusy.code, 1)
+  assert.match(refusedBusy.err[0], /is working/)
+  assert.equal((await busyH.run(['done', id(W), '--by', id(MGR), '--force'])).code, 0)
+  assert.equal((await readState(busyH.stateFile)).done[id(W)], true)
+
+  // Park first, then dry-run done, then real done un-parks and marks done
+  const h = await harness(makeWorld({ working: [{ sessionId: id(SIBLING), state: 'working', at: NOW - 1000, seen: NOW - 10 }] }))
+  await h.run(park(W, MGR))
+  assert.ok((await readState(h.stateFile)).parked[id(W)])
+
+  const dryDone = await h.run(['done', id(W), '--by', id(MGR), '--dry-run'])
+  assert.equal(dryDone.code, 0)
+  assert.match(dryDone.out[0], /^would mark done “S3”/)
+  assert.equal((await readState(h.stateFile)).done[id(W)], undefined)
+  assert.ok((await readState(h.stateFile)).parked[id(W)])
+
+  const didDone = await h.run(['done', id(W), '--by', id(MGR)])
+  assert.equal(didDone.code, 0)
+  assert.match(didDone.out[0], /^marked done “S3”/)
+  const afterDone = await readState(h.stateFile)
+  assert.equal(afterDone.done[id(W)], true)
+  assert.equal(afterDone.parked[id(W)], undefined, 'done deletes parked entry')
+
+  // Worker marks itself done despite its own working marker; cannot mark sibling or manager done
+  assert.equal((await h.run(['done', id(W), '--by', id(SIBLING)])).code, 1)
+  assert.equal((await h.run(['done', id(MGR), '--by', id(SIBLING)])).code, 1)
+  const selfDone = await h.run(['done', id(SIBLING), '--by', id(SIBLING)])
+  assert.equal(selfDone.code, 0)
+  assert.equal((await readState(h.stateFile)).done[id(SIBLING)], true)
+
+  // Manager marks itself done once all workers are closed (refused while open unless --force)
+  const mgrOpen = await harness(makeWorld())
+  assert.match((await mgrOpen.run(['done', id(MGR), '--by', id(MGR)])).err[0], /still has 2 open workers/)
+  assert.equal((await h.run(['done', id(MGR), '--by', id(MGR)])).code, 0)
+  assert.equal((await readState(h.stateFile)).done[id(MGR)], true)
+
+  // undone: dry-run, real run, already not done, and ownership refusal
+  assert.equal((await h.run(['undone', id(W), '--by', id(OTHER_MGR)])).code, 1)
+  assert.equal((await h.run(['undone', id(W), '--by', id(SIBLING)])).code, 1)
+  const dryUndone = await h.run(['undone', id(W), '--by', id(MGR), '--dry-run'])
+  assert.equal(dryUndone.code, 0)
+  assert.match(dryUndone.out[0], /^would unmark done “S3”/)
+  assert.equal((await readState(h.stateFile)).done[id(W)], true)
+
+  const didUndone = await h.run(['undone', id(W), '--by', id(MGR)])
+  assert.equal(didUndone.code, 0)
+  assert.match(didUndone.out[0], /^unmarked done “S3”/)
+  assert.equal((await readState(h.stateFile)).done[id(W)], undefined)
+
+  const notDone = await h.run(['undone', id(W), '--by', id(MGR)])
+  assert.equal(notDone.code, 0)
+  assert.match(notDone.out[0], /“S3” .* is not marked done/)
+
+  // Worker can also undone itself
+  assert.equal((await h.run(['undone', id(SIBLING), '--by', id(SIBLING)])).code, 0)
+  assert.equal((await readState(h.stateFile)).done[id(SIBLING)], undefined)
+})
+
+test('done-children marks a manager\'s open and parked workers done, refuses busy ones without --force, and supports --dry-run (#15)', async () => {
+  const W2 = 7
+  const makeWorld = (extra = {}) =>
+    world({
+      records: [rec(IFACE), rec(MGR), rec(W), rec(W2), rec(OTHER_W), rec(OTHER_MGR), rec(STRAY)],
+      roles: {
+        [id(IFACE)]: { role: 'interface' },
+        [id(MGR)]: { role: 'manager' },
+        [id(W)]: { role: 'worker', parent: id(MGR) },
+        [id(W2)]: { role: 'worker', parent: id(MGR) },
+        [id(OTHER_MGR)]: { role: 'manager' },
+        [id(OTHER_W)]: { role: 'worker', parent: id(OTHER_MGR) },
+      },
+      ...extra,
+    })
+
+  // Refuses non-managers, missing --by, or unexpected positional arg
+  const base = await harness(makeWorld())
+  assert.equal((await base.run(['done-children'])).code, 1)
+  assert.match((await base.run(['done-children', '--by', id(W)])).err[0], /not a manager/)
+  assert.match((await base.run(['done-children', id(W), '--by', id(MGR)])).err[0], /unexpected argument/)
+
+  // Refuses when any child is blocked or working unless --force
+  const busy = await harness(makeWorld({ blocked: [{ sessionId: id(W2), at: NOW - 500 }] }))
+  const refused = await busy.run(['done-children', '--by', id(MGR)])
+  assert.equal(refused.code, 1)
+  assert.match(refused.err[0], /still has 1 busy worker \(“S7” .* is blocked\)/)
+  await assert.rejects(fsp.access(busy.stateFile))
+  assert.equal((await busy.run(['done-children', '--by', id(MGR), '--force'])).code, 0)
+  assert.deepEqual(Object.keys((await readState(busy.stateFile)).done).sort(), [id(W), id(W2)].sort())
+
+  // Park W, leave W2 open; dry-run changes nothing; real run marks both done (and unparks W), leaving OTHER_W untouched
+  await base.run(park(W, MGR))
+  const dry = await base.run(['done-children', '--by', id(MGR), '--dry-run'])
+  assert.equal(dry.code, 0)
+  assert.match(dry.out[0], /^would mark 2 workers done \(“S3” .*, “S7” .*\)/)
+  assert.deepEqual((await readState(base.stateFile)).done, {})
+  assert.ok((await readState(base.stateFile)).parked[id(W)])
+
+  const ran = await base.run(['done-children', '--by', id(MGR)])
+  assert.equal(ran.code, 0)
+  assert.match(ran.out[0], /^marked 2 workers done \(“S3” .*, “S7” .*\)/)
+  const st = await readState(base.stateFile)
+  assert.deepEqual(st.done, { [id(W)]: true, [id(W2)]: true })
+  assert.deepEqual(st.parked, {})
+
+  // Running again when all children are already done prints empty message and exits 0
+  const empty = await base.run(['done-children', '--by', id(MGR)])
+  assert.equal(empty.code, 0)
+  assert.equal(empty.out[0], 'no open workers to mark done')
+})
+
+test('recognizes Antigravity sessions via world.sessions in runPark and via scanAntigravitySessions in liveDeps (#15)', async () => {
+  const AGY_MGR = 8
+  const AGY_W = 9
+  const w = {
+    records: [],
+    sessions: [
+      { sessionId: id(AGY_MGR), title: 'Agy Coordinator', cwd: '/r/agy', runtime: 'antigravity' },
+      { sessionId: id(AGY_W), title: 'Agy Worker', cwd: '/r/agy-wt', runtime: 'antigravity' },
+    ],
+    roles: {
+      [id(AGY_MGR)]: { role: 'manager' },
+      [id(AGY_W)]: { role: 'worker', parent: id(AGY_MGR) },
+    },
+    blocked: [],
+    working: [{ sessionId: id(AGY_W), state: 'idle', cwd: '/r/agy-wt-fresh', at: NOW - 5000, seen: NOW - 5000 }],
+  }
+  const h = await harness(w)
+
+  // find() never matches empty desktopSessionId against an empty query
+  assert.equal(find(new Map([[id(AGY_W), { sessionId: id(AGY_W), desktopSessionId: '' }]]), ''), undefined)
+
+  // Antigravity worker self-parks using its Antigravity title
+  const selfPark = await h.run(['park', id(AGY_W), '--by', id(AGY_W), '--reason', 'user approved', '--note', 'merged'])
+  assert.equal(selfPark.code, 0)
+  assert.match(selfPark.out[0], /^parked “Agy Worker”/)
+
+  const listOut = await h.run(['list', '--by', id(AGY_MGR)])
+  assert.equal(listOut.out.length, 1)
+  assert.match(listOut.out[0], /Agy Worker .*by Agy Worker — user approved · note: merged/)
+
+  // Antigravity manager marks children done and then marks itself done
+  const dc = await h.run(['done-children', '--by', id(AGY_MGR)])
+  assert.equal(dc.code, 0)
+  assert.match(dc.out[0], /^marked 1 worker done \(“Agy Worker”/)
+  assert.equal((await h.run(['done', id(AGY_MGR), '--by', id(AGY_MGR)])).code, 0)
+  assert.deepEqual((await readState(h.stateFile)).done, { [id(AGY_W)]: true, [id(AGY_MGR)]: true })
+
+  // Isolated child-process check of liveDeps() + scripts/park.mjs against temp dirs only
+  const tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'zarvis-park-live-'))
+  try {
+    const fakeHome = path.join(tmpRoot, 'home')
+    const zarvisHome = path.join(tmpRoot, 'zarvis')
+    const desktopDir = path.join(tmpRoot, 'desktop')
+    const agyHome = path.join(tmpRoot, 'agy')
+    const trDir = path.join(agyHome, 'brain', id(AGY_W), '.system_generated', 'logs')
+    await fsp.mkdir(trDir, { recursive: true })
+    await fsp.mkdir(path.join(zarvisHome, 'roles'), { recursive: true })
+    await fsp.mkdir(desktopDir, { recursive: true })
+    await fsp.mkdir(fakeHome, { recursive: true })
+    await fsp.writeFile(
+      path.join(trDir, 'transcript.jsonl'),
+      JSON.stringify({ step_index: 0, type: 'USER_INPUT', content: '<USER_REQUEST>Ship issue 15</USER_REQUEST>' }) + '\n',
+    )
+    await fsp.writeFile(
+      path.join(zarvisHome, 'roles', `${id(AGY_W)}.json`),
+      JSON.stringify({ sessionId: id(AGY_W), role: 'worker', parent: id(AGY_MGR), at: NOW }),
+    )
+
+    const env = {
+      ...process.env,
+      HOME: fakeHome,
+      ZARVIS_HOME: zarvisHome,
+      ZARVIS_DESKTOP_SESSIONS: desktopDir,
+      ANTIGRAVITY_HOME: agyHome,
+    }
+    const probe = await new Promise((resolve, reject) =>
+      execFile(
+        process.execPath,
+        ['--input-type=module', '-e', 'import { liveDeps } from "./lib/park-cli.mjs"; console.log(JSON.stringify(await liveDeps()))'],
+        { cwd: ROOT, env },
+        (error, stdout, stderr) => (error ? reject(new Error(stderr || error.message)) : resolve(JSON.parse(stdout))),
+      ),
+    )
+    const found = probe.sessions.find((s) => s.sessionId === id(AGY_W))
+    assert.ok(found, 'liveDeps() includes scanned Antigravity session')
+    assert.equal(found.title, 'Ship issue 15')
+
+    const cli = await new Promise((resolve) =>
+      execFile(
+        process.execPath,
+        [path.join(ROOT, 'scripts', 'park.mjs'), 'park', id(AGY_W), '--by', id(AGY_W), '--reason', 'shipped', '--note', 'verified npm test'],
+        { cwd: ROOT, env },
+        (error, stdout, stderr) => resolve({ code: error ? error.code : 0, stdout, stderr }),
+      ),
+    )
+    assert.equal(cli.code, 0, cli.stderr)
+    assert.match(cli.stdout, /parked “Ship issue 15”/)
+    const diskState = await readState(path.join(zarvisHome, 'state.json'))
+    assert.equal(diskState.parked[id(AGY_W)].parkedBy, id(AGY_W))
+  } finally {
+    await fsp.rm(tmpRoot, { recursive: true, force: true }).catch(() => {})
+  }
 })
