@@ -64,9 +64,7 @@ that shows it opens, parked and done included). A session the app no longer has,
 palette finds schedules by name, cron words, note or owner name (Enter selects the lane), a session's card gets a `⏱ next 11:07` chip when
 it owns one (click: the Schedule view on that lane), and `npm run roster -- get <id>` lists its schedules.
 
-Importers: `lib/schedule-import.mjs` has one hook for read-only sources (shown tagged `claude`). None is wired in yet:
-on the Mac this was written on, Claude's `~/.claude/jobs` holds background-session state, not schedules, and no
-other readable file with a name and a cron exists, so nothing is guessed.
+**Auto-registered schedules & importers.** Hooks automatically register in-session schedules on `PostToolUse` (Antigravity `schedule` crons and one-shot timers, removed on `manage_task` `kill`; Claude Code `CronCreate`, removed on `CronDelete` or `SessionEnd`) without touching `manual` jobs. Off with `ZARVIS_AUTO_SCHEDULES=0` or `"autoSchedules": false` in `~/.zarvis/state.json`. `lib/schedule-import.mjs` also reads enabled Antigravity standalone Automations from `~/.gemini/config/sidecars/*/sidecar.json` (read-only, tagged `antigravity`, never written back to `schedules.json`).
 
 ## Costs
 

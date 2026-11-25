@@ -387,6 +387,36 @@ async function autoLinksAntigravity(payload, home = getHome(), toolResponse = un
   }, home)
 }
 
+/** Auto-schedules logger for Antigravity `schedule` and `manage_task` `kill` calls. Best-effort, never throws. */
+export async function autoSchedulesAntigravity(payload, home = getHome(), toolResponse = undefined, now = Date.now()) {
+  try {
+    const id = payload?.conversationId || payload?.session_id
+    const tc = payload?.toolCall
+    if (!id || !tc?.name || !tc.args || typeof tc.args !== 'object') return
+    if (tc.name !== 'schedule' && !(tc.name === 'manage_task' && tc.args.Action === 'kill')) return
+    const { autoSchedulesEnabled, upsertAutoJob, removeAutoJob } = await import('../lib/schedule.mjs')
+    if (!autoSchedulesEnabled(home)) return
+    if (tc.name === 'schedule') {
+      let cron = typeof tc.args.CronExpression === 'string' ? tc.args.CronExpression.trim() : ''
+      if (!cron && Number(tc.args.DurationSeconds) > 0) {
+        const t = new Date(now + Number(tc.args.DurationSeconds) * 1000)
+        cron = `${t.getMinutes()} ${t.getHours()} ${t.getDate()} ${t.getMonth() + 1} *`
+      }
+      if (!cron) return
+      const respText = typeof toolResponse === 'string' ? toolResponse : JSON.stringify(toolResponse || '')
+      const extMatch = /([A-Za-z0-9_-]{8,80}\/task-\d+)/.exec(respText)
+      const externalId = extMatch ? extMatch[1] : ''
+      const prompt = String(tc.args.Prompt || '').replace(/\s+/g, ' ').trim()
+      const name = prompt.slice(0, 60).trim() || 'Scheduled task'
+      const note = prompt.slice(0, 200).trim()
+      await upsertAutoJob(home, { name, cron, note, externalId, source: 'antigravity', owner: { session: id, app: '' } }, { now })
+    } else {
+      const taskId = typeof tc.args.TaskId === 'string' ? tc.args.TaskId.trim() : ''
+      if (taskId) await removeAutoJob(home, { externalId: taskId, source: 'antigravity' })
+    }
+  } catch { /* best effort */ }
+}
+
 export async function handleHook(mode, payload) {
   const id = payload?.conversationId || payload?.session_id
   if (!isSafeId(id)) return { decision: "allow" }
@@ -455,6 +485,7 @@ export async function handleHook(mode, payload) {
     const toolResponse = await extractToolResponse(payload)
     await autoEventsAntigravity(payload, home, toolResponse)
     await autoLinksAntigravity(payload, home, toolResponse)
+    await autoSchedulesAntigravity(payload, home, toolResponse)
     await checkWorkerContextWarn({ sessionId: id, transcriptPath: payload.transcriptPath ?? payload.transcript_path, home })
     return {}
   }
